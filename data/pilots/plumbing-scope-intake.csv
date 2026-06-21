@@ -1,0 +1,12 @@
+field,required,evidence_type,value,unit,source_reference,qs_status,notes
+fixture_schedule,yes,drawing_or_fixture_schedule,,,schedule reference required,pending,Count each WC basin shower and shower door separately.
+fixture_specification,yes,client_selection_or_supplier_quote,,,specification required,pending,Confirm model finish and approved alternatives.
+cold_water_connection_scope,yes,drawing_or_plumber_scope,,,scope reference required,pending,State connection points and pipe material diameter.
+hot_water_connection_scope,yes,drawing_or_plumber_scope,,,scope reference required,pending,State geyser or heat-pump scope and exclusions.
+waste_and_drainage_scope,yes,drawing_or_plumber_scope,,,scope reference required,pending,State pipe routes connections and builder work.
+access_and_installation_conditions,yes,site_observation,,,site reference required,pending,Record wall closure heights transport and working space.
+testing_and_commissioning,yes,specification_or_scope,,,scope reference required,pending,Pressure testing commissioning and certificates.
+registered_trade_requirement,yes,scope_or_regulation,,,requirement reference required,pending,Confirm installer registration and sign-off.
+current_supplier_confirmation,yes,supplier_quote,,,quotation required,pending,Check availability lead time location VAT and delivery.
+installer_duration_evidence,yes,contractor_quote_or_actual,,,evidence required,pending,Record roles hours and project-specific complexity.
+exclusions_and_builder_work,yes,scope_or_drawing,,,scope reference required,pending,State wall chasing openings patching electrical and finishes.

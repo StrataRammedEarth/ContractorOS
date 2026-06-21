@@ -1,0 +1,12 @@
+.next/
+node_modules/
+**/node_modules/
+.env*
+!.env.example
+coverage/
+.codex-remote-attachments/
+output/
+tmp/
+**/output/
+**/previews/
+*.tsbuildinfo

@@ -1,0 +1,14 @@
+field,value,unit,source_or_formula,qs_status,notes
+raw_bar_product,M12 galvanised threaded bar 3m,,,confirmed,Fowkes product code TMSG123.
+raw_bar_length,3000,mm,Fastener Box row 24,confirmed,Rate is for a single raw 3m bar.
+raw_bar_rate,99.85,ZAR per 3m bar,Fastener Box row 24,confirmed,Observed 2023-11-10; needs a current project quote before commercial use.
+single_connection_rod_length,180,mm,Deck post-beam configuration,confirmed,For the 50mm bearer plus 100mm CCA treated pole connection.
+double_connection_rod_length,230,mm,Deck post-beam configuration,confirmed,For the 50mm bearer plus 100mm pole plus 50mm bearer connection at rafter joins.
+single_connection_quantity,,ea,Drawing and rafter layout,pending,Count standard single bearer connections.
+double_connection_quantity,,ea,Drawing and rafter layout,pending,Count rafter-join double bearer connections.
+kerf_and_cutting_allowance,,mm per cut,Workshop or contractor evidence,pending,Required to calculate usable yield.
+offcut_allowance,,percent,Workshop or contractor evidence,pending,Required where offcuts cannot be reused in the same assembly.
+usable_cuts_per_bar,,ea,See deck-post-beam-connections.csv,pending,Calculate separately for 180mm and 230mm rods using the stated kerf and offcut assumptions.
+derived_cut_length_material_rate,,ZAR per cut,raw bar rate / usable cuts per bar,pending,Calculate separately by connection configuration; material rate excludes cutting labour.
+cutting_labour_rate,,ZAR per cut,Contractor or workshop quote,pending,Must be recorded separately from raw material.
+derived_cut_length_prime_rate,,ZAR per cut,derived material rate + cutting labour rate,pending,May be staged only after QS review and owner approval.

@@ -1,0 +1,24 @@
+pilot_id,quote_type,quote_reference,quote_date,valid_until,supplier_or_contractor,location,contractoros_code,supplier_sku,description,quoted_unit,quoted_rate_ex_vat,normalised_rate_ex_vat,qs_review_status,notes
+PILOT-DCK-001,supplier_quote,,,,,,DCK-S01,,SA Pine decking plank 21x108x4800,ea,,,pending,Confirm grade treatment board length VAT delivery and quote validity.
+PILOT-DCK-001,supplier_quote,,,,,,DCK-S02,,Chipboard screw 5x60,pack,,,pending,Confirm coating drive type pack quantity and each conversion.
+PILOT-DCK-001,supplier_quote,,,,,,DCK-B01,,Treated pine 38x114,ea,,,pending,Confirm treatment structural grade and engineer-confirmed length.
+PILOT-DCK-001,supplier_quote,,,,,,DCK-B02,,Treated pine 50x152,ea,,,pending,Do not normalise until the engineer-confirmed length is known.
+PILOT-DCK-001,supplier_quote,,,,,,DCK-B03,,M12 threaded rod cut length,ea,,,pending,Use deck-threaded-bar-conversion.csv for the raw-bar conversion.
+PILOT-DCK-001,supplier_quote,,,,,,DCK-B04,,M12 galvanised washer 24mm x 2.5mm,pack,,,pending,Confirm dimensions coating and each conversion.
+PILOT-DCK-001,supplier_quote,,,,,,DCK-B05,,M12 galvanised nut,pack,,,pending,Confirm thread coating and each conversion.
+PILOT-DCK-001,contractor_quote,,,,,,DCK-CREW-001,,Carpenter and labourer deck crew,day,,,pending,Attach roles duration access height slope cutting and waste assumptions.
+PILOT-PLB-KIT-001,supplier_quote,,,,,,29892,,Angle valve,ea,,,pending,Exact model or approved alternative required.
+PILOT-PLB-KIT-001,supplier_quote,,,,,,34675,,Pan connector Jollyflex 350mm,ea,,,pending,Exact model or approved alternative required.
+PILOT-PLB-KIT-001,supplier_quote,,,,,,AfriCamps,,Basin mixer,ea,,,pending,Record manufacturer model and finish.
+PILOT-PLB-KIT-001,supplier_quote,,,,,,32232,,Basin waste pop-up unslotted,ea,,,pending,Exact model or approved alternative required.
+PILOT-PLB-KIT-001,supplier_quote,,,,,,35486,,Universal bottle trap,ea,,,pending,Exact model or approved alternative required.
+PILOT-PLB-KIT-001,supplier_quote,,,,,,185,,Braided hose 350mm,ea,,,pending,Confirm length and end fittings.
+PILOT-PLB-KIT-001,supplier_quote,,,,,,34147,,Shower mixer classic,ea,,,pending,Record manufacturer model and finish.
+PILOT-PLB-KIT-001,supplier_quote,,,,,,30728,,Konex female elbow shower arm,ea,,,pending,Confirm material and thread specification.
+PILOT-PLB-KIT-001,supplier_quote,,,,,,30730,,Konex female elbow mixer,ea,,,pending,Confirm material and thread specification.
+PILOT-PLB-KIT-001,supplier_quote,,,,,,7321,,Shower arm 350mm round,ea,,,pending,Confirm finish and length.
+PILOT-PLB-KIT-001,supplier_quote,,,,,,7316,,Shower rose 200mm stainless steel,ea,,,pending,Confirm finish and diameter.
+PILOT-PLB-KIT-001,supplier_quote,,,,,,15501,,Shower waste drain stainless steel,ea,,,pending,Confirm outlet diameter.
+PILOT-PLB-KIT-001,supplier_quote,,,,,,1924,,PVC 40-50mm adaptor,ea,,,pending,Confirm diameter and material.
+PILOT-PLB-KIT-001,supplier_quote,,,,,,RCM-SHWD-EPOXY,,Epoxy syringe,ea,,,pending,Confirm product volume and cure specification.
+PILOT-PLB-KIT-001,contractor_quote,,,,,,PLM-LAB-001,,Plumbing assistant fixture installation,hour,,,pending,Record testing commissioning and certificate time separately.

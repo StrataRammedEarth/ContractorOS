@@ -1,0 +1,18 @@
+field,required,evidence_type,value,unit,source_reference,qs_status,notes
+deck_area,yes,drawing_or_site_measurement,84,m2,Photo 1 and Photo 3 deck plans,reviewed,Drawing notes area of new deck as 84m2; stairs and ramp remain separately measured.
+deck_height_above_ground,yes,site_measurement,,,site reference required,pending,Controls support and access method.
+support_and_bearing_method,yes,engineer_detail_or_drawing,,,detail reference required,pending,Do not infer footings or attachment method.
+site_slope_and_levels,yes,site_measurement_or_survey,,,survey reference required,pending,Record falls and local obstructions.
+access_and_material_handling,yes,site_observation,,,site reference required,pending,Record carry distance stairs and lifting constraints.
+board_specification_and_direction,yes,drawing_or_client_selection,,,specification required,pending,Include species profile finish dimensions and direction.
+substructure_specification,yes,engineer_detail_or_drawing,100mm CCA treated cylindrical posts with 50x152mm bearer beams,mm,Photos 2 and 4 plus QS configuration note,reviewed,Connection counts and member lengths still require take-off.
+post_and_bearer_connection_configuration,yes,engineer_detail_or_drawing,single beam-pole and double beam-pole-beam connections,,Photos 2 and 4 plus QS configuration note,reviewed,Use 180mm M12 rod for single and 230mm M12 rod for double rafter-join connections.
+single_bearer_connection_count,yes,drawing_takeoff,,,drawing reference required,pending,Count 180mm threaded-rod beam-pole connections.
+double_bearer_connection_count,yes,drawing_takeoff,,,drawing reference required,pending,Count 230mm threaded-rod beam-pole-beam connections at rafter joins.
+stairs_and_ramp_scope,yes,drawing_takeoff,,,Photos 1 to 4,pending,New stairs and ramp are shown. Create separate measured assemblies or state explicit exclusions; do not include them implicitly in DCK-001.
+fastener_specification,yes,specification_or_supplier_quote,,,quote reference required,pending,Include coating size and pack basis.
+balustrade_and_interfaces,yes,drawing_or_scope,,,scope reference required,pending,State included excluded or separately measured.
+demolition_and_make_good,no,site_observation_or_scope,,,scope reference if applicable,pending,Use not applicable only with evidence.
+compliance_and_approval_requirements,yes,scope_or_regulation,,,requirement reference required,pending,Engineer inspections permits and certificates.
+current_material_quote,yes,supplier_quote,,,quotation required,pending,Record supplier location validity VAT and delivery basis.
+current_crew_productivity_evidence,yes,contractor_quote_or_actual,,,evidence required,pending,Record crew duration and conditions.

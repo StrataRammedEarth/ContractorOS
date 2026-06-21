@@ -1,0 +1,64 @@
+{
+  "generatedAt": "2026-06-21",
+  "sourceFile": "ContractorOS_App.jsx",
+  "status": "quarantined",
+  "reason": "Embedded constants are present in the prototype but are not all traceable to approved source files.",
+  "constants": [
+    {
+      "code": "PLB-001A",
+      "description": "Cobra PEX 15mm Pipe",
+      "unit": "m",
+      "rate": 30.64,
+      "authorityState": "withdrawn_corrected",
+      "issue": "Prototype-only orphan value. Benchmark source file cited in the audit points to 35.23 instead."
+    },
+    {
+      "code": "PLB-001B",
+      "description": "Konex Tee 15mm",
+      "unit": "ea",
+      "rate": 50.56,
+      "authorityState": "withdrawn_corrected",
+      "issue": "Unsourced prototype constant."
+    },
+    {
+      "code": "PLB-001C",
+      "description": "Konex Elbow 90 15mm",
+      "unit": "ea",
+      "rate": 35.31,
+      "authorityState": "withdrawn_corrected",
+      "issue": "Unsourced prototype constant."
+    },
+    {
+      "code": "PLB-001D",
+      "description": "Konex Straight Coupler 15mm",
+      "unit": "ea",
+      "rate": 32.24,
+      "authorityState": "withdrawn_corrected",
+      "issue": "Unsourced prototype constant."
+    },
+    {
+      "code": "PLB-001E",
+      "description": "Konex Female Coupler 15mm",
+      "unit": "ea",
+      "rate": 27.68,
+      "authorityState": "withdrawn_corrected",
+      "issue": "Unsourced prototype constant."
+    },
+    {
+      "code": "PLB-001F",
+      "description": "Konex Male Elbow 15mm",
+      "unit": "ea",
+      "rate": 36.17,
+      "authorityState": "withdrawn_corrected",
+      "issue": "Unsourced prototype constant."
+    },
+    {
+      "code": "PLB-001G",
+      "description": "Konex Male Coupler 15mm",
+      "unit": "ea",
+      "rate": 29.25,
+      "authorityState": "withdrawn_corrected",
+      "issue": "Unsourced prototype constant."
+    }
+  ]
+}

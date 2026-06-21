@@ -1,0 +1,96 @@
+{
+  "generatedAt": "2026-06-21",
+  "authorityModel": {
+    "staged": "Cannot affect calculations or client output.",
+    "exploration_approved": "Usable for internal pilot calculations with warnings, but blocked from binding client output.",
+    "approved_locked": "Usable for governed client-facing output.",
+    "withdrawn_corrected": "Retained only for audit history."
+  },
+  "commercialRules": {
+    "source": "07_Commercial_Rules.csv",
+    "authorityState": "exploration_approved",
+    "scope": "Architect placeholder waste, risk, contingency, markup, and VAT factors. Internal estimating only until owner lock confirms the intended realised margin."
+  },
+  "files": [
+    {
+      "file": "PLUMB_KB_v1.0_LOCKED-1",
+      "status": "authoritative",
+      "scope": "Approved plumbing materials and fixture assemblies"
+    },
+    {
+      "file": "Assembly_Scaling_Rules_v1.2",
+      "status": "mixed",
+      "scope": "Contains historical and current rows; reconcile at record level"
+    },
+    {
+      "file": "VAL-004_Source_Truth_Archive",
+      "status": "mixed",
+      "scope": "Deck materials are authoritative, DCK-001 remains exploration-approved pending bottom-up rebuild"
+    },
+    {
+      "file": "MASONRY_KB_v1 / Assembly_Scaling_Rules_v1.2",
+      "status": "mixed",
+      "scope": "Masonry assemblies remain exploration-approved until VAL-005"
+    },
+    {
+      "file": "ContractorOS_App.jsx",
+      "status": "mixed",
+      "scope": "Demo-only prototype and embedded pricing constants; not pricing authority"
+    }
+  ],
+  "contestedRecords": [
+    {
+      "code": "PLB-003",
+      "currentRevision": "r2",
+      "authorityState": "approved_locked",
+      "currentValue": 8191.02,
+      "supersededHistory": [
+        {
+          "revision": "r1",
+          "value": 2579.77,
+          "reason": "Historical top-down value replaced by detailed DEP roll-up"
+        }
+      ],
+      "validationRef": "VAL-PLB-003"
+    },
+    {
+      "code": "PLB-000",
+      "currentRevision": "r2",
+      "authorityState": "approved_locked",
+      "currentValue": 8491.02,
+      "currentChildren": [
+        "PLB-003",
+        "PLB-004"
+      ],
+      "supersededHistory": [
+        {
+          "revision": "r1",
+          "value": 6731.01,
+          "reason": "Built on the superseded PLB-003 child"
+        }
+      ],
+      "validationRef": "VAL-PLB-000"
+    },
+    {
+      "code": "DCK-001",
+      "currentRevision": "r2",
+      "authorityState": "exploration_approved",
+      "currentValue": 12667.25,
+      "supersededHistory": [
+        {
+          "revision": "r1",
+          "value": 22142.25,
+          "reason": "Replaced by reconciled placeholder accepted in VAL-004"
+        }
+      ],
+      "validationRef": "VAL-004"
+    }
+  ],
+  "prototypeAuthorities": [
+    {
+      "source": "ContractorOS_App.jsx",
+      "status": "demo_only",
+      "notes": "Prototype remains usable for demos but may not generate governed client output."
+    }
+  ]
+}

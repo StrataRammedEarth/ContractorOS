@@ -1,0 +1,31 @@
+pilot_id,assembly_code,component_code,component_description,cost_driver,evidence_status,latest_evidence_reference,required_next_action
+PILOT-DCK-001,DCK-001,DCK-S01,SA Pine Decking Plank 21x108x4800,material,comparable_rate_found,pilot-rate-candidates.csv DCK-S01,Confirm grade treatment supplier location VAT and delivery in a project quote.
+PILOT-DCK-001,DCK-001,DCK-S02,Chipboard Screw 5x60mm,consumable,exact_rate_match,pilot-rate-candidates.csv DCK-S02,Confirm coating and pack-to-each conversion against the deck fastener specification.
+PILOT-DCK-001,DCK-001,DCK-B01,Treated Pine Beam 38x114mm,material,comparable_rate_found,pilot-rate-candidates.csv DCK-B01,Confirm member length treatment and quote terms against structural detail.
+PILOT-DCK-001,DCK-001,DCK-B02,Treated Pine Beam 50x152mm,material,ambiguous_rate_found,pilot-rate-candidates.csv DCK-B02,Resolve required member length before rate selection or comparison.
+PILOT-DCK-001,DCK-001,DCK-B03,M12 Threaded Rod cut length,material,configuration_defined,deck-post-beam-connections.csv,Take off 180mm single and 230mm double connections then confirm kerf offcuts and cutting labour before staging rates.
+PILOT-DCK-001,DCK-001,DCK-B04,M12 Washer 24mm galvanised,consumable,exact_rate_match,pilot-rate-candidates.csv DCK-B04,Confirm galvanising specification and pack-to-each conversion.
+PILOT-DCK-001,DCK-001,DCK-B05,M12 Nut galvanised,consumable,exact_rate_match,pilot-rate-candidates.csv DCK-B05,Confirm galvanising specification and pack-to-each conversion.
+PILOT-DCK-001,DCK-001,DCK-CREW-001,Carpenter and Labourer Crew,labour,missing,none,Obtain contractor crew quote with role mix duration access assumptions and exclusions.
+PILOT-DCK-001,DCK-001,DCK-SCOPE-STAIRS-RAMP,New stairs and ramp shown on engineering drawing,scope,unmapped_scope_item,Photos 1 to 4,Create separate measured assemblies or explicit exclusions before issuing any project estimate.
+PILOT-PLB-KIT-001,PLB-KIT-001,BE1WH813,CTM Coral White Toilet Suite,material,exact_rate_match,pilot-rate-candidates.csv BE1WH813,Confirm project availability delivery and final specification.
+PILOT-PLB-KIT-001,PLB-KIT-001,29892,Angle Valve,material,missing,none,Obtain current named supplier quote.
+PILOT-PLB-KIT-001,PLB-KIT-001,34675,Pan Connector Jollyflex 350mm,material,missing,none,Obtain current named supplier quote.
+PILOT-PLB-KIT-001,PLB-KIT-001,RCM-WC-001,White Sikaflex 310ml,consumable,comparable_rate_found,pilot-rate-candidates.csv RCM-WC-001,Confirm formulation and volume before rate comparison.
+PILOT-PLB-KIT-001,PLB-KIT-001,BE1WH9102,Basin Starna White,material,exact_rate_match,pilot-rate-candidates.csv BE1WH9102,Confirm project availability delivery and final specification.
+PILOT-PLB-KIT-001,PLB-KIT-001,AfriCamps,Basin Mixer,material,missing,none,Obtain current named supplier quote.
+PILOT-PLB-KIT-001,PLB-KIT-001,32232,Basin Waste Pop-up Unslotted,material,missing,none,Obtain current named supplier quote.
+PILOT-PLB-KIT-001,PLB-KIT-001,35486,Bottle Trap Universal,material,missing,none,Obtain current named supplier quote.
+PILOT-PLB-KIT-001,PLB-KIT-001,185,Braided Hose 350mm,material,missing,none,Obtain current named supplier quote.
+PILOT-PLB-KIT-001,PLB-KIT-001,RCM-BSN-001,Mould Resistant Silicone,consumable,comparable_rate_found,pilot-rate-candidates.csv RCM-BSN-001,Confirm formulation and volume before rate comparison.
+PILOT-PLB-KIT-001,PLB-KIT-001,34147,Shower Mixer Classic,material,missing,none,Obtain current named supplier quote.
+PILOT-PLB-KIT-001,PLB-KIT-001,30728,Konex Female Elbow shower arm,material,missing,none,Obtain current named supplier quote.
+PILOT-PLB-KIT-001,PLB-KIT-001,30730,Konex Female Elbow mixer,material,missing,none,Obtain current named supplier quote.
+PILOT-PLB-KIT-001,PLB-KIT-001,7321,Shower Arm 350mm Round,material,missing,none,Obtain current named supplier quote.
+PILOT-PLB-KIT-001,PLB-KIT-001,7316,Shower Rose 200mm Stainless Steel,material,missing,none,Obtain current named supplier quote.
+PILOT-PLB-KIT-001,PLB-KIT-001,15501,Shower Waste Drain Stainless Steel,material,missing,none,Obtain current named supplier quote.
+PILOT-PLB-KIT-001,PLB-KIT-001,1924,PVC 40-50mm Adaptor,material,missing,none,Obtain current named supplier quote.
+PILOT-PLB-KIT-001,PLB-KIT-001,CT8006,Glass Shower Door Chrome,material,exact_rate_match,pilot-rate-candidates.csv CT8006,Confirm opening size glass specification availability and delivery.
+PILOT-PLB-KIT-001,PLB-KIT-001,RCM-SHWD-PRATLEY,Pratley Steel Quick Set,consumable,comparable_rate_found,pilot-rate-candidates.csv RCM-SHWD-PRATLEY,Confirm pack size before rate comparison.
+PILOT-PLB-KIT-001,PLB-KIT-001,RCM-SHWD-EPOXY,Epoxy Syringe,consumable,missing,none,Obtain current named supplier quote.
+PILOT-PLB-KIT-001,PLB-KIT-001,PLM-LAB-001,Plumbing Assistant,labour,missing,none,Obtain registered installer quote with hours testing and certification scope.
