@@ -12,6 +12,13 @@ export const supabase = createClient(
   supabaseAnonKey || 'placeholder_key'
 );
 
+function edgeHeaders(): Record<string, string> {
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${supabaseAnonKey}`,
+  };
+}
+
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 
 export interface LibraryRecord {
@@ -103,7 +110,7 @@ export async function loadLibrary(
   try {
     const params = new URLSearchParams({ record_type: recordType, status });
     const res = await fetch(`${supabaseUrl}/functions/v1/get-library?${params}`, {
-      headers: { 'Content-Type': 'application/json' },
+      headers: edgeHeaders(),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
     const data = await res.json();
@@ -122,7 +129,7 @@ export async function validateEstimate(estimateData: Partial<EstimateData>): Pro
   try {
     const res = await fetch(`${supabaseUrl}/functions/v1/validate-estimate`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: edgeHeaders(),
       body: JSON.stringify({ estimate_data: estimateData, lines: estimateData.scope ?? [], totals: estimateData.totals ?? {} }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -146,7 +153,7 @@ export async function saveEstimate(
   try {
     const res = await fetch(`${supabaseUrl}/functions/v1/save-estimate`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: edgeHeaders(),
       body: JSON.stringify({ estimate_data: estimateData, project_name: projectName, client_name: clientName, trade, status }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -163,7 +170,7 @@ export async function saveEstimate(
 
 export async function testConnection(): Promise<boolean> {
   try {
-    const res = await fetch(`${supabaseUrl}/functions/v1/get-library?record_type=material&status=active`, { method: 'HEAD' });
+    const res = await fetch(`${supabaseUrl}/functions/v1/get-library?record_type=material&status=active`, { method: 'HEAD', headers: edgeHeaders() });
     return res.ok;
   } catch {
     return false;

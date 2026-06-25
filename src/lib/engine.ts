@@ -23,7 +23,7 @@ const TRENCH_KEYWORDS      = ['trenching', 'excavat', 'backfill'];
 
 function findBestMatch(keywords: string[], materials: LibraryRecord[]): LibraryRecord | null {
   for (const kw of keywords) {
-    const match = materials.find((m) => m.description.toLowerCase().includes(kw.toLowerCase()));
+    const match = materials.find((m) => m.description?.toLowerCase().includes(kw.toLowerCase()));
     if (match) return match;
   }
   return null;
@@ -86,9 +86,9 @@ export function buildLabour(inputs: Inputs, resources: CrewRate[]): LabourLine[]
   const plumberHours = Math.ceil(totalFixtures * 2.5 + pipeMetres * 0.25);
   const apprenticeHours = Math.ceil(plumberHours * 0.6);
 
-  const plumber    = resources.find((r) => r.description.toLowerCase().includes('plumber'))
+  const plumber    = resources.find((r) => r.description?.toLowerCase().includes('plumber'))
                   ?? resources[0];
-  const apprentice = resources.find((r) => r.description.toLowerCase().includes('apprentice'))
+  const apprentice = resources.find((r) => r.description?.toLowerCase().includes('apprentice'))
                   ?? resources[1];
 
   const lines: LabourLine[] = [];
