@@ -1,5 +1,9 @@
 import { useState, useMemo, useCallback } from "react";
 
+// ─── SUPABASE (for the scan-drawing edge function) ────────────────────────────
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? "";
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY ?? "";
+
 // ─── COLOUR TOKENS ────────────────────────────────────────────────────────────
 const C = {
   navy:"#0D1B2A", navyMid:"#152436", navyLt:"#1E3250",
@@ -335,24 +339,19 @@ function ScanDrawingPanel({ onExtracted }: { onExtracted: (data: Inputs) => void
 
   const runScan = async () => {
     setPhase("scanning"); setError("");
-    const sys = `You are a construction drawing analyser for ContractorOS, a South African plumbing estimating platform.
-Analyse the floor plan image and extract plumbing parameters.
-Return ONLY valid JSON — no markdown, no commentary:
-{"floorArea":<number|null>,"supplyMetres":<number|null>,"drainMetres":<number|null>,"points":<number|null>,"trenching":<boolean>,"fixtures":{"toilet":<int>,"basin":<int>,"shower":<int>,"showerDoor":<int>,"showerRose":<int>,"showerArm":<int>,"kitchenMixer":<int>},"notes":"<what you read>","confidence":"Low"|"Medium"|"High"}
-Rules: count every wet fixture symbol. Estimate supplyMetres = perimeter-of-wet-areas × 1.5 if not shown. drainMetres = 0.3 × floorArea if not shown. points = 2 per shower + 1 per basin + 1 per toilet. trenching=true when drainMetres>0.`;
+    // Calls the Supabase `scan-drawing` edge function, which holds the Anthropic
+    // API key server-side and returns parsed plumbing parameters as JSON.
     try {
-      const r = await fetch("https://api.anthropic.com/v1/messages",{
-        method:"POST", headers:{"Content-Type":"application/json","x-api-key": (window as any).__ANTHROPIC_KEY__ ?? ""},
-        body:JSON.stringify({ model:"claude-sonnet-4-6", max_tokens:1024, system:sys,
-          messages:[{role:"user",content:[
-            {type:"image",source:{type:"base64",media_type:imgType,data:imgB64}},
-            {type:"text",text:"Extract plumbing parameters from this floor plan. Return JSON only."}
-          ]}]})
+      const r = await fetch(`${SUPABASE_URL}/functions/v1/scan-drawing`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SUPABASE_ANON_KEY}` },
+        body: JSON.stringify({ imageBase64: imgB64, mediaType: imgType }),
       });
-      if (!r.ok) { const t=await r.text(); throw new Error(`API ${r.status}: ${t.slice(0,200)}`); }
-      const data=await r.json();
-      const raw=(data.content||[]).map((b: any)=>b.text||"").join("").trim().replace(/^```[a-z]*\n?/,"").replace(/\n?```$/,"").trim();
-      const parsed=JSON.parse(raw);
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data?.success) {
+        throw new Error(data?.error || `Scan service error (HTTP ${r.status})`);
+      }
+      const parsed = data.extraction;
       setExtracted(parsed); setEdited(JSON.parse(JSON.stringify(parsed))); setPhase("confirming");
     } catch(e: any) { setError(`Scan failed — ${e.message}`); setPhase("error"); }
   };
