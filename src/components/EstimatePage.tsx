@@ -83,13 +83,33 @@ interface Fixtures {
   toilet: number; basin: number; shower: number;
   showerDoor: number; showerRose: number; showerArm: number; kitchenMixer: number;
 }
+
+// Repeatable fixture lines (manual entry): each line is a product (library preset
+// or custom) + its own quantity. Library presets keep their real grade; custom
+// lines are Assumption and flagged. See multiline_entry_spec.
+type FixtureType =
+  | 'toilet' | 'basin' | 'basin_mixer' | 'shower_mixer'
+  | 'shower_door' | 'shower_rose' | 'kitchen_mixer';
+interface FixtureLine {
+  id: string;
+  type: FixtureType;
+  source: 'library' | 'custom';
+  materialCode?: string;
+  description: string;
+  unitPrice: number;   // excl VAT
+  quantity: number;
+  grade: string;       // Sourced (library) | Assumption (custom)
+  supplier?: string;
+}
+
 interface GeyserMeta {
   jobType: GeyserJobType; size: GeyserSize; brand: GeyserBrand; solar: boolean;
 }
 interface Inputs {
   projectName: string; clientName: string; pipeType: string;
   supplyMetres: number; drainMetres: number; points: number; trenching: boolean;
-  fixtures: Fixtures;
+  fixtures: Fixtures;           // legacy (scan extraction still populates this)
+  fixtureLines?: FixtureLine[]; // canonical fixtures for manual-entry pricing
   _scanNotes?: string; _scanConf?: string;
   _geyser?: GeyserMeta; // present when this is a geyser-assembly job
 }
@@ -104,6 +124,41 @@ interface Ladder {
   prime: number; waste: number; direct: number; risk: number;
   afterRisk: number; cont: number; afterCont: number; margin: number; sell: number;
 }
+
+// ─── FIXTURE CATALOGUE + LABOUR (manual-entry line builder) ───────────────────
+// Install hours per unit (crew profile / Spon's seed). Mixers & roses use the
+// accessory constant. Every type has a constant, so labour is never invented.
+const FIXTURE_LABOUR: Record<FixtureType, number> = {
+  toilet: 1.83, basin: 1.50, basin_mixer: 0.25, shower_mixer: 1.17,
+  shower_door: 1.00, shower_rose: 0.25, kitchen_mixer: 0.25,
+};
+const FIXTURE_TYPES: { t: FixtureType; label: string }[] = [
+  { t:'toilet', label:'Toilet' }, { t:'basin', label:'Basin' },
+  { t:'basin_mixer', label:'Basin mixer' }, { t:'shower_mixer', label:'Shower mixer' },
+  { t:'shower_door', label:'Shower door' }, { t:'shower_rose', label:'Shower rose' },
+  { t:'kitchen_mixer', label:'Kitchen mixer' },
+];
+// Preset products per type. These are the app's existing real prices (CTM/Plumbit/
+// Gelmar/AfriCamps), kept until the Supabase pipe/fixture SKUs load — at which point
+// these dropdowns read from the cost library. basin_mixer has no preset yet → custom only.
+interface FixturePreset { materialCode: string; description: string; unitPrice: number; grade: string; supplier: string }
+const FIXTURE_PRESETS: Record<FixtureType, FixturePreset[]> = {
+  toilet:       [{ materialCode:'PLB-PD-082', description:'Coral White close-coupled toilet', unitPrice:929.90, grade:'Sourced', supplier:'CTM' }],
+  basin:        [{ materialCode:'PLB-PD-067', description:'Bathroom basin white F/S', unitPrice:649.90, grade:'Sourced', supplier:'Plumbit' }],
+  basin_mixer:  [],
+  shower_mixer: [{ materialCode:'PLB-PD-080', description:'Shower mixer', unitPrice:355.65, grade:'Sourced', supplier:'Plumblink' }],
+  shower_door:  [{ materialCode:'PLB-PD-074', description:'Glass shower door – chrome', unitPrice:3559.00, grade:'Sourced', supplier:'CTM' }],
+  shower_rose:  [{ materialCode:'PLB-PD-018', description:'Shower rose round s/steel 200mm', unitPrice:477.39, grade:'Sourced', supplier:'Plumblink' }],
+  kitchen_mixer:[{ materialCode:'PLB-PD-069', description:'Kitchen basin mixer (inc stop taps)', unitPrice:516.45, grade:'Sourced', supplier:'AfriCamps' }],
+};
+const _uid = () => Math.random().toString(36).slice(2, 9);
+function makeFixtureLine(type: FixtureType): FixtureLine {
+  const p = FIXTURE_PRESETS[type][0];
+  if (p) return { id:_uid(), type, source:'library', materialCode:p.materialCode, description:p.description, unitPrice:p.unitPrice, quantity:1, grade:p.grade, supplier:p.supplier };
+  return { id:_uid(), type, source:'custom', description:'', unitPrice:0, quantity:1, grade:'Assumption' };
+}
+const fxCount = (ls: FixtureLine[] | undefined, t: FixtureType) =>
+  (ls ?? []).filter(l => l.type === t).reduce((s, l) => s + (l.quantity || 0), 0);
 
 // ─── COMMERCIAL LADDER ────────────────────────────────────────────────────────
 function applyLadder(mat: number, lab: number): Ladder {
@@ -130,7 +185,8 @@ function nextQuoteRef() {
 
 // ─── ENGINE ───────────────────────────────────────────────────────────────────
 function buildScope(inp: Inputs): ScopeLine[] {
-  const { supplyMetres, drainMetres, points, fixtures, pipeType } = inp;
+  const { supplyMetres, drainMetres, points, pipeType } = inp;
+  const fixtureLines = inp.fixtureLines ?? [];
   const pipe = PIPE_PRICES[pipeType] ?? PIPE_PRICES["PEX 15mm (Cobra)"];
   const lines: ScopeLine[] = [];
 
@@ -155,7 +211,7 @@ function buildScope(inp: Inputs): ScopeLine[] {
   ([
     { id:"C01", key:"PLB-PD-006", qty:Math.ceil(supplyMetres/10) },
     { id:"C02", key:"PLB-PD-001", qty:Math.max(1,Math.ceil(supplyMetres/20)) },
-    { id:"C03", key:"PLB-PD-002", qty:Math.max(0,Math.ceil((fixtures.shower??0)+(fixtures.basin??0))) },
+    { id:"C03", key:"PLB-PD-002", qty:Math.max(0,Math.ceil(fxCount(fixtureLines,"shower_mixer")+fxCount(fixtureLines,"basin"))) },
   ] as const).forEach(c => {
     const it = LIBRARY[c.key]; if (!it || c.qty===0) return;
     lines.push({ id:c.id, code:c.key, description:it.desc, qty:c.qty, unit:it.unit,
@@ -179,35 +235,38 @@ function buildScope(inp: Inputs): ScopeLine[] {
     if (jn) lines.push({ id:"D02", code:"PLB-P1-050", description:jn.desc, qty:jnQty, unit:"ea",
       unitPrice:jn.price, conf:lowestGrade(jn.conf,"Derived"), total:jnQty*jn.price,
       supplier:jn.supplier, derivation:"1 per 3m drain run", mode:"Install" });
-    if ((fixtures.toilet??0)>0) {
+    const toiletQty = fxCount(fixtureLines,"toilet");
+    if (toiletQty>0) {
       const pan=LIBRARY["PLB-PD-019"];
-      if (pan) lines.push({ id:"D03", code:"PLB-PD-019", description:pan.desc, qty:fixtures.toilet, unit:"ea",
-        unitPrice:pan.price, conf:pan.conf, total:fixtures.toilet*pan.price,
+      if (pan) lines.push({ id:"D03", code:"PLB-PD-019", description:pan.desc, qty:toiletQty, unit:"ea",
+        unitPrice:pan.price, conf:pan.conf, total:toiletQty*pan.price,
         supplier:pan.supplier, derivation:"1 per toilet", mode:"Install" });
     }
   }
 
-  ([
-    { k:"toilet" as const,       key:"PLB-PD-082" },
-    { k:"basin" as const,        key:"PLB-PD-067" },
-    { k:"shower" as const,       key:"PLB-PD-080" },
-    { k:"showerDoor" as const,   key:"PLB-PD-074" },
-    { k:"showerRose" as const,   key:"PLB-PD-018" },
-    { k:"showerArm" as const,    key:"PLB-PD-078" },
-    { k:"kitchenMixer" as const, key:"PLB-PD-069" },
-  ]).forEach(({ k, key }, i) => {
-    const qty = fixtures[k]??0; if (!qty) return;
-    const it = LIBRARY[key]; if (!it) return;
-    lines.push({ id:`X${String(i+1).padStart(2,"0")}`, code:key, description:it.desc,
-      qty, unit:"ea", unitPrice:it.price, conf:it.conf, total:qty*it.price,
-      supplier:it.supplier, derivation:`${qty} × R${it.price} (library)`, mode:"Install" });
+  // Fixture lines — one scope line per product line (library preset or custom)
+  fixtureLines.forEach((fl, i) => {
+    if (fl.quantity <= 0) return;
+    lines.push({
+      id:`X${String(i+1).padStart(2,"0")}`,
+      code: fl.materialCode ?? "CUSTOM",
+      description: fl.description || "(custom item)",
+      qty: fl.quantity, unit:"ea", unitPrice: fl.unitPrice, conf: fl.grade,
+      total: fl.quantity*fl.unitPrice,
+      supplier: fl.supplier ?? (fl.source==="custom" ? "Custom" : "—"),
+      derivation: fl.source==="custom"
+        ? `${fl.quantity} × R${fl.unitPrice} (user-entered, unverified)`
+        : `${fl.quantity} × R${fl.unitPrice} (${fl.grade} library price)`,
+      mode:"Install",
+    });
   });
 
   return lines;
 }
 
 function buildLabour(inp: Inputs): LabourLine[] {
-  const { supplyMetres, drainMetres, points, fixtures, trenching } = inp;
+  const { supplyMetres, drainMetres, points, trenching } = inp;
+  const fixtureLines = inp.fixtureLines ?? [];
   const lines: LabourLine[] = [];
   const add = (id: string, desc: string, hrs: number, grade: string, deriv: string) =>
     lines.push({ id, description:desc, hours:hrs, rate:CREW_RATE_HR, cost:hrs*CREW_RATE_HR, conf:grade, derivation:deriv });
@@ -216,15 +275,16 @@ function buildLabour(inp: Inputs): LabourLine[] {
   add("L02","Pipework installation",supplyMetres*PROD.pipeworkInstall,"Sourced",`${supplyMetres}m × ${PROD.pipeworkInstall}hr/m (Spon's)`);
   add("L03","Point make-off",points*PROD.pointMakeOff,"Assumption",`${points} pts × ${PROD.pointMakeOff}hr/pt (VR-03 open)`);
   if (drainMetres>0) add("L04","Drainage installation",drainMetres*PROD.drainInstall,"Assumption",`${drainMetres}m × ${PROD.drainInstall}hr/m`);
-  ([
-    { k:"toilet" as const,       hrs:PROD.toiletInstall,    label:"Toilet installation" },
-    { k:"basin" as const,        hrs:PROD.basinInstall,     label:"Basin installation" },
-    { k:"shower" as const,       hrs:PROD.showerInstall,    label:"Shower mixer installation" },
-    { k:"showerDoor" as const,   hrs:PROD.showerDoorInstall,label:"Shower door installation" },
-    { k:"kitchenMixer" as const, hrs:PROD.accessoryInstall, label:"Kitchen mixer installation" },
-  ]).forEach(({ k, hrs, label }, i) => {
-    const qty = fixtures[k]??0; if (!qty) return;
-    add(`L${5+i}`,label,qty*hrs,"Assumption",`${qty} × ${hrs}hr (Spon's seed)`);
+  // One labour line per fixture line; hours from the per-type install constant.
+  fixtureLines.forEach((fl, i) => {
+    if (fl.quantity <= 0) return;
+    const hrs = FIXTURE_LABOUR[fl.type];
+    const label = `${fl.description || fl.type} — install`;
+    if (hrs == null) { // no constant for this type → flag for manual entry, never invent
+      add(`LF${i}`, `${label} (labour TBC)`, 0, "Placeholder", "No labour constant for this type — enter manually");
+      return;
+    }
+    add(`LF${i}`, label, fl.quantity*hrs, "Assumption", `${fl.quantity} × ${hrs}hr (Spon's seed)`);
   });
   return lines;
 }
@@ -290,11 +350,9 @@ function printQuotePDF(inp: Inputs, scope: ScopeLine[], labour: LabourLine[], qu
   const vat   = ld.sell * 0.15;
   const total = ld.sell + vat;
   const g = inp._geyser;
-  const fixtureLines = g ? [] : [
-    { k:"toilet" as const,l:"Toilets"},{ k:"basin" as const,l:"Basins"},{ k:"shower" as const,l:"Shower mixers"},
-    { k:"showerDoor" as const,l:"Shower doors"},{ k:"showerRose" as const,l:"Shower roses"},
-    { k:"showerArm" as const,l:"Shower arms"},{ k:"kitchenMixer" as const,l:"Kitchen mixers"},
-  ].filter(f=>(inp.fixtures[f.k]??0)>0).map(f=>`${f.l}: ${inp.fixtures[f.k]}`);
+  const fixtureLines = g ? [] : (inp.fixtureLines ?? [])
+    .filter(l=>l.quantity>0)
+    .map(l=>`${l.description || l.type}: ${l.quantity}${l.source==="custom"?" (custom)":""}`);
   // Scope-of-work grid: geyser assembly vs plumbing run
   const scopeGrid = g
     ? [
@@ -569,8 +627,8 @@ function ScopeModal({ scope, labour, inputs, onConfirm, onBack }: { scope: Scope
         `${inputs.points} plumbing points (make-offs)`,
         inputs.drainMetres>0?`${inputs.drainMetres}m drainage run`:null,
         inputs.trenching?"Trench excavation included":"No trenching",
-        ...([{k:"toilet" as const,l:"toilet suite"},{k:"basin" as const,l:"basin"},{k:"shower" as const,l:"shower mixer"},{k:"showerDoor" as const,l:"shower door"},{k:"showerRose" as const,l:"shower rose"},{k:"showerArm" as const,l:"shower arm"},{k:"kitchenMixer" as const,l:"kitchen mixer"}]
-          .filter(f=>(inputs.fixtures[f.k]??0)>0).map(f=>`${inputs.fixtures[f.k]}× ${f.l}`)),
+        ...((inputs.fixtureLines ?? []).filter(l=>l.quantity>0)
+          .map(l=>`${l.quantity}× ${l.description || l.type}${l.source==="custom"?" (custom)":""}`)),
       ].filter(Boolean);
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(13,27,42,0.88)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999,padding:20}}>
@@ -849,7 +907,19 @@ const DEFAULT: Inputs = {
   projectName:"Bathroom Fit-out — 3 Fixture", clientName:"",
   pipeType:"PEX 15mm (Cobra)", supplyMetres:20, drainMetres:15, points:3, trenching:true,
   fixtures:{toilet:1,basin:1,shower:1,showerDoor:1,showerRose:1,showerArm:1,kitchenMixer:0},
+  fixtureLines:(["toilet","basin","shower_mixer","shower_door","shower_rose"] as FixtureType[]).map(t=>makeFixtureLine(t)),
 };
+
+// Convert scan-extracted fixture counts into fixture lines (one preset line per type).
+function scanFixturesToLines(f: Fixtures): FixtureLine[] {
+  const map: [keyof Fixtures, FixtureType][] = [
+    ["toilet","toilet"],["basin","basin"],["shower","shower_mixer"],
+    ["showerDoor","shower_door"],["showerRose","shower_rose"],["kitchenMixer","kitchen_mixer"],
+  ];
+  const out: FixtureLine[] = [];
+  for (const [k,t] of map) { const q=f[k]??0; if (q>0) out.push({ ...makeFixtureLine(t), quantity:q }); }
+  return out;
+}
 
 const TABS = [
   {id:"estimate",label:"Estimate",icon:"📋"},
@@ -878,7 +948,12 @@ export default function EstimatePage() {
 
   const scope  = useMemo(()=> geyserAsm ? geyserToScope(geyserAsm)  : buildScope(inputs),  [geyserAsm, inputs]);
   const labour = useMemo(()=> geyserAsm ? geyserToLabour(geyserAsm) : buildLabour(inputs), [geyserAsm, inputs]);
-  const flags  = geyserAsm ? geyserAsm.flags : [];
+  // Flags: geyser flags, or warnings for any user-entered (custom) fixture lines.
+  const flags  = geyserAsm
+    ? geyserAsm.flags
+    : (inputs.fixtureLines ?? [])
+        .filter(l => l.source==="custom" && l.quantity>0)
+        .map(l => `Custom fixture line "${l.description || "(unnamed)"}" — user-entered price R${l.unitPrice}, unverified (Assumption)`);
   const finalGrade = useMemo(()=>{
     const all=[...scope.map(l=>l.conf),...labour.map(l=>l.conf)];
     return all.reduce((m,g)=>(GRADES[g]?.rank<GRADES[m]?.rank?g:m),"Validated");
@@ -894,11 +969,21 @@ export default function EstimatePage() {
     : inputs;
 
   const setInp = useCallback((k: keyof Inputs, v: unknown) => setInputs(p=>({...p,[k]:v})),[]);
-  const setFix = useCallback((k: keyof Fixtures, v: string) =>
-    setInputs(p=>({...p,fixtures:{...p.fixtures,[k]:Math.max(0,parseInt(v)||0)}})),[]);
   const setGey = useCallback((patch: Partial<GeyserMeta>) => setGeyser(p=>({...p,...patch})),[]);
 
-  const onScanDone = useCallback((data: Inputs) => { setJobMode("plumbing"); setInputs(data); setScreen("review"); },[]);
+  // Fixture-line builder management
+  const addFixtureLine = useCallback((type: FixtureType) =>
+    setInputs(p=>({...p, fixtureLines:[...(p.fixtureLines ?? []), makeFixtureLine(type)]})),[]);
+  const removeFixtureLine = useCallback((id: string) =>
+    setInputs(p=>({...p, fixtureLines:(p.fixtureLines ?? []).filter(l=>l.id!==id)})),[]);
+  const updateFixtureLine = useCallback((id: string, patch: Partial<FixtureLine>) =>
+    setInputs(p=>({...p, fixtureLines:(p.fixtureLines ?? []).map(l=>l.id===id?{...l,...patch}:l)})),[]);
+
+  const onScanDone = useCallback((data: Inputs) => {
+    setJobMode("plumbing");
+    setInputs({ ...data, fixtureLines: scanFixturesToLines(data.fixtures) });
+    setScreen("review");
+  },[]);
 
   const matTotal=scope.reduce((s,l)=>s+l.total,0);
   const labTotal=labour.reduce((s,l)=>s+l.cost,0);
@@ -1061,21 +1146,53 @@ export default function EstimatePage() {
         </div>
 
         <div style={{background:"#fff",borderRadius:8,border:"1px solid #DDE3EA",marginBottom:14,overflow:"hidden"}}>
-          <SectionHeader>Fixtures</SectionHeader>
-          <div style={{padding:"14px 20px",display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10}}>
-            {([
-              {k:"toilet" as const,l:"Toilets",p:929.90},{k:"basin" as const,l:"Basins",p:649.90},
-              {k:"shower" as const,l:"Shower mixers",p:355.65},{k:"showerDoor" as const,l:"Shower doors",p:3559},
-              {k:"showerRose" as const,l:"Shower roses",p:477.39},{k:"showerArm" as const,l:"Shower arms",p:139},
-              {k:"kitchenMixer" as const,l:"Kitchen mixers",p:516.45},
-            ]).map(f=>(
-              <div key={f.k} style={{border:"1px solid #DDE3EA",borderRadius:8,padding:"10px 12px",background:inputs.fixtures[f.k]>0?C.goldPale:C.offWhite}}>
-                <div style={{fontSize:11,color:C.slateL,fontWeight:600,marginBottom:5}}>{f.l}</div>
-                <input type="number" min={0} max={20} value={inputs.fixtures[f.k]}
-                  onChange={e=>setFix(f.k,e.target.value)}
-                  style={{width:"100%",padding:"5px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:16,fontWeight:700,textAlign:"center",background:"transparent",color:C.navy}}/>
-                <div style={{fontSize:9,color:C.slateL,marginTop:3}}>R{f.p}/ea</div>
-              </div>))}
+          <SectionHeader>Fixtures — one line per product (add variants &amp; quantities)</SectionHeader>
+          <div style={{padding:"12px 16px"}}>
+            {(inputs.fixtureLines ?? []).length===0&&
+              <div style={{fontSize:12,color:C.slateL,padding:"6px 2px 10px"}}>No fixtures yet — add a line below.</div>}
+            {(inputs.fixtureLines ?? []).map(fl=>{
+              const presets=FIXTURE_PRESETS[fl.type];
+              return (
+              <div key={fl.id} style={{border:"1px solid #E0E5EC",borderRadius:8,padding:"8px 10px",marginBottom:8,background:fl.source==="custom"?"#FEF5E7":C.offWhite}}>
+                <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                  <select value={fl.type} onChange={e=>{const t=e.target.value as FixtureType;const b=makeFixtureLine(t);updateFixtureLine(fl.id,{type:t,source:b.source,materialCode:b.materialCode,description:b.description,unitPrice:b.unitPrice,grade:b.grade,supplier:b.supplier});}}
+                    style={{padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12,minWidth:120}}>
+                    {FIXTURE_TYPES.map(ft=><option key={ft.t} value={ft.t}>{ft.label}</option>)}
+                  </select>
+                  <select value={fl.source==="custom"?"__custom__":(fl.materialCode??"__custom__")}
+                    onChange={e=>{const v=e.target.value;
+                      if(v==="__custom__"){updateFixtureLine(fl.id,{source:"custom",materialCode:undefined,description:"",unitPrice:0,grade:"Assumption",supplier:undefined});}
+                      else{const p=presets.find(x=>x.materialCode===v);if(p)updateFixtureLine(fl.id,{source:"library",materialCode:p.materialCode,description:p.description,unitPrice:p.unitPrice,grade:p.grade,supplier:p.supplier});}}}
+                    style={{padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12,flex:1,minWidth:180}}>
+                    {presets.map(p=><option key={p.materialCode} value={p.materialCode}>{p.description} — R{p.unitPrice} ({p.grade})</option>)}
+                    <option value="__custom__">Custom / enter your own…</option>
+                  </select>
+                  <input type="number" min={0} max={50} value={fl.quantity}
+                    onChange={e=>updateFixtureLine(fl.id,{quantity:Math.max(0,parseInt(e.target.value)||0)})}
+                    style={{width:60,padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:14,fontWeight:700,textAlign:"center"}}/>
+                  <span style={{fontSize:11,color:C.slateL,minWidth:70,textAlign:"right"}}>{fmt(fl.quantity*fl.unitPrice)}</span>
+                  <GradePill grade={fl.grade}/>
+                  <button onClick={()=>removeFixtureLine(fl.id)} title="Remove" style={{padding:"4px 9px",borderRadius:6,border:"1px solid #E0B4B4",background:"#fff",color:C.red,cursor:"pointer",fontSize:13,fontWeight:700}}>✕</button>
+                </div>
+                {fl.source==="custom"&&(
+                  <div style={{display:"flex",gap:8,marginTop:8}}>
+                    <input placeholder="Custom product description" value={fl.description}
+                      onChange={e=>updateFixtureLine(fl.id,{description:e.target.value})}
+                      style={{flex:1,padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12}}/>
+                    <div style={{display:"flex",alignItems:"center",gap:4}}>
+                      <span style={{fontSize:11,color:C.slateL}}>R</span>
+                      <input type="number" min={0} step="0.01" placeholder="unit price" value={fl.unitPrice||""}
+                        onChange={e=>updateFixtureLine(fl.id,{unitPrice:Math.max(0,parseFloat(e.target.value)||0)})}
+                        style={{width:100,padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12}}/>
+                    </div>
+                  </div>)}
+              </div>);
+            })}
+            <div style={{display:"flex",gap:8,alignItems:"center",marginTop:4}}>
+              <button onClick={()=>addFixtureLine("toilet")}
+                style={{padding:"7px 14px",borderRadius:6,border:`1px dashed ${C.gold}`,background:C.goldPale,color:C.navy,cursor:"pointer",fontSize:12,fontWeight:700}}>+ Add fixture line</button>
+              <span style={{fontSize:10,color:C.muted}}>Library prices are <GradePill grade="Sourced"/>; custom lines are <GradePill grade="Assumption"/> &amp; flagged.</span>
+            </div>
           </div>
         </div>
         </>)}
