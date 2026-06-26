@@ -59,11 +59,9 @@ const LIBRARY: Record<string, { desc: string; unit: string; price: number; conf:
 
 const BL = { elbowsPPt:3.75, teesPPt:2.25, couplersPPt:1.5, insertsPPt:8.75 };
 
-const PIPE_PRICES: Record<string, { price: number; conf: string }> = {
-  "PEX 15mm (Cobra)":   { price:30.00, conf:"Assumption" },
-  "Copper 15mm":        { price:58.00, conf:"Assumption" },
-  "uPVC 110mm (drain)": { price:55.00, conf:"Assumption" },
-};
+// (Pipe pricing moved to PIPE_LOOKUP — per-metre rates from real pack prices.
+//  The old hardcoded per-metre PIPE_PRICES (copper R58/m) was removed: it
+//  under-priced copper ~45% vs the real R102.41/m.)
 
 const CREW_RATE_HR = 860 / 8;
 const PROD = {
@@ -102,6 +100,22 @@ interface FixtureLine {
   supplier?: string;
 }
 
+// Repeatable pipe lines (supply + drainage): each line is type + diameter + run(m),
+// priced per-metre from the pipe lookup (or custom). Mirrors the fixture builder.
+interface PipeLine {
+  id: string;
+  use: 'supply' | 'drainage';
+  source: 'library' | 'custom';
+  pipeCode?: string;
+  type: string;        // Copper | PEX (supply) · PVC (drainage) · or custom
+  diameter: number;    // mm (0 for custom)
+  description: string;
+  perMetre: number;    // excl VAT, per metre
+  metres: number;
+  grade: string;
+  supplier?: string;
+}
+
 interface GeyserMeta {
   jobType: GeyserJobType; size: GeyserSize; brand: GeyserBrand; solar: boolean;
 }
@@ -110,6 +124,8 @@ interface Inputs {
   supplyMetres: number; drainMetres: number; points: number; trenching: boolean;
   fixtures: Fixtures;           // legacy (scan extraction still populates this)
   fixtureLines?: FixtureLine[]; // canonical fixtures for manual-entry pricing
+  supplyLines?: PipeLine[];     // canonical supply pipe (replaces pipeType+supplyMetres)
+  drainLines?: PipeLine[];      // canonical drainage pipe (replaces drainMetres)
   _scanNotes?: string; _scanConf?: string;
   _geyser?: GeyserMeta; // present when this is a geyser-assembly job
 }
@@ -160,6 +176,40 @@ function makeFixtureLine(type: FixtureType): FixtureLine {
 const fxCount = (ls: FixtureLine[] | undefined, t: FixtureType) =>
   (ls ?? []).filter(l => l.type === t).reduce((s, l) => s + (l.quantity || 0), 0);
 
+// ─── PIPE LOOKUP (supply + drainage line builders) ────────────────────────────
+// type + diameter is the lookup key. PerMetre = PackPrice / PackLength (pre-calc).
+// Pricing method A (per-metre × metres) is live; method B (whole-tube) is available
+// but off by default. Source: pipe_lookup, Plumblink 2026 (excl VAT). NOTE: copper
+// 15mm is R102.41/m here — the old hardcoded R58/m under-priced copper ~45%.
+interface PipeRow { code: string; type: string; diameter: number; use: 'supply'|'drainage'; packLength: number; packPrice: number; perMetre: number; grade: string; source: string; description: string }
+const PIPE_LOOKUP: PipeRow[] = [
+  { code:'PIPE-CU-15',  type:'Copper', diameter:15,  use:'supply',   packLength:5.5, packPrice:563.27,  perMetre:102.41, grade:'Sourced', source:'Plumblink', description:'Copper tube 15×5.5m 460/1 domestic' },
+  { code:'PIPE-CU-22',  type:'Copper', diameter:22,  use:'supply',   packLength:5.5, packPrice:1088.07, perMetre:197.83, grade:'Sourced', source:'Plumblink', description:'Copper tube 22×5.5m 460/1 domestic' },
+  { code:'PIPE-CU-28',  type:'Copper', diameter:28,  use:'supply',   packLength:5.5, packPrice:1462.95, perMetre:265.99, grade:'Sourced', source:'Plumblink', description:'Copper tube 28×5.5m 460/1 domestic' },
+  { code:'PIPE-CU-35',  type:'Copper', diameter:35,  use:'supply',   packLength:5.5, packPrice:2488.85, perMetre:452.52, grade:'Sourced', source:'Plumblink', description:'Copper tube 35×5.5m 460/1 domestic' },
+  { code:'PIPE-PEX-16', type:'PEX',    diameter:16,  use:'supply',   packLength:200, packPrice:4269.74, perMetre:21.35,  grade:'Sourced', source:'Plumblink', description:'Rifeng PEX-AL-PEX crimped 16×200m white (036971)' },
+  { code:'PIPE-PEX-20', type:'PEX',    diameter:20,  use:'supply',   packLength:200, packPrice:4865.22, perMetre:24.33,  grade:'Sourced', source:'Plumblink', description:'Sunridge Rifeng PEX-AL-PEX 20×200m white (SNR-B-20*200M)' },
+  { code:'PIPE-PVC-40', type:'PVC',    diameter:40,  use:'drainage', packLength:6,   packPrice:485.01,  perMetre:80.83,  grade:'Sourced', source:'Plumblink', description:'PVC SV/UG pipe 40mm ×6m' },
+  { code:'PIPE-PVC-50', type:'PVC',    diameter:50,  use:'drainage', packLength:6,   packPrice:232.85,  perMetre:38.81,  grade:'Sourced', source:'Plumblink', description:'PVC SV/UG pipe 50mm ×6m' },
+  { code:'PIPE-PVC-75', type:'PVC',    diameter:75,  use:'drainage', packLength:6,   packPrice:339.75,  perMetre:56.62,  grade:'Sourced', source:'Plumblink', description:'PVC SV/UG pipe 75mm ×6m' },
+  { code:'PIPE-PVC-110',type:'PVC',    diameter:110, use:'drainage', packLength:6,   packPrice:154.99,  perMetre:25.83,  grade:'Sourced', source:'Plumblink', description:'PVC SV/UG pipe 110mm ×6m' },
+  { code:'PIPE-PVC-160',type:'PVC',    diameter:160, use:'drainage', packLength:6,   packPrice:437.93,  perMetre:72.99,  grade:'Sourced', source:'Plumblink', description:'PVC SV/UG pipe 160mm ×6m' },
+];
+const pipeTypesFor = (use: 'supply'|'drainage') =>
+  [...new Set(PIPE_LOOKUP.filter(p=>p.use===use).map(p=>p.type))];
+const pipeDiametersFor = (use: 'supply'|'drainage', type: string) =>
+  PIPE_LOOKUP.filter(p=>p.use===use && p.type===type).map(p=>p.diameter).sort((a,b)=>a-b);
+const pipeRow = (use: 'supply'|'drainage', type: string, diameter: number) =>
+  PIPE_LOOKUP.find(p=>p.use===use && p.type===type && p.diameter===diameter);
+function makePipeLine(use: 'supply'|'drainage'): PipeLine {
+  const type = pipeTypesFor(use)[0];
+  const dia = pipeDiametersFor(use, type)[0];
+  const r = pipeRow(use, type, dia)!;
+  return { id:_uid(), use, source:'library', pipeCode:r.code, type:r.type, diameter:r.diameter,
+    description:r.description, perMetre:r.perMetre, metres:use==='supply'?10:6, grade:r.grade, supplier:r.source };
+}
+const sumMetres = (ls: PipeLine[] | undefined) => (ls ?? []).reduce((s,l)=>s+(l.metres||0),0);
+
 // ─── COMMERCIAL LADDER ────────────────────────────────────────────────────────
 function applyLadder(mat: number, lab: number): Ladder {
   const prime     = mat + lab;
@@ -185,15 +235,23 @@ function nextQuoteRef() {
 
 // ─── ENGINE ───────────────────────────────────────────────────────────────────
 function buildScope(inp: Inputs): ScopeLine[] {
-  const { supplyMetres, drainMetres, points, pipeType } = inp;
+  const { points } = inp;
   const fixtureLines = inp.fixtureLines ?? [];
-  const pipe = PIPE_PRICES[pipeType] ?? PIPE_PRICES["PEX 15mm (Cobra)"];
+  const supplyLines = inp.supplyLines ?? [];
+  const drainLines  = inp.drainLines ?? [];
+  const supplyMetres = sumMetres(supplyLines);
+  const drainMetres  = sumMetres(drainLines);
   const lines: ScopeLine[] = [];
 
-  lines.push({ id:"S01", code:pipeType, description:`Supply pipe — ${pipeType}`,
-    qty:supplyMetres, unit:"m", unitPrice:pipe.price, conf:pipe.conf,
-    total:supplyMetres*pipe.price, supplier:"Plumblink",
-    derivation:`${supplyMetres}m × R${pipe.price}/m`, mode:"Install" });
+  // Supply pipe — one scope line per pipe line (method A: per-metre × metres)
+  supplyLines.forEach((l, i) => {
+    if (l.metres <= 0) return;
+    lines.push({ id:`S${String(i+1).padStart(2,"0")}`, code:l.pipeCode ?? "CUSTOM-PIPE",
+      description:l.description || `${l.type} ${l.diameter}mm supply`, qty:l.metres, unit:"m",
+      unitPrice:l.perMetre, conf:l.grade, total:l.metres*l.perMetre,
+      supplier:l.supplier ?? (l.source==="custom"?"Custom":"Plumblink"),
+      derivation:`${l.metres}m × R${l.perMetre.toFixed(2)}/m${l.source==="custom"?" (user-entered)":""}`, mode:"Install" });
+  });
 
   ([
     { id:"F01", key:"PLB-PD-021", ppt:BL.elbowsPPt },
@@ -224,21 +282,25 @@ function buildScope(inp: Inputs): ScopeLine[] {
     unitPrice:st.price, conf:st.conf, total:points*2*st.price, supplier:st.supplier,
     derivation:`2 per point × ${points}`, mode:"Install" });
 
+  // Drainage pipe — one scope line per drain line (PVC, per-metre × metres)
+  drainLines.forEach((l, i) => {
+    if (l.metres <= 0) return;
+    lines.push({ id:`D${String(i+1).padStart(2,"0")}`, code:l.pipeCode ?? "CUSTOM-PIPE",
+      description:l.description || `${l.type} ${l.diameter}mm drainage`, qty:l.metres, unit:"m",
+      unitPrice:l.perMetre, conf:l.grade, total:l.metres*l.perMetre,
+      supplier:l.supplier ?? (l.source==="custom"?"Custom":"Plumblink"),
+      derivation:`${l.metres}m × R${l.perMetre.toFixed(2)}/m${l.source==="custom"?" (user-entered)":""}`, mode:"Install" });
+  });
   if (drainMetres > 0) {
-    const dp = PIPE_PRICES["uPVC 110mm (drain)"];
-    lines.push({ id:"D01", code:"uPVC-110", description:"uPVC drainage pipe 110mm",
-      qty:drainMetres, unit:"m", unitPrice:dp.price, conf:dp.conf,
-      total:drainMetres*dp.price, supplier:"Plumblink",
-      derivation:`${drainMetres}m × R${dp.price}/m`, mode:"Install" });
     const jnQty = Math.max(1,Math.ceil(drainMetres/3));
     const jn = LIBRARY["PLB-P1-050"];
-    if (jn) lines.push({ id:"D02", code:"PLB-P1-050", description:jn.desc, qty:jnQty, unit:"ea",
+    if (jn) lines.push({ id:"DJ1", code:"PLB-P1-050", description:jn.desc, qty:jnQty, unit:"ea",
       unitPrice:jn.price, conf:lowestGrade(jn.conf,"Derived"), total:jnQty*jn.price,
       supplier:jn.supplier, derivation:"1 per 3m drain run", mode:"Install" });
     const toiletQty = fxCount(fixtureLines,"toilet");
     if (toiletQty>0) {
       const pan=LIBRARY["PLB-PD-019"];
-      if (pan) lines.push({ id:"D03", code:"PLB-PD-019", description:pan.desc, qty:toiletQty, unit:"ea",
+      if (pan) lines.push({ id:"DP1", code:"PLB-PD-019", description:pan.desc, qty:toiletQty, unit:"ea",
         unitPrice:pan.price, conf:pan.conf, total:toiletQty*pan.price,
         supplier:pan.supplier, derivation:"1 per toilet", mode:"Install" });
     }
@@ -265,8 +327,10 @@ function buildScope(inp: Inputs): ScopeLine[] {
 }
 
 function buildLabour(inp: Inputs): LabourLine[] {
-  const { supplyMetres, drainMetres, points, trenching } = inp;
+  const { points, trenching } = inp;
   const fixtureLines = inp.fixtureLines ?? [];
+  const supplyMetres = sumMetres(inp.supplyLines);
+  const drainMetres  = sumMetres(inp.drainLines);
   const lines: LabourLine[] = [];
   const add = (id: string, desc: string, hrs: number, grade: string, deriv: string) =>
     lines.push({ id, description:desc, hours:hrs, rate:CREW_RATE_HR, cost:hrs*CREW_RATE_HR, conf:grade, derivation:deriv });
@@ -363,7 +427,7 @@ function printQuotePDF(inp: Inputs, scope: ScopeLine[], labour: LabourLine[], qu
         ...scope.map(l=>`<div class="scope-item"><strong>${l.qty}× ${l.description}</strong></div>`),
         `<div class="scope-item"><strong>Commercial rules:</strong> 5% waste, 5% risk, 10% contingency, 25% markup</div>`,
       ].filter(Boolean).join("")
-    : `<div class="scope-item"><strong>Pipe type:</strong> ${inp.pipeType}</div><div class="scope-item"><strong>Water points:</strong> ${inp.points}</div><div class="scope-item"><strong>Supply run:</strong> ${inp.supplyMetres}m</div><div class="scope-item"><strong>Drain run:</strong> ${inp.drainMetres>0?inp.drainMetres+"m":"excluded"}</div>${fixtureLines.map(l=>`<div class="scope-item"><strong>${l}</strong></div>`).join("")}<div class="scope-item"><strong>Commercial rules:</strong> 5% waste, 5% risk, 10% contingency, 25% markup</div>`;
+    : `${(inp.supplyLines ?? []).filter(l=>l.metres>0).map(l=>`<div class="scope-item"><strong>Supply:</strong> ${l.metres}m ${l.type} ${l.diameter?l.diameter+"mm":""}</div>`).join("")}<div class="scope-item"><strong>Water points:</strong> ${inp.points}</div>${(inp.drainLines ?? []).filter(l=>l.metres>0).map(l=>`<div class="scope-item"><strong>Drainage:</strong> ${l.metres}m ${l.type} ${l.diameter?l.diameter+"mm":""}</div>`).join("")}${fixtureLines.map(l=>`<div class="scope-item"><strong>${l}</strong></div>`).join("")}<div class="scope-item"><strong>Commercial rules:</strong> 5% waste, 5% risk, 10% contingency, 25% markup</div>`;
   const scopeIntro = g
     ? `Supply and installation of a ${g.size}L ${g.jobType==="burst_replacement"?`${g.brand} geyser replacement assembly`:"geyser element / thermostat repair"} as set out below.`
     : "Supply and installation of plumbing connection assemblies as set out below.";
@@ -377,9 +441,11 @@ function printQuotePDF(inp: Inputs, scope: ScopeLine[], labour: LabourLine[], qu
         g.size===250?"250L evidence stale (2022) — reverify before client issue":"",
       ].filter(Boolean)
     : [
-        `Pipe type: ${inp.pipeType}`,`Supply run: ${inp.supplyMetres}m`,
-        `Water points: ${inp.points}`,`Drain run: ${inp.drainMetres}m`,
+        `Supply: ${(inp.supplyLines ?? []).filter(l=>l.metres>0).map(l=>`${l.metres}m ${l.type} ${l.diameter}mm`).join(", ") || "none"}`,
+        `Water points: ${inp.points}`,
+        `Drainage: ${(inp.drainLines ?? []).filter(l=>l.metres>0).map(l=>`${l.metres}m ${l.type} ${l.diameter}mm`).join(", ") || "none"}`,
         `Trenching: ${inp.trenching?"Yes":"No"}`,
+        "Pipe rates per-metre from pack price (Plumblink 2026, excl VAT)",
         "Commercial rules: 5% waste, 5% risk, 10% contingency, 25% markup",
         "SA productivity factor: ×1.20 on Spon's UK constants (Assumption VR-05)",
       ];
@@ -623,9 +689,11 @@ function ScopeModal({ scope, labour, inputs, onConfirm, onBack }: { scope: Scope
         g.solar?"Solar geyser — thermostat not replaced":null,
       ].filter(Boolean)
     : [
-        `${inputs.supplyMetres}m ${inputs.pipeType} supply run`,
+        ...((inputs.supplyLines ?? []).filter(l=>l.metres>0)
+          .map(l=>`${l.metres}m ${l.type} ${l.diameter?l.diameter+"mm ":""}supply${l.source==="custom"?" (custom)":""}`)),
         `${inputs.points} plumbing points (make-offs)`,
-        inputs.drainMetres>0?`${inputs.drainMetres}m drainage run`:null,
+        ...((inputs.drainLines ?? []).filter(l=>l.metres>0)
+          .map(l=>`${l.metres}m ${l.type} ${l.diameter?l.diameter+"mm ":""}drainage${l.source==="custom"?" (custom)":""}`)),
         inputs.trenching?"Trench excavation included":"No trenching",
         ...((inputs.fixtureLines ?? []).filter(l=>l.quantity>0)
           .map(l=>`${l.quantity}× ${l.description || l.type}${l.source==="custom"?" (custom)":""}`)),
@@ -903,11 +971,19 @@ function LearnTab({ scope, labour, flags=[] }: { scope: ScopeLine[]; labour: Lab
 }
 
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
+function pipeLineFrom(use: 'supply'|'drainage', type: string, diameter: number, metres: number): PipeLine {
+  const r = pipeRow(use, type, diameter);
+  if (!r) return { ...makePipeLine(use), metres };
+  return { id:_uid(), use, source:'library', pipeCode:r.code, type:r.type, diameter:r.diameter,
+    description:r.description, perMetre:r.perMetre, metres, grade:r.grade, supplier:r.source };
+}
 const DEFAULT: Inputs = {
   projectName:"Bathroom Fit-out — 3 Fixture", clientName:"",
   pipeType:"PEX 15mm (Cobra)", supplyMetres:20, drainMetres:15, points:3, trenching:true,
   fixtures:{toilet:1,basin:1,shower:1,showerDoor:1,showerRose:1,showerArm:1,kitchenMixer:0},
   fixtureLines:(["toilet","basin","shower_mixer","shower_door","shower_rose"] as FixtureType[]).map(t=>makeFixtureLine(t)),
+  supplyLines:[pipeLineFrom("supply","Copper",15,20)],
+  drainLines:[pipeLineFrom("drainage","PVC",110,15)],
 };
 
 // Convert scan-extracted fixture counts into fixture lines (one preset line per type).
@@ -948,12 +1024,15 @@ export default function EstimatePage() {
 
   const scope  = useMemo(()=> geyserAsm ? geyserToScope(geyserAsm)  : buildScope(inputs),  [geyserAsm, inputs]);
   const labour = useMemo(()=> geyserAsm ? geyserToLabour(geyserAsm) : buildLabour(inputs), [geyserAsm, inputs]);
-  // Flags: geyser flags, or warnings for any user-entered (custom) fixture lines.
+  // Flags: geyser flags, or warnings for any user-entered (custom) lines.
   const flags  = geyserAsm
     ? geyserAsm.flags
-    : (inputs.fixtureLines ?? [])
-        .filter(l => l.source==="custom" && l.quantity>0)
-        .map(l => `Custom fixture line "${l.description || "(unnamed)"}" — user-entered price R${l.unitPrice}, unverified (Assumption)`);
+    : [
+        ...(inputs.fixtureLines ?? []).filter(l => l.source==="custom" && l.quantity>0)
+          .map(l => `Custom fixture line "${l.description || "(unnamed)"}" — user-entered price R${l.unitPrice}, unverified (Assumption)`),
+        ...([...(inputs.supplyLines ?? []), ...(inputs.drainLines ?? [])]).filter(l => l.source==="custom" && l.metres>0)
+          .map(l => `Custom ${l.use} pipe "${l.description || "(unnamed)"}" — user-entered R${l.perMetre}/m, unverified (Assumption)`),
+      ];
   const finalGrade = useMemo(()=>{
     const all=[...scope.map(l=>l.conf),...labour.map(l=>l.conf)];
     return all.reduce((m,g)=>(GRADES[g]?.rank<GRADES[m]?.rank?g:m),"Validated");
@@ -979,9 +1058,28 @@ export default function EstimatePage() {
   const updateFixtureLine = useCallback((id: string, patch: Partial<FixtureLine>) =>
     setInputs(p=>({...p, fixtureLines:(p.fixtureLines ?? []).map(l=>l.id===id?{...l,...patch}:l)})),[]);
 
+  // Pipe-line builder management (supply + drainage share these via the `key`)
+  const addPipeLine = useCallback((use: 'supply'|'drainage') => {
+    const key = use==='supply' ? 'supplyLines' : 'drainLines';
+    setInputs(p=>({...p, [key]:[...(p[key] ?? []), makePipeLine(use)]}));
+  },[]);
+  const removePipeLine = useCallback((use: 'supply'|'drainage', id: string) => {
+    const key = use==='supply' ? 'supplyLines' : 'drainLines';
+    setInputs(p=>({...p, [key]:(p[key] ?? []).filter(l=>l.id!==id)}));
+  },[]);
+  const updatePipeLine = useCallback((use: 'supply'|'drainage', id: string, patch: Partial<PipeLine>) => {
+    const key = use==='supply' ? 'supplyLines' : 'drainLines';
+    setInputs(p=>({...p, [key]:(p[key] ?? []).map(l=>l.id===id?{...l,...patch}:l)}));
+  },[]);
+
   const onScanDone = useCallback((data: Inputs) => {
     setJobMode("plumbing");
-    setInputs({ ...data, fixtureLines: scanFixturesToLines(data.fixtures) });
+    setInputs({
+      ...data,
+      fixtureLines: scanFixturesToLines(data.fixtures),
+      supplyLines: data.supplyMetres>0 ? [pipeLineFrom("supply","Copper",15,data.supplyMetres)] : [],
+      drainLines:  data.drainMetres>0  ? [pipeLineFrom("drainage","PVC",110,data.drainMetres)] : [],
+    });
     setScreen("review");
   },[]);
 
@@ -1075,6 +1173,68 @@ export default function EstimatePage() {
     </div>
   );
 
+  // Reusable supply/drainage pipe line builder (type + diameter + metres)
+  const pipeSection = (use: 'supply'|'drainage', title: string, extra: React.ReactNode) => {
+    const lines = ((use==='supply' ? inputs.supplyLines : inputs.drainLines) ?? []);
+    const types = pipeTypesFor(use);
+    return (
+      <div style={{background:"#fff",borderRadius:8,border:"1px solid #DDE3EA",marginBottom:14,overflow:"hidden"}}>
+        <SectionHeader>{title}</SectionHeader>
+        <div style={{padding:"12px 16px"}}>
+          {lines.length===0&&<div style={{fontSize:12,color:C.slateL,padding:"6px 2px 10px"}}>No {use} lines — add one below.</div>}
+          {lines.map(l=>{
+            const dias = l.source==="custom" ? [] : pipeDiametersFor(use,l.type);
+            return (
+            <div key={l.id} style={{border:"1px solid #E0E5EC",borderRadius:8,padding:"8px 10px",marginBottom:8,background:l.source==="custom"?"#FEF5E7":C.offWhite}}>
+              <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                <select value={l.source==="custom"?"__custom__":l.type}
+                  onChange={e=>{const v=e.target.value;
+                    if(v==="__custom__"){updatePipeLine(use,l.id,{source:"custom",pipeCode:undefined,type:"Custom",diameter:0,description:"",perMetre:0,grade:"Assumption",supplier:undefined});}
+                    else{const dia=pipeDiametersFor(use,v)[0];const r=pipeRow(use,v,dia);if(r)updatePipeLine(use,l.id,{source:"library",pipeCode:r.code,type:r.type,diameter:r.diameter,description:r.description,perMetre:r.perMetre,grade:r.grade,supplier:r.source});}}}
+                  style={{padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12,minWidth:90}}>
+                  {types.map(t=><option key={t} value={t}>{t}</option>)}
+                  <option value="__custom__">Custom…</option>
+                </select>
+                {l.source!=="custom"&&(
+                  <select value={l.diameter}
+                    onChange={e=>{const d=parseInt(e.target.value);const r=pipeRow(use,l.type,d);if(r)updatePipeLine(use,l.id,{pipeCode:r.code,diameter:r.diameter,description:r.description,perMetre:r.perMetre,grade:r.grade});}}
+                    style={{padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12,minWidth:80}}>
+                    {dias.map(d=><option key={d} value={d}>{d}mm</option>)}
+                  </select>)}
+                <div style={{display:"flex",alignItems:"center",gap:4}}>
+                  <input type="number" min={0} value={l.metres}
+                    onChange={e=>updatePipeLine(use,l.id,{metres:Math.max(0,parseFloat(e.target.value)||0)})}
+                    style={{width:64,padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:14,fontWeight:700,textAlign:"center"}}/>
+                  <span style={{fontSize:11,color:C.slateL}}>m</span>
+                </div>
+                <span style={{fontSize:10,color:C.slateL}}>R{l.perMetre.toFixed(2)}/m</span>
+                <span style={{fontSize:11,color:C.navy,fontWeight:600,minWidth:64,textAlign:"right"}}>{fmt(l.metres*l.perMetre)}</span>
+                <GradePill grade={l.grade}/>
+                <button onClick={()=>removePipeLine(use,l.id)} title="Remove" style={{padding:"4px 9px",borderRadius:6,border:"1px solid #E0B4B4",background:"#fff",color:C.red,cursor:"pointer",fontSize:13,fontWeight:700}}>✕</button>
+              </div>
+              {l.source==="custom"&&(
+                <div style={{display:"flex",gap:8,marginTop:8}}>
+                  <input placeholder={`Custom ${use} pipe description`} value={l.description}
+                    onChange={e=>updatePipeLine(use,l.id,{description:e.target.value})}
+                    style={{flex:1,padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12}}/>
+                  <div style={{display:"flex",alignItems:"center",gap:4}}>
+                    <span style={{fontSize:11,color:C.slateL}}>R</span>
+                    <input type="number" min={0} step="0.01" placeholder="/m" value={l.perMetre||""}
+                      onChange={e=>updatePipeLine(use,l.id,{perMetre:Math.max(0,parseFloat(e.target.value)||0)})}
+                      style={{width:90,padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12}}/>
+                    <span style={{fontSize:11,color:C.slateL}}>/m</span>
+                  </div>
+                </div>)}
+            </div>);
+          })}
+          <button onClick={()=>addPipeLine(use)}
+            style={{padding:"7px 14px",borderRadius:6,border:`1px dashed ${C.gold}`,background:C.goldPale,color:C.navy,cursor:"pointer",fontSize:12,fontWeight:700}}>+ Add {use==="supply"?"supply":"drain"} line</button>
+          {extra}
+        </div>
+      </div>
+    );
+  };
+
   // ENTRY FORM
   return (
     <div style={{fontFamily:"'Inter',system-ui,sans-serif",background:"#F1F4F8",minHeight:"100vh"}}>
@@ -1108,42 +1268,20 @@ export default function EstimatePage() {
         </div>
 
         {jobMode==="plumbing"&&(<>
-        <div style={{background:"#fff",borderRadius:8,border:"1px solid #DDE3EA",marginBottom:14,overflow:"hidden"}}>
-          <SectionHeader>Supply Run</SectionHeader>
-          <div style={{padding:"14px 20px",display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
-            <div>
-              <label style={{display:"block",fontSize:11,color:C.slateL,marginBottom:3,fontWeight:600}}>Pipe type</label>
-              <select value={inputs.pipeType} onChange={e=>setInp("pipeType",e.target.value)}
-                style={{width:"100%",padding:"7px 10px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:13}}>
-                {Object.keys(PIPE_PRICES).map(p=><option key={p}>{p}</option>)}
-              </select>
-              <div style={{fontSize:10,color:C.slateL,marginTop:3}}>R{PIPE_PRICES[inputs.pipeType]?.price}/m · <GradePill grade={PIPE_PRICES[inputs.pipeType]?.conf}/></div>
-            </div>
-            {([{l:"Supply run (m)",k:"supplyMetres" as const,min:1},{l:"Points (make-offs)",k:"points" as const,min:1}]).map(f=>(
-              <div key={f.k}>
-                <label style={{display:"block",fontSize:11,color:C.slateL,marginBottom:3,fontWeight:600}}>{f.l}</label>
-                <input type="number" min={f.min} value={inputs[f.k] as number}
-                  onChange={e=>setInp(f.k,Math.max(f.min,parseInt(e.target.value)||f.min))}
-                  style={{width:"100%",padding:"7px 10px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:13}}/>
-              </div>))}
-          </div>
-        </div>
+        {pipeSection("supply","Supply Runs — Copper / PEX (type + diameter + metres)",
+          <div style={{display:"flex",alignItems:"center",gap:8,marginTop:10,paddingTop:10,borderTop:"1px solid #EDF0F5"}}>
+            <label style={{fontSize:11,color:C.slateL,fontWeight:600}}>Points (make-offs)</label>
+            <input type="number" min={1} value={inputs.points}
+              onChange={e=>setInp("points",Math.max(1,parseInt(e.target.value)||1))}
+              style={{width:70,padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:13,textAlign:"center"}}/>
+            <span style={{fontSize:10,color:C.muted}}>drives fittings & stop taps</span>
+          </div>)}
 
-        <div style={{background:"#fff",borderRadius:8,border:"1px solid #DDE3EA",marginBottom:14,overflow:"hidden"}}>
-          <SectionHeader>Drainage</SectionHeader>
-          <div style={{padding:"14px 20px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,alignItems:"end"}}>
-            <div>
-              <label style={{display:"block",fontSize:11,color:C.slateL,marginBottom:3,fontWeight:600}}>Drain run (m, 0=none)</label>
-              <input type="number" min={0} value={inputs.drainMetres}
-                onChange={e=>setInp("drainMetres",Math.max(0,parseInt(e.target.value)||0))}
-                style={{width:"100%",padding:"7px 10px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:13}}/>
-            </div>
-            <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}>
-              <input type="checkbox" checked={inputs.trenching} onChange={e=>setInp("trenching",e.target.checked)} style={{width:16,height:16}}/>
-              <span style={{fontSize:13,color:C.navy}}>Include trench excavation labour</span>
-            </label>
-          </div>
-        </div>
+        {pipeSection("drainage","Drainage — PVC (type + diameter + metres)",
+          <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",marginTop:10,paddingTop:10,borderTop:"1px solid #EDF0F5"}}>
+            <input type="checkbox" checked={inputs.trenching} onChange={e=>setInp("trenching",e.target.checked)} style={{width:16,height:16}}/>
+            <span style={{fontSize:13,color:C.navy}}>Include trench excavation labour (across drainage lines)</span>
+          </label>)}
 
         <div style={{background:"#fff",borderRadius:8,border:"1px solid #DDE3EA",marginBottom:14,overflow:"hidden"}}>
           <SectionHeader>Fixtures — one line per product (add variants &amp; quantities)</SectionHeader>
