@@ -783,10 +783,10 @@ function LearnTab({ scope, labour, flags=[] }: { scope: ScopeLine[]; labour: Lab
   ];
   const geyserVR=[
     {id:"VR-07",desc:"Geyser unit buy-prices (Plumblink 2026, all sizes/brands)",grade:"Sourced",      closes:"CLOSED — screenshot-confirmed Sourced prices"},
-    {id:"VR-08",desc:"Replacement kit (PRV + tray + vacuum breakers, R1,070)",   grade:"Assumption",   closes:"Partial — TP&DC bundled; itemise the rest"},
+    {id:"VR-08",desc:"Replacement kit (Builders install kit + drip tray, R868)",  grade:"Sourced",      closes:"CLOSED — real Builders Warehouse 2026 price"},
     {id:"VR-09",desc:"Geyser labour block (crew-derived)",                       grade:"Assumption",   closes:"Confirmed vs crew time on real jobs"},
     {id:"VR-10",desc:"Element-repair: ladder vs fixed-price",                    grade:"Open decision",closes:"Owner sets pricing convention"},
-    {id:"VR-11",desc:"150L sell ~15% under 2024 market quote",                   grade:"Open decision",closes:"Confirm with Ruan: margin or labour, not unit"},
+    {id:"VR-11",desc:"150L sell ~18% under 2024 market quote",                   grade:"Open decision",closes:"Confirm with Ruan: margin or labour (inputs confirmed)"},
   ];
   const openVR = isGeyser ? geyserVR : plumbingVR;
   return (
@@ -978,7 +978,7 @@ export default function EstimatePage() {
       <AppHeader showTabs={true}/>
       <div style={{maxWidth:960,margin:"0 auto",padding:"0 20px 32px"}}>
         {inputs._scanNotes&&!geyserAsm&&<div style={{background:"#FEF5E7",border:`1px solid ${C.amber}40`,borderRadius:"0 0 6px 6px",padding:"6px 16px",fontSize:11,color:C.navy,marginBottom:4}}>📐 <strong>Scan-derived scope:</strong> {inputs._scanNotes}</div>}
-        {geyserAsm&&<div style={{background:"#FEF5E7",border:`1px solid ${C.amber}40`,borderRadius:"0 0 6px 6px",padding:"6px 16px",fontSize:11,color:C.navy,marginBottom:4}}>♨ <strong>Geyser assembly · {finalGrade} grade:</strong> fixed-composition quote — see Learn tab for {flags.length} open flag{flags.length===1?"":"s"} (not client-issuable until grade lifts).</div>}
+        {geyserAsm&&<div style={{background:"#FEF5E7",border:`1px solid ${C.amber}40`,borderRadius:"0 0 6px 6px",padding:"6px 16px",fontSize:11,color:C.navy,marginBottom:4}}>♨ <strong>Geyser assembly · {finalGrade} grade:</strong> fixed-composition quote — {flags.length} note{flags.length===1?"":"s"} in the Learn tab{GRADES[finalGrade]?.rank>=GRADES["Derived"].rank?" · client-issuable through the normal gate.":" · not client-issuable until grade lifts."}</div>}
         <div style={{background:"#fff",borderRadius:"0 8px 8px 8px",border:"1px solid #DDE3EA",borderTop:"none",overflow:"hidden"}}>
           {tab==="estimate"&&<EstimateTab scope={scope} labour={labour} inputs={effInputs} finalGrade={finalGrade} quoteRef={quoteRef} onPrintQuote={printQuote}/>}
           {tab==="buy"    &&<BuyTab scope={scope} inputs={effInputs} quoteRef={quoteRef} onPrintBuy={printBuy}/>}
@@ -1119,7 +1119,7 @@ export default function EstimatePage() {
                   </label>}
             </div>
             <div style={{background:C.goldPale,border:`1px solid ${C.gold}40`,borderRadius:6,padding:"10px 14px",marginTop:14,fontSize:11,color:C.navy}}>
-              ♨ Fixed-composition assembly · <strong>{geyser.jobType==="burst_replacement"?"Assumption":"Sourced"} grade</strong> · material {fmt(matTotal)} + labour {fmt(labTotal)} → ladder → <strong>{fmt(sell)}</strong> sell excl. VAT. Not client-issuable until grade lifts (see Learn tab).
+              ♨ Fixed-composition assembly · <strong>{finalGrade} grade</strong> · material {fmt(matTotal)} + labour {fmt(labTotal)} → ladder → <strong>{fmt(sell)}</strong> sell excl. VAT. {GRADES[finalGrade]?.rank>=GRADES["Derived"].rank?"Client-issuable through the normal gate (see Learn tab).":"Not client-issuable until grade lifts (see Learn tab)."}
             </div>
           </div>
         </div>)}

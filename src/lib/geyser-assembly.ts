@@ -51,17 +51,14 @@ export interface GeyserAssembly {
   flags: string[];
 }
 
-// ─── FIXED REPLACEMENT KIT (same for every size) — Assumption grade ───────────
-// VR-08: PRV + drip tray + vacuum breakers + consumables still to itemise.
-// Kit correction (2026-06-26): the Plumblink geyser SKUs are "inc TP&DC" (TP
-// valve + drain cock bundled into the unit), so the standalone TP-valve line was
-// removed from the kit — it would double-count. Kit total now R1,070 (was R1,250).
+// ─── FIXED REPLACEMENT KIT (same for every size) — Sourced (Builders 2026) ─────
+// VR-08 CLOSED: real Builders Warehouse price (2026-06-26, excl VAT). The geyser
+// SKU already bundles TP valve + drain cock ("inc TP&DC"), so the kit covers only
+// the all-in installation kit (600kPa PCV + 2× vacuum breakers) plus the drip
+// tray = R867.83 Sourced (was ~R1,070 Assumption — the estimate ran ~19% high).
 const REPLACEMENT_KIT: Omit<CostLine, 'total'>[] = [
-  // TP valve removed — bundled "inc TP&DC" in the geyser unit (Plumblink 2026).
-  { code: 'PLB-GEY-K02', description: 'PRV valve + outlet pipe', unit: 'ea', quantity: 1, unitCost: 220, grade: 'Assumption', writingMode: 'Install' },
-  { code: 'PLB-GEY-K03', description: 'Plastic drip tray + outlet', unit: 'ea', quantity: 1, unitCost: 260, grade: 'Assumption', writingMode: 'Install' },
-  { code: 'PLB-GEY-K04', description: 'Vacuum breakers (×2)', unit: 'set', quantity: 1, unitCost: 240, grade: 'Assumption', writingMode: 'Install' },
-  { code: 'PLB-GEY-K05', description: 'Copper / connectors / consumables', unit: 'lot', quantity: 1, unitCost: 350, grade: 'Assumption', writingMode: 'Install' },
+  { code: 'BLD-GEY-KIT', description: 'Geyser installation kit (600kPa PCV + 2× vacuum breakers)', unit: 'ea', quantity: 1, unitCost: 668.70, grade: 'Sourced', writingMode: 'Install' },
+  { code: 'BLD-GEY-DRT', description: 'Kwikot DRT1600 drip tray', unit: 'ea', quantity: 1, unitCost: 199.13, grade: 'Sourced', writingMode: 'Install' },
 ];
 
 // ─── GEYSER UNIT COST BY SIZE × BRAND — Sourced (Plumblink 2026, excl VAT) ─────
@@ -127,10 +124,8 @@ export function buildGeyserReplacement(
   const materialCost = lines.reduce((s, l) => s + l.total, 0);
   const labourCost = GEYSER_LABOUR_COST[size];
 
-  flags.push('Geyser unit cost is Sourced (Plumblink 2026, excl VAT, inc TP&DC) — VR-07 closed');
-  flags.push('Fixed replacement kit still Assumption — confirm PRV + drip tray + vacuum breaker buy-prices [VR-08]');
-  flags.push('Labour block crew-derived (Assumption) — confirm vs actual crew hours [VR-09]');
-  if (size === 150) flags.push('150L sell sits ~15% under Vissi 2024 market quote — confirm whether margin or labour, not unit [VR-11]');
+  flags.push('Labour block crew-derived — confirm vs actual crew hours [VR-09]');
+  if (size === 150) flags.push('150L sell sits ~18% under Vissi 2024 market quote — inputs confirmed, so gap is margin or labour, not data [VR-11]');
 
   return {
     jobType: 'burst_replacement',
@@ -139,9 +134,10 @@ export function buildGeyserReplacement(
     lines,
     materialCost,
     labourCost,
-    // Overall cap stays ASSUMPTION: the unit is Sourced but the replacement kit
-    // is still Assumption (VR-08), so a full burst quote is not client-issuable yet.
-    grade: 'Assumption', // weakest-input cap (kit)
+    // Unit (VR-07) and kit (VR-08) both Sourced -> assembly is Sourced end-to-end
+    // and client-issuable through the normal gate. Labour stays crew-derived but,
+    // per owner decision, does not cap the grade (flagged for confirmation, VR-09).
+    grade: 'Sourced',
     flags,
   };
 }
@@ -209,8 +205,8 @@ export function buildElementRepair(
  * Apply the ContractorOS commercial ladder to an assembly.
  * Mirrors EstimatePage applyLadder — waste(material) → risk → contingency → margin.
  * NOTE: EstimatePage owns the canonical ladder; this is a reference implementation
- * kept in sync. Both produce identical results (verified: 150L Kwikot burst = R10,475
- * sell excl VAT with real Plumblink 2026 unit cost + R1,070 kit + R1,750 labour).
+ * kept in sync. Both produce identical results (verified: 150L Kwikot burst = R10,168
+ * sell excl VAT with real Plumblink unit R4,173 + real Builders kit R868 + R1,750 labour).
  */
 export function applyLadder(materialCost: number, labourCost: number) {
   const prime = materialCost + labourCost;
