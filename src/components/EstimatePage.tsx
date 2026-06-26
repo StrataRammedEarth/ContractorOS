@@ -782,10 +782,11 @@ function LearnTab({ scope, labour, flags=[] }: { scope: ScopeLine[]; labour: Lab
     {id:"VR-06",desc:"Supervising plumber day rate (R600/day)",            grade:"Assumption",closes:"Plumber network confirmation"},
   ];
   const geyserVR=[
-    {id:"VR-07",desc:"Geyser unit buy-prices (back-derived)",          grade:"Assumption",   closes:"Contractor confirms supplier buy-prices"},
-    {id:"VR-08",desc:"Fixed replacement kit cost (R1,250)",            grade:"Assumption",   closes:"Itemised buy-prices confirmed"},
-    {id:"VR-09",desc:"Geyser labour block (crew-derived)",             grade:"Assumption",   closes:"Confirmed vs crew time on real jobs"},
-    {id:"VR-10",desc:"Element-repair: ladder vs fixed-price",          grade:"Open decision",closes:"Owner sets pricing convention"},
+    {id:"VR-07",desc:"Geyser unit buy-prices (Plumblink 2026, all sizes/brands)",grade:"Sourced",      closes:"CLOSED — screenshot-confirmed Sourced prices"},
+    {id:"VR-08",desc:"Replacement kit (PRV + tray + vacuum breakers, R1,070)",   grade:"Assumption",   closes:"Partial — TP&DC bundled; itemise the rest"},
+    {id:"VR-09",desc:"Geyser labour block (crew-derived)",                       grade:"Assumption",   closes:"Confirmed vs crew time on real jobs"},
+    {id:"VR-10",desc:"Element-repair: ladder vs fixed-price",                    grade:"Open decision",closes:"Owner sets pricing convention"},
+    {id:"VR-11",desc:"150L sell ~15% under 2024 market quote",                   grade:"Open decision",closes:"Confirm with Ruan: margin or labour, not unit"},
   ];
   const openVR = isGeyser ? geyserVR : plumbingVR;
   return (
@@ -1098,10 +1099,10 @@ export default function EstimatePage() {
                 <label style={{display:"block",fontSize:11,color:C.slateL,marginBottom:3,fontWeight:600}}>Geyser size</label>
                 <select value={geyser.size} onChange={e=>setGey({size:parseInt(e.target.value) as GeyserSize})}
                   style={{width:"100%",padding:"7px 10px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:13}}>
-                  {[100,150,200,250].map(s=><option key={s} value={s}>{s} L</option>)}
+                  {[50,100,150,200,250].map(s=><option key={s} value={s}>{s} L</option>)}
                 </select>
-                {geyser.size===200&&<div style={{fontSize:10,color:C.amber,marginTop:3}}>⚠ 200L interpolated — no direct quote</div>}
-                {geyser.size===250&&<div style={{fontSize:10,color:C.amber,marginTop:3}}>⚠ 250L evidence stale (2022)</div>}
+                <div style={{fontSize:10,color:C.slateL,marginTop:3}}>Unit price Sourced (Plumblink 2026)</div>
+                {geyser.size===150&&<div style={{fontSize:10,color:C.amber,marginTop:3}}>⚠ 150L ~15% under 2024 market — VR-11</div>}
               </div>
               {geyser.jobType==="burst_replacement"
                 ? <div>
