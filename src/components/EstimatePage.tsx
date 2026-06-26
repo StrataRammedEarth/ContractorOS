@@ -1,4 +1,8 @@
 import { useState, useMemo, useCallback } from "react";
+import {
+  buildGeyserReplacement, buildElementRepair,
+  type GeyserAssembly, type GeyserSize, type GeyserBrand, type GeyserJobType,
+} from "@/lib/geyser-assembly";
 
 // ─── SUPABASE (for the scan-drawing edge function) ────────────────────────────
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? "";
@@ -79,11 +83,15 @@ interface Fixtures {
   toilet: number; basin: number; shower: number;
   showerDoor: number; showerRose: number; showerArm: number; kitchenMixer: number;
 }
+interface GeyserMeta {
+  jobType: GeyserJobType; size: GeyserSize; brand: GeyserBrand; solar: boolean;
+}
 interface Inputs {
   projectName: string; clientName: string; pipeType: string;
   supplyMetres: number; drainMetres: number; points: number; trenching: boolean;
   fixtures: Fixtures;
   _scanNotes?: string; _scanConf?: string;
+  _geyser?: GeyserMeta; // present when this is a geyser-assembly job
 }
 interface ScopeLine {
   id: string; code: string; description: string; qty: number; unit: string;
@@ -221,6 +229,41 @@ function buildLabour(inp: Inputs): LabourLine[] {
   return lines;
 }
 
+// ─── GEYSER ASSEMBLY → SCOPE/LABOUR ADAPTERS ──────────────────────────────────
+// The geyser module returns TRUE-COST lines + a fixed labour block. We map those
+// into the existing ScopeLine/LabourLine shapes so the 4 output tabs, the
+// commercial ladder (applyLadder) and the issuance gate all work unchanged.
+function geyserToScope(asm: GeyserAssembly): ScopeLine[] {
+  const supplier = asm.jobType === "burst_replacement" ? "Geyser supplier (confirm)" : "Vissi/local";
+  return asm.lines.map((l, i) => ({
+    id: `G${String(i + 1).padStart(2, "0")}`,
+    code: l.code,
+    description: l.description,
+    qty: l.quantity,
+    unit: l.unit,
+    unitPrice: l.unitCost,
+    conf: l.grade,
+    total: l.total,
+    supplier,
+    derivation: `${l.writingMode} · true cost excl. margin`,
+    mode: l.writingMode,
+  }));
+}
+function geyserToLabour(asm: GeyserAssembly): LabourLine[] {
+  const burst = asm.jobType === "burst_replacement";
+  return [{
+    id: "GL01",
+    description: burst ? "Geyser remove & replace — labour block" : "Element / thermostat repair — labour",
+    hours: asm.labourCost / CREW_RATE_HR,
+    rate: CREW_RATE_HR,
+    cost: asm.labourCost,
+    conf: asm.grade,
+    derivation: burst
+      ? "Fixed crew block by size (Assumption) [VR-09]"
+      : "Contractor flat-rate, sell-side reference [VR-10 open decision]",
+  }];
+}
+
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 const fmt  = (n: number) => `R ${n.toLocaleString("en-ZA",{minimumFractionDigits:2,maximumFractionDigits:2})}`;
 const fmtN = (n: number) => n.toLocaleString("en-ZA",{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -246,18 +289,42 @@ function printQuotePDF(inp: Inputs, scope: ScopeLine[], labour: LabourLine[], qu
   const allow = ld.sell - ld.prime;
   const vat   = ld.sell * 0.15;
   const total = ld.sell + vat;
-  const fixtureLines = [
+  const g = inp._geyser;
+  const fixtureLines = g ? [] : [
     { k:"toilet" as const,l:"Toilets"},{ k:"basin" as const,l:"Basins"},{ k:"shower" as const,l:"Shower mixers"},
     { k:"showerDoor" as const,l:"Shower doors"},{ k:"showerRose" as const,l:"Shower roses"},
     { k:"showerArm" as const,l:"Shower arms"},{ k:"kitchenMixer" as const,l:"Kitchen mixers"},
   ].filter(f=>(inp.fixtures[f.k]??0)>0).map(f=>`${f.l}: ${inp.fixtures[f.k]}`);
-  const assumptions = [
-    `Pipe type: ${inp.pipeType}`,`Supply run: ${inp.supplyMetres}m`,
-    `Water points: ${inp.points}`,`Drain run: ${inp.drainMetres}m`,
-    `Trenching: ${inp.trenching?"Yes":"No"}`,
-    "Commercial rules: 5% waste, 5% risk, 10% contingency, 25% markup",
-    "SA productivity factor: ×1.20 on Spon's UK constants (Assumption VR-05)",
-  ];
+  // Scope-of-work grid: geyser assembly vs plumbing run
+  const scopeGrid = g
+    ? [
+        `<div class="scope-item"><strong>Job:</strong> ${g.jobType==="burst_replacement"?"Burst geyser replacement":"Element / thermostat repair"}</div>`,
+        `<div class="scope-item"><strong>Size:</strong> ${g.size}L</div>`,
+        g.jobType==="burst_replacement"?`<div class="scope-item"><strong>Brand:</strong> ${g.brand} (B-rated, 5yr warranty)</div>`:"",
+        g.jobType==="element_repair"?`<div class="scope-item"><strong>Solar geyser:</strong> ${g.solar?"Yes — thermostat retained":"No"}</div>`:"",
+        ...scope.map(l=>`<div class="scope-item"><strong>${l.qty}× ${l.description}</strong></div>`),
+        `<div class="scope-item"><strong>Commercial rules:</strong> 5% waste, 5% risk, 10% contingency, 25% markup</div>`,
+      ].filter(Boolean).join("")
+    : `<div class="scope-item"><strong>Pipe type:</strong> ${inp.pipeType}</div><div class="scope-item"><strong>Water points:</strong> ${inp.points}</div><div class="scope-item"><strong>Supply run:</strong> ${inp.supplyMetres}m</div><div class="scope-item"><strong>Drain run:</strong> ${inp.drainMetres>0?inp.drainMetres+"m":"excluded"}</div>${fixtureLines.map(l=>`<div class="scope-item"><strong>${l}</strong></div>`).join("")}<div class="scope-item"><strong>Commercial rules:</strong> 5% waste, 5% risk, 10% contingency, 25% markup</div>`;
+  const scopeIntro = g
+    ? `Supply and installation of a ${g.size}L ${g.jobType==="burst_replacement"?`${g.brand} geyser replacement assembly`:"geyser element / thermostat repair"} as set out below.`
+    : "Supply and installation of plumbing connection assemblies as set out below.";
+  const assumptions = g
+    ? [
+        `Asset: ${g.size}L geyser, ${g.jobType==="burst_replacement"?`${g.brand} B-rated (5yr warranty)`:"element/thermostat repair"}`,
+        "Commercial rules: 5% waste, 5% risk, 10% contingency, 25% markup",
+        "Geyser unit + kit costs back-derived (Assumption) — confirm buy-prices [VR-07, VR-08]",
+        "Labour block crew-derived (Assumption) — confirm vs actual crew hours [VR-09]",
+        g.size===200?"200L pricing interpolated — no direct quote evidence":"",
+        g.size===250?"250L evidence stale (2022) — reverify before client issue":"",
+      ].filter(Boolean)
+    : [
+        `Pipe type: ${inp.pipeType}`,`Supply run: ${inp.supplyMetres}m`,
+        `Water points: ${inp.points}`,`Drain run: ${inp.drainMetres}m`,
+        `Trenching: ${inp.trenching?"Yes":"No"}`,
+        "Commercial rules: 5% waste, 5% risk, 10% contingency, 25% markup",
+        "SA productivity factor: ×1.20 on Spon's UK constants (Assumption VR-05)",
+      ];
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
 <title>${quoteRef} — Plumbing Quotation</title>
 <style>
@@ -266,8 +333,8 @@ function printQuotePDF(inp: Inputs, scope: ScopeLine[], labour: LabourLine[], qu
 <div class="header"><div style="display:flex;align-items:center;gap:14px"><div class="logo-mark">CO</div><div><div class="logo-text">ContractorOS</div><div class="logo-sub">Plumbing · One Job. Four Outputs.</div></div></div><div class="quote-label"><h2>Quotation</h2><p>Ref: <strong>${quoteRef}</strong></p><p>${today()} · <strong>DRAFT</strong></p><p>Valid: 30 days</p></div></div>
 <div class="gold-bar"></div>
 <div class="parties"><div class="party"><div class="party-label">From</div><h3>[Your Plumbing Business]</h3><p>Registration / VAT no.</p><p>Phone · Email</p></div><div class="party"><div class="party-label">To</div><h3>${inp.projectName||"Project"}</h3><p>${inp.clientName||"Client name &amp; site address"}</p></div></div>
-<div class="section-bar">Scope of Work</div><div class="scope-box"><p style="font-size:11px;color:#4A6080;line-height:1.6">Supply and installation of plumbing connection assemblies as set out below.</p><div class="scope-grid"><div class="scope-item"><strong>Pipe type:</strong> ${inp.pipeType}</div><div class="scope-item"><strong>Water points:</strong> ${inp.points}</div><div class="scope-item"><strong>Supply run:</strong> ${inp.supplyMetres}m</div><div class="scope-item"><strong>Drain run:</strong> ${inp.drainMetres>0?inp.drainMetres+"m":"excluded"}</div>${fixtureLines.map(l=>`<div class="scope-item"><strong>${l}</strong></div>`).join("")}<div class="scope-item"><strong>Commercial rules:</strong> 5% waste, 5% risk, 10% contingency, 25% markup</div></div></div>
-<div class="section-bar">Pricing</div><table><thead><tr><th>Description</th><th style="text-align:right">Amount (excl VAT)</th></tr></thead><tbody><tr><td>Materials &amp; Supply<div class="sub">Pipe, fittings, connection assemblies, consumables</div></td><td>${fmtN(mat)}</td></tr><tr><td>Labour &amp; Installation<div class="sub">Pipework, point make-off, fixture connection</div></td><td>${fmtN(lab)}</td></tr><tr><td>Project allowances &amp; margin<div class="sub">Waste, risk, contingency &amp; markup</div></td><td>${fmtN(allow)}</td></tr></tbody></table>
+<div class="section-bar">Scope of Work</div><div class="scope-box"><p style="font-size:11px;color:#4A6080;line-height:1.6">${scopeIntro}</p><div class="scope-grid">${scopeGrid}</div></div>
+<div class="section-bar">Pricing</div><table><thead><tr><th>Description</th><th style="text-align:right">Amount (excl VAT)</th></tr></thead><tbody><tr><td>Materials &amp; Supply<div class="sub">${g?"Geyser unit, valves, tray, vacuum breakers, consumables":"Pipe, fittings, connection assemblies, consumables"}</div></td><td>${fmtN(mat)}</td></tr><tr><td>Labour &amp; Installation<div class="sub">${g?(g.jobType==="burst_replacement"?"Remove old geyser, install &amp; commission new assembly":"Element / thermostat repair labour"):"Pipework, point make-off, fixture connection"}</div></td><td>${fmtN(lab)}</td></tr><tr><td>Project allowances &amp; margin<div class="sub">Waste, risk, contingency &amp; markup</div></td><td>${fmtN(allow)}</td></tr></tbody></table>
 <div class="totals"><div class="total-row"><span>Subtotal (excl VAT)</span><span>R ${fmtN(ld.sell)}</span></div><div class="total-row"><span>VAT @ 15%</span><span>R ${fmtN(vat)}</span></div></div>
 <div class="total-final"><span>Total Due</span><span>R ${fmtN(total)}</span></div>
 <div class="bottom-grid"><div class="bottom-box"><h4>Assumptions</h4>${assumptions.map(a=>`<div>— ${a}</div>`).join("")}</div><div class="bottom-box"><h4>Exclusions &amp; Terms</h4><div>— Builder's work, tiling, electrical and making-good excluded.</div><div>— 50% deposit on acceptance; balance on completion.</div><div>— Quote valid 30 days; subject to site confirmation.</div></div></div>
@@ -487,14 +554,24 @@ function ScanDrawingPanel({ onExtracted }: { onExtracted: (data: Inputs) => void
 function ScopeModal({ scope, labour, inputs, onConfirm, onBack }: { scope: ScopeLine[]; labour: LabourLine[]; inputs: Inputs; onConfirm: () => void; onBack: () => void }) {
   const mat=scope.reduce((s,l)=>s+l.total,0);
   const lab=labour.reduce((s,l)=>s+l.cost,0);
-  const items=[
-    `${inputs.supplyMetres}m ${inputs.pipeType} supply run`,
-    `${inputs.points} plumbing points (make-offs)`,
-    inputs.drainMetres>0?`${inputs.drainMetres}m drainage run`:null,
-    inputs.trenching?"Trench excavation included":"No trenching",
-    ...([{k:"toilet" as const,l:"toilet suite"},{k:"basin" as const,l:"basin"},{k:"shower" as const,l:"shower mixer"},{k:"showerDoor" as const,l:"shower door"},{k:"showerRose" as const,l:"shower rose"},{k:"showerArm" as const,l:"shower arm"},{k:"kitchenMixer" as const,l:"kitchen mixer"}]
-      .filter(f=>(inputs.fixtures[f.k]??0)>0).map(f=>`${inputs.fixtures[f.k]}× ${f.l}`)),
-  ].filter(Boolean);
+  const g=inputs._geyser;
+  const items = g
+    ? [
+        g.jobType==="burst_replacement"
+          ? `${g.size}L ${g.brand} B-rated geyser — remove & replace`
+          : `${g.size}L geyser — element / thermostat repair`,
+        ...scope.map(l=>`${l.qty}× ${l.description}`),
+        `Labour: ${fmt(lab)} (${g.jobType==="burst_replacement"?"fixed crew block":"flat-rate repair"})`,
+        g.solar?"Solar geyser — thermostat not replaced":null,
+      ].filter(Boolean)
+    : [
+        `${inputs.supplyMetres}m ${inputs.pipeType} supply run`,
+        `${inputs.points} plumbing points (make-offs)`,
+        inputs.drainMetres>0?`${inputs.drainMetres}m drainage run`:null,
+        inputs.trenching?"Trench excavation included":"No trenching",
+        ...([{k:"toilet" as const,l:"toilet suite"},{k:"basin" as const,l:"basin"},{k:"shower" as const,l:"shower mixer"},{k:"showerDoor" as const,l:"shower door"},{k:"showerRose" as const,l:"shower rose"},{k:"showerArm" as const,l:"shower arm"},{k:"kitchenMixer" as const,l:"kitchen mixer"}]
+          .filter(f=>(inputs.fixtures[f.k]??0)>0).map(f=>`${inputs.fixtures[f.k]}× ${f.l}`)),
+      ].filter(Boolean);
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(13,27,42,0.88)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999,padding:20}}>
       <div style={{background:"#fff",borderRadius:10,maxWidth:540,width:"100%",boxShadow:"0 24px 80px rgba(0,0,0,0.4)",overflow:"hidden"}}>
@@ -691,11 +768,12 @@ function BuildTab({ labour }: { labour: LabourLine[] }) {
   );
 }
 
-function LearnTab({ scope, labour }: { scope: ScopeLine[]; labour: LabourLine[] }) {
+function LearnTab({ scope, labour, flags=[] }: { scope: ScopeLine[]; labour: LabourLine[]; flags?: string[] }) {
+  const isGeyser = scope.some(l=>l.code.startsWith("PLB-GEY"));
   const all=[...scope.map(l=>l.conf),...labour.map(l=>l.conf)];
   const weakest=all.reduce((m,g)=>(GRADES[g]?.rank<GRADES[m]?.rank?g:m),"Validated");
   const issuable=GRADES[weakest]?.rank>=GRADES["Derived"].rank;
-  const openVR=[
+  const plumbingVR=[
     {id:"VR-01",desc:"AfriCamps baseline extracted to per-unit intensities",grade:"Pending",  closes:"Quantities derived and recorded"},
     {id:"VR-02",desc:"Scaling model: linear vs taper vs split",            grade:"Assumption",closes:"QS source material reviewed"},
     {id:"VR-03",desc:"Productivity constants (Spon's-seeded)",             grade:"Sourced",  closes:"SA plumber field test validation"},
@@ -703,14 +781,32 @@ function LearnTab({ scope, labour }: { scope: ScopeLine[]; labour: LabourLine[] 
     {id:"VR-05",desc:"SA adjustment factor ×1.20 on UK productivity",      grade:"Assumption",closes:"Field test confirms or revises"},
     {id:"VR-06",desc:"Supervising plumber day rate (R600/day)",            grade:"Assumption",closes:"Plumber network confirmation"},
   ];
+  const geyserVR=[
+    {id:"VR-07",desc:"Geyser unit buy-prices (back-derived)",          grade:"Assumption",   closes:"Contractor confirms supplier buy-prices"},
+    {id:"VR-08",desc:"Fixed replacement kit cost (R1,250)",            grade:"Assumption",   closes:"Itemised buy-prices confirmed"},
+    {id:"VR-09",desc:"Geyser labour block (crew-derived)",             grade:"Assumption",   closes:"Confirmed vs crew time on real jobs"},
+    {id:"VR-10",desc:"Element-repair: ladder vs fixed-price",          grade:"Open decision",closes:"Owner sets pricing convention"},
+  ];
+  const openVR = isGeyser ? geyserVR : plumbingVR;
   return (
     <div>
       <div style={{background:issuable?"#EBF9EE":"#FDEDEC",border:`1px solid ${issuable?C.green:C.red}40`,borderRadius:8,padding:"14px 20px",margin:16}}>
         <div style={{fontWeight:700,color:issuable?C.green:C.red,fontSize:13}}>
-          {issuable?"✓ INTERNAL USE — produceable at flagged grade":"✗ NOT CLIENT-ISSUABLE — resolve Placeholder inputs first"}
+          {issuable?"✓ INTERNAL USE — produceable at flagged grade":"✗ NOT CLIENT-ISSUABLE — resolve flagged inputs first"}
         </div>
         <div style={{color:C.navy,fontSize:12,marginTop:4}}>Output grade: <GradePill grade={weakest}/></div>
       </div>
+      {flags.length>0&&(
+        <>
+          <SectionHeader>Assembly Flags — must clear before client issue</SectionHeader>
+          <div style={{padding:"10px 16px"}}>
+            {flags.map((f,i)=>(
+              <div key={i} style={{display:"flex",gap:8,alignItems:"flex-start",background:"#FEF5E7",border:`1px solid ${C.amber}40`,borderRadius:6,padding:"8px 12px",marginBottom:6,fontSize:11,color:C.navy}}>
+                <span>⚠</span><span>{f}</span>
+              </div>))}
+          </div>
+        </>
+      )}
       <SectionHeader>Validation Register</SectionHeader>
       <div style={{overflowX:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:420}}>
@@ -761,38 +857,61 @@ const TABS = [
   {id:"learn",   label:"Learn",   icon:"📊"},
 ];
 
+const GEYSER_DEFAULT: GeyserMeta = { jobType:"burst_replacement", size:150, brand:"Kwikot", solar:false };
+
 export default function EstimatePage() {
   const [screen, setScreen] = useState<"entry"|"scan"|"review"|"output">("entry");
   const [tab,    setTab]    = useState("estimate");
   const [inputs, setInputs] = useState<Inputs>(DEFAULT);
+  const [jobMode, setJobMode] = useState<"plumbing"|"geyser">("plumbing");
+  const [geyser, setGeyser]   = useState<GeyserMeta>(GEYSER_DEFAULT);
   const [quoteRef]          = useState(() => nextQuoteRef());
 
-  const scope      = useMemo(()=>buildScope(inputs),[inputs]);
-  const labour     = useMemo(()=>buildLabour(inputs),[inputs]);
+  // Geyser assembly (fixed-composition) vs plumbing engine (baseline-and-scale)
+  const geyserAsm = useMemo<GeyserAssembly | null>(() =>
+    jobMode==="geyser"
+      ? (geyser.jobType==="burst_replacement"
+          ? buildGeyserReplacement(geyser.size, geyser.brand)
+          : buildElementRepair(geyser.size, geyser.solar))
+      : null, [jobMode, geyser]);
+
+  const scope  = useMemo(()=> geyserAsm ? geyserToScope(geyserAsm)  : buildScope(inputs),  [geyserAsm, inputs]);
+  const labour = useMemo(()=> geyserAsm ? geyserToLabour(geyserAsm) : buildLabour(inputs), [geyserAsm, inputs]);
+  const flags  = geyserAsm ? geyserAsm.flags : [];
   const finalGrade = useMemo(()=>{
     const all=[...scope.map(l=>l.conf),...labour.map(l=>l.conf)];
     return all.reduce((m,g)=>(GRADES[g]?.rank<GRADES[m]?.rank?g:m),"Validated");
   },[scope,labour]);
 
+  // effInputs carries the geyser meta + a descriptive project name into the
+  // header, scope modal, tabs and PDF generators.
+  const geyserName = geyserAsm
+    ? `${geyser.size}L ${geyser.jobType==="burst_replacement"?`${geyser.brand} geyser replacement`:"geyser element repair"}`
+    : "";
+  const effInputs: Inputs = geyserAsm
+    ? { ...inputs, projectName: (inputs.projectName && inputs.projectName!==DEFAULT.projectName) ? inputs.projectName : geyserName, _geyser: geyser, _scanNotes: undefined }
+    : inputs;
+
   const setInp = useCallback((k: keyof Inputs, v: unknown) => setInputs(p=>({...p,[k]:v})),[]);
   const setFix = useCallback((k: keyof Fixtures, v: string) =>
     setInputs(p=>({...p,fixtures:{...p.fixtures,[k]:Math.max(0,parseInt(v)||0)}})),[]);
+  const setGey = useCallback((patch: Partial<GeyserMeta>) => setGeyser(p=>({...p,...patch})),[]);
 
-  const onScanDone = useCallback((data: Inputs) => { setInputs(data); setScreen("review"); },[]);
+  const onScanDone = useCallback((data: Inputs) => { setJobMode("plumbing"); setInputs(data); setScreen("review"); },[]);
 
   const matTotal=scope.reduce((s,l)=>s+l.total,0);
   const labTotal=labour.reduce((s,l)=>s+l.cost,0);
   const sell=applyLadder(matTotal,labTotal).sell;
 
-  const printQuote=()=>printQuotePDF(inputs,scope,labour,quoteRef);
-  const printBuy  =()=>printBuyPDF(inputs,scope,quoteRef);
+  const printQuote=()=>printQuotePDF(effInputs,scope,labour,quoteRef);
+  const printBuy  =()=>printBuyPDF(effInputs,scope,quoteRef);
 
   const AppHeader = ({ showTabs }: { showTabs: boolean }) => (
     <div style={{background:C.navy,borderBottom:`3px solid ${C.gold}`,position:"sticky",top:0,zIndex:100}}>
       <div style={{maxWidth:960,margin:"0 auto",padding:"12px 20px",display:"flex",alignItems:"center",gap:14}}>
         <Logo/>
         <div style={{flex:1,marginLeft:4}}>
-          {showTabs&&<div style={{color:C.slateL,fontSize:12}}>{inputs.projectName}</div>}
+          {showTabs&&<div style={{color:C.slateL,fontSize:12}}>{effInputs.projectName}</div>}
         </div>
         {showTabs
           ? <div style={{display:"flex",gap:12,alignItems:"center"}}>
@@ -847,7 +966,7 @@ export default function EstimatePage() {
   if (screen==="review") return (
     <div style={{fontFamily:"'Inter',system-ui,sans-serif",background:"#F1F4F8",minHeight:"100vh"}}>
       <AppHeader showTabs={false}/>
-      <ScopeModal scope={scope} labour={labour} inputs={inputs}
+      <ScopeModal scope={scope} labour={labour} inputs={effInputs}
         onConfirm={()=>{setTab("estimate");setScreen("output");}}
         onBack={()=>setScreen("entry")}/>
     </div>
@@ -857,14 +976,15 @@ export default function EstimatePage() {
     <div style={{fontFamily:"'Inter',system-ui,sans-serif",background:"#F1F4F8",minHeight:"100vh"}}>
       <AppHeader showTabs={true}/>
       <div style={{maxWidth:960,margin:"0 auto",padding:"0 20px 32px"}}>
-        {inputs._scanNotes&&<div style={{background:"#FEF5E7",border:`1px solid ${C.amber}40`,borderRadius:"0 0 6px 6px",padding:"6px 16px",fontSize:11,color:C.navy,marginBottom:4}}>📐 <strong>Scan-derived scope:</strong> {inputs._scanNotes}</div>}
+        {inputs._scanNotes&&!geyserAsm&&<div style={{background:"#FEF5E7",border:`1px solid ${C.amber}40`,borderRadius:"0 0 6px 6px",padding:"6px 16px",fontSize:11,color:C.navy,marginBottom:4}}>📐 <strong>Scan-derived scope:</strong> {inputs._scanNotes}</div>}
+        {geyserAsm&&<div style={{background:"#FEF5E7",border:`1px solid ${C.amber}40`,borderRadius:"0 0 6px 6px",padding:"6px 16px",fontSize:11,color:C.navy,marginBottom:4}}>♨ <strong>Geyser assembly · {finalGrade} grade:</strong> fixed-composition quote — see Learn tab for {flags.length} open flag{flags.length===1?"":"s"} (not client-issuable until grade lifts).</div>}
         <div style={{background:"#fff",borderRadius:"0 8px 8px 8px",border:"1px solid #DDE3EA",borderTop:"none",overflow:"hidden"}}>
-          {tab==="estimate"&&<EstimateTab scope={scope} labour={labour} inputs={inputs} finalGrade={finalGrade} quoteRef={quoteRef} onPrintQuote={printQuote}/>}
-          {tab==="buy"    &&<BuyTab scope={scope} inputs={inputs} quoteRef={quoteRef} onPrintBuy={printBuy}/>}
+          {tab==="estimate"&&<EstimateTab scope={scope} labour={labour} inputs={effInputs} finalGrade={finalGrade} quoteRef={quoteRef} onPrintQuote={printQuote}/>}
+          {tab==="buy"    &&<BuyTab scope={scope} inputs={effInputs} quoteRef={quoteRef} onPrintBuy={printBuy}/>}
           {tab==="build"  &&<BuildTab labour={labour}/>}
-          {tab==="learn"  &&<LearnTab scope={scope} labour={labour}/>}
+          {tab==="learn"  &&<LearnTab scope={scope} labour={labour} flags={flags}/>}
         </div>
-        <div style={{marginTop:8,fontSize:10,color:C.muted,textAlign:"center"}}>ContractorOS v2 · Plumbing Tier 2 · Plumblink/CTM/Gelmar 2025–26 · Spon's seed SA-adjusted · excl. VAT</div>
+        <div style={{marginTop:8,fontSize:10,color:C.muted,textAlign:"center"}}>{geyserAsm?"ContractorOS v2 · Geyser Assembly (Tier 2) · Vissi evidence 2022–26 · true-cost + ladder · excl. VAT":"ContractorOS v2 · Plumbing Tier 2 · Plumblink/CTM/Gelmar 2025–26 · Spon's seed SA-adjusted · excl. VAT"}</div>
       </div>
     </div>
   );
@@ -874,10 +994,20 @@ export default function EstimatePage() {
     <div style={{fontFamily:"'Inter',system-ui,sans-serif",background:"#F1F4F8",minHeight:"100vh"}}>
       <AppHeader showTabs={false}/>
       <div style={{maxWidth:780,margin:"0 auto",padding:"24px 20px"}}>
+        {/* Job-type selector: baseline-and-scale plumbing vs fixed-composition geyser */}
+        <div style={{display:"flex",gap:8,marginBottom:16}}>
+          {([{m:"plumbing" as const,l:"🔧 Plumbing Estimate"},{m:"geyser" as const,l:"♨ Geyser Replacement"}]).map(j=>(
+            <button key={j.m} onClick={()=>setJobMode(j.m)} style={{
+              flex:1,padding:"11px 20px",borderRadius:8,cursor:"pointer",fontWeight:800,fontSize:13,
+              border:`2px solid ${jobMode===j.m?C.gold:C.gold+"50"}`,
+              background:jobMode===j.m?C.gold:"transparent",color:jobMode===j.m?C.navy:C.gold}}>{j.l}</button>))}
+        </div>
+
+        {jobMode==="plumbing"&&(
         <div style={{display:"flex",gap:8,marginBottom:16}}>
           <button onClick={()=>setScreen("entry")} style={{padding:"9px 20px",borderRadius:8,border:`2px solid ${C.gold}`,background:C.gold,color:C.navy,cursor:"pointer",fontWeight:800,fontSize:13}}>✏ Manual Entry</button>
           <button onClick={()=>setScreen("scan")}  style={{padding:"9px 20px",borderRadius:8,border:`2px solid ${C.gold}60`,background:"transparent",color:C.gold,cursor:"pointer",fontWeight:700,fontSize:13}}>📐 Scan Drawing</button>
-        </div>
+        </div>)}
 
         <div style={{background:"#fff",borderRadius:8,border:"1px solid #DDE3EA",marginBottom:14,overflow:"hidden"}}>
           <SectionHeader>Project Details</SectionHeader>
@@ -891,6 +1021,7 @@ export default function EstimatePage() {
           </div>
         </div>
 
+        {jobMode==="plumbing"&&(<>
         <div style={{background:"#fff",borderRadius:8,border:"1px solid #DDE3EA",marginBottom:14,overflow:"hidden"}}>
           <SectionHeader>Supply Run</SectionHeader>
           <div style={{padding:"14px 20px",display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
@@ -946,6 +1077,51 @@ export default function EstimatePage() {
               </div>))}
           </div>
         </div>
+        </>)}
+
+        {jobMode==="geyser"&&(
+        <div style={{background:"#fff",borderRadius:8,border:"1px solid #DDE3EA",marginBottom:14,overflow:"hidden"}}>
+          <SectionHeader>♨ Geyser Assembly — fixed composition by size</SectionHeader>
+          <div style={{padding:"14px 20px"}}>
+            <div style={{marginBottom:14}}>
+              <label style={{display:"block",fontSize:11,color:C.slateL,marginBottom:6,fontWeight:600}}>Job type</label>
+              <div style={{display:"flex",gap:8}}>
+                {([{v:"burst_replacement" as const,l:"Burst replacement"},{v:"element_repair" as const,l:"Element / thermostat repair"}]).map(j=>(
+                  <button key={j.v} onClick={()=>setGey({jobType:j.v})} style={{
+                    flex:1,padding:"9px 12px",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:700,
+                    border:`1px solid ${geyser.jobType===j.v?C.gold:"#C8D0DB"}`,
+                    background:geyser.jobType===j.v?C.goldPale:"#fff",color:C.navy}}>{j.l}</button>))}
+              </div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <div>
+                <label style={{display:"block",fontSize:11,color:C.slateL,marginBottom:3,fontWeight:600}}>Geyser size</label>
+                <select value={geyser.size} onChange={e=>setGey({size:parseInt(e.target.value) as GeyserSize})}
+                  style={{width:"100%",padding:"7px 10px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:13}}>
+                  {[100,150,200,250].map(s=><option key={s} value={s}>{s} L</option>)}
+                </select>
+                {geyser.size===200&&<div style={{fontSize:10,color:C.amber,marginTop:3}}>⚠ 200L interpolated — no direct quote</div>}
+                {geyser.size===250&&<div style={{fontSize:10,color:C.amber,marginTop:3}}>⚠ 250L evidence stale (2022)</div>}
+              </div>
+              {geyser.jobType==="burst_replacement"
+                ? <div>
+                    <label style={{display:"block",fontSize:11,color:C.slateL,marginBottom:3,fontWeight:600}}>Brand</label>
+                    <select value={geyser.brand} onChange={e=>setGey({brand:e.target.value as GeyserBrand})}
+                      style={{width:"100%",padding:"7px 10px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:13}}>
+                      {["Kwikot","Ariston"].map(b=><option key={b}>{b}</option>)}
+                    </select>
+                    <div style={{fontSize:10,color:C.slateL,marginTop:3}}>B-rated · 5yr warranty</div>
+                  </div>
+                : <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",paddingTop:18}}>
+                    <input type="checkbox" checked={geyser.solar} onChange={e=>setGey({solar:e.target.checked})} style={{width:16,height:16}}/>
+                    <span style={{fontSize:13,color:C.navy}}>Solar geyser (skip thermostat)</span>
+                  </label>}
+            </div>
+            <div style={{background:C.goldPale,border:`1px solid ${C.gold}40`,borderRadius:6,padding:"10px 14px",marginTop:14,fontSize:11,color:C.navy}}>
+              ♨ Fixed-composition assembly · <strong>{geyser.jobType==="burst_replacement"?"Assumption":"Sourced"} grade</strong> · material {fmt(matTotal)} + labour {fmt(labTotal)} → ladder → <strong>{fmt(sell)}</strong> sell excl. VAT. Not client-issuable until grade lifts (see Learn tab).
+            </div>
+          </div>
+        </div>)}
 
         <div style={{background:"#fff",border:`1px solid ${C.gold}40`,borderRadius:8,padding:"14px 20px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
           <div>
