@@ -1,0 +1,12 @@
+[build]
+  command = "npm run build"
+  publish = "dist/client"
+
+# TanStack Start SPA mode emits a static shell at dist/client/_shell.html that
+# hydrates client-side. Serve it for every route so client-side routing works on
+# deep links / refreshes. Static assets under /assets/* are served directly because
+# Netlify only applies this catch-all when no file matches.
+[[redirects]]
+  from = "/*"
+  to = "/_shell.html"
+  status = 200
