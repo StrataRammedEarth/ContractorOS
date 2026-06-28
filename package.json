@@ -4,10 +4,11 @@
   "sideEffects": false,
   "type": "module",
   "scripts": {
-    "prepare:invoice-mode": "node scripts/apply-invoice-mode.mjs",
-    "dev": "npm run prepare:invoice-mode && vite dev",
-    "build": "npm run prepare:invoice-mode && vite build",
-    "build:dev": "npm run prepare:invoice-mode && vite build --mode development",
+    "prepare:contractoros": "node scripts/apply-contractoros-patches.mjs",
+    "prepare:invoice-mode": "node scripts/apply-contractoros-patches.mjs",
+    "dev": "npm run prepare:contractoros && vite dev",
+    "build": "npm run prepare:contractoros && vite build",
+    "build:dev": "npm run prepare:contractoros && vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier --write ."
