@@ -3,8 +3,8 @@ import fs from 'node:fs';
 const file = 'src/components/EstimatePage.tsx';
 let s = fs.readFileSync(file, 'utf8');
 
-if (s.includes('documentType, setDocumentType')) {
-  console.log('Invoice mode already applied.');
+if (s.includes('documentType, setDocumentType') && s.includes('interface FittingLine')) {
+  console.log('Invoice mode and fittings already applied.');
   process.exit(0);
 }
 
@@ -13,10 +13,11 @@ function replace(needle, value, label) {
   s = s.replace(needle, value);
 }
 
+if (!s.includes('documentType, setDocumentType')) {
 replace(
   '} from "@/lib/geyser-assembly";\n',
-  '} from "@/lib/geyser-assembly";\nimport { addDays, DEFAULT_BANKING_DETAILS, isoDate, printInvoiceDocument, type DocumentType, type InvoiceMeta } from "@/lib/invoice-document";\n',
-  'invoice import',
+  '} from "@/lib/geyser-assembly";\nimport { addDays, DEFAULT_BANKING_DETAILS, isoDate, printInvoiceDocument, type DocumentType, type InvoiceMeta } from "@/lib/invoice-document";\nimport { COMPRESSION_FITTINGS, FITTING_SIZE_GROUPS, fittingsForSizeGroup } from "@/lib/plumblink-fittings";\n',
+  'invoice/fittings imports',
 );
 
 replace(
@@ -141,8 +142,16 @@ replace(
 );
 
 replace(
-`{tab==="estimate"&&<EstimateTab scope={scope} labour={labour} inputs={effInputs} finalGrade={finalGrade} quoteRef={quoteRef} onPrintQuote={printQuote}/>}\n          {tab==="buy"    &&<BuyTab scope={scope} inputs={effInputs} quoteRef={quoteRef} onPrintBuy={printBuy}/>}\n          {tab==="build"  &&<BuildTab labour={labour}/>}\n          {tab==="learn"  &&<LearnTab scope={scope} labour={labour} flags={flags}/>}\n`,
-`{tab==="estimate"&&<EstimateTab scope={scope} labour={labour} inputs={effInputs} finalGrade={finalGrade} quoteRef={docRef} documentType={documentType} onPrintQuote={printDocument}/>}\n          {tab==="buy"    &&<BuyTab scope={scope} inputs={effInputs} quoteRef={docRef} onPrintBuy={printBuy}/>}\n          {tab==="build"  &&<BuildTab labour={labour}/>}\n          {tab==="learn"  &&<LearnTab scope={scope} labour={labour} flags={flags} documentType={documentType}/>}\n`,
+`{tab==="estimate"&&<EstimateTab scope={scope} labour={labour} inputs={effInputs} finalGrade={finalGrade} quoteRef={quoteRef} onPrintQuote={printQuote}/>}
+          {tab==="buy"    &&<BuyTab scope={scope} inputs={effInputs} quoteRef={quoteRef} onPrintBuy={printBuy}/>}
+          {tab==="build"  &&<BuildTab labour={labour}/>}
+          {tab==="learn"  &&<LearnTab scope={scope} labour={labour} flags={flags}/>}
+`,
+`{tab==="estimate"&&<EstimateTab scope={scope} labour={labour} inputs={effInputs} finalGrade={finalGrade} quoteRef={docRef} documentType={documentType} onPrintQuote={printDocument}/>}
+          {tab==="buy"    &&<BuyTab scope={scope} inputs={effInputs} quoteRef={docRef} onPrintBuy={printBuy}/>}
+          {tab==="build"  &&<BuildTab labour={labour}/>} 
+          {tab==="learn"  &&<LearnTab scope={scope} labour={labour} flags={flags} documentType={documentType}/>}
+`,
   'output tab props',
 );
 
@@ -184,6 +193,206 @@ replace(
 `,
   'document toggle UI',
 );
+}
+
+if (!s.includes('interface FittingLine')) {
+replace(
+`interface GeyserMeta {
+`,
+`interface FittingLine {
+  id: string;
+  family: 'Compression Fittings';
+  sizeGroup: string;
+  materialCode: string;
+  plumblinkCode: string;
+  label: string;
+  description: string;
+  size: string;
+  unitPrice: number;
+  quantity: number;
+  grade: string;
+  supplier: string;
+}
+interface GeyserMeta {
+`,
+  'FittingLine type',
+);
+
+replace(
+`  drainLines?: PipeLine[];      // canonical drainage pipe (replaces drainMetres)
+  _scanNotes?: string; _scanConf?: string;
+`,
+`  drainLines?: PipeLine[];      // canonical drainage pipe (replaces drainMetres)
+  fittingLines?: FittingLine[]; // canonical fittings from the Plumblink CSV library
+  _scanNotes?: string; _scanConf?: string;
+`,
+  'Inputs fittingLines',
+);
+
+replace(
+`const sumMetres = (ls: PipeLine[] | undefined) => (ls ?? []).reduce((s,l)=>s+(l.metres||0),0);
+`,
+`const sumMetres = (ls: PipeLine[] | undefined) => (ls ?? []).reduce((s,l)=>s+(l.metres||0),0);
+const fittingPresetsForGroup = (sizeGroup: string) => fittingsForSizeGroup(sizeGroup);
+function makeFittingLine(sizeGroup = FITTING_SIZE_GROUPS[0] ?? "15mm"): FittingLine {
+  const p = fittingPresetsForGroup(sizeGroup)[0] ?? COMPRESSION_FITTINGS[0];
+  return { id:_uid(), family:p.family, sizeGroup:p.sizeGroup, materialCode:p.materialCode,
+    plumblinkCode:p.plumblinkCode, label:p.label, description:p.description, size:p.size,
+    unitPrice:p.unitPrice, quantity:1, grade:p.grade, supplier:p.supplier };
+}
+`,
+  'fitting helpers',
+);
+
+replace(
+`  const drainLines  = inp.drainLines ?? [];
+  const supplyMetres = sumMetres(supplyLines);
+`,
+`  const drainLines  = inp.drainLines ?? [];
+  const fittingLines = inp.fittingLines ?? [];
+  const supplyMetres = sumMetres(supplyLines);
+`,
+  'buildScope fitting local',
+);
+
+replace(
+`
+
+  return lines;
+}
+
+function buildLabour`,
+`
+
+  fittingLines.forEach((fl, i) => {
+    if (fl.quantity <= 0) return;
+    lines.push({
+      id:\`CF\${String(i+1).padStart(2,"0")}\`,
+      code: fl.materialCode,
+      description: fl.description,
+      qty: fl.quantity,
+      unit:"ea",
+      unitPrice: fl.unitPrice,
+      conf: fl.grade,
+      total: fl.quantity * fl.unitPrice,
+      supplier: fl.supplier,
+      derivation: \`\${fl.quantity} × R\${fl.unitPrice} (\${fl.sizeGroup} compression fitting · Plumblink \${fl.plumblinkCode || fl.materialCode})\`,
+      mode:"Supply",
+    });
+  });
+
+  return lines;
+}
+
+function buildLabour`,
+  'buildScope fitting lines',
+);
+
+replace(
+`        ...((inputs.fixtureLines ?? []).filter(l=>l.quantity>0)
+          .map(l=>\`${l.quantity}× ${l.description || l.type}${l.source==="custom"?" (custom)":""}\`)),
+`,
+`        ...((inputs.fixtureLines ?? []).filter(l=>l.quantity>0)
+          .map(l=>\`${l.quantity}× ${l.description || l.type}${l.source==="custom"?" (custom)":""}\`)),
+        ...((inputs.fittingLines ?? []).filter(l=>l.quantity>0)
+          .map(l=>\`${l.quantity}× ${l.description} (${l.sizeGroup})\`)),
+`,
+  'ScopeModal fitting items',
+);
+
+replace(
+`  drainLines:[pipeLineFrom("drainage","PVC",110,15)],
+};
+`,
+`  drainLines:[pipeLineFrom("drainage","PVC",110,15)],
+  fittingLines:[],
+};
+`,
+  'DEFAULT fittings',
+);
+
+replace(
+`  const updatePipeLine = useCallback((use: 'supply'|'drainage', id: string, patch: Partial<PipeLine>) => {
+    const key = use==='supply' ? 'supplyLines' : 'drainLines';
+    setInputs(p=>({...p, [key]:(p[key] ?? []).map(l=>l.id===id?{...l,...patch}:l)}));
+  },[]);
+
+  const onScanDone`,
+`  const updatePipeLine = useCallback((use: 'supply'|'drainage', id: string, patch: Partial<PipeLine>) => {
+    const key = use==='supply' ? 'supplyLines' : 'drainLines';
+    setInputs(p=>({...p, [key]:(p[key] ?? []).map(l=>l.id===id?{...l,...patch}:l)}));
+  },[]);
+
+  // Fitting-line builder management — CSV-driven Plumblink compression fittings
+  const addFittingLine = useCallback((sizeGroup = FITTING_SIZE_GROUPS[0] ?? "15mm") =>
+    setInputs(p=>({...p, fittingLines:[...(p.fittingLines ?? []), makeFittingLine(sizeGroup)]})),[]);
+  const removeFittingLine = useCallback((id: string) =>
+    setInputs(p=>({...p, fittingLines:(p.fittingLines ?? []).filter(l=>l.id!==id)})),[]);
+  const updateFittingLine = useCallback((id: string, patch: Partial<FittingLine>) =>
+    setInputs(p=>({...p, fittingLines:(p.fittingLines ?? []).map(l=>l.id===id?{...l,...patch}:l)})),[]);
+
+  const onScanDone`,
+  'fitting state handlers',
+);
+
+replace(
+`      drainLines:  data.drainMetres>0  ? [pipeLineFrom("drainage","PVC",110,data.drainMetres)] : [],
+`,
+`      drainLines:  data.drainMetres>0  ? [pipeLineFrom("drainage","PVC",110,data.drainMetres)] : [],
+      fittingLines: [],
+`,
+  'scan fitting defaults',
+);
+
+replace(
+`        </>)}
+
+        {jobMode==="geyser"&&(
+`,
+`        <div style={{background:"#fff",borderRadius:8,border:"1px solid #DDE3EA",marginBottom:14,overflow:"hidden"}}>
+          <SectionHeader>Fittings — Compression fittings</SectionHeader>
+          <div style={{padding:"12px 16px"}}>
+            {(inputs.fittingLines ?? []).length===0&&
+              <div style={{fontSize:12,color:C.slateL,padding:"6px 2px 10px"}}>No fittings yet — add a compression fitting line below.</div>}
+            {(inputs.fittingLines ?? []).map(fl=>{
+              const groupPresets = fittingPresetsForGroup(fl.sizeGroup);
+              return (
+              <div key={fl.id} style={{border:"1px solid #E0E5EC",borderRadius:8,padding:"8px 10px",marginBottom:8,background:C.offWhite}}>
+                <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                  <select value={fl.sizeGroup}
+                    onChange={e=>{const next=makeFittingLine(e.target.value); updateFittingLine(fl.id,{family:next.family,sizeGroup:next.sizeGroup,materialCode:next.materialCode,plumblinkCode:next.plumblinkCode,label:next.label,description:next.description,size:next.size,unitPrice:next.unitPrice,grade:next.grade,supplier:next.supplier});}}
+                    style={{padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12,minWidth:120}}>
+                    {FITTING_SIZE_GROUPS.map(g=><option key={g} value={g}>{g}</option>)}
+                  </select>
+                  <select value={fl.materialCode}
+                    onChange={e=>{const p=COMPRESSION_FITTINGS.find(x=>x.materialCode===e.target.value); if(p)updateFittingLine(fl.id,{family:p.family,sizeGroup:p.sizeGroup,materialCode:p.materialCode,plumblinkCode:p.plumblinkCode,label:p.label,description:p.description,size:p.size,unitPrice:p.unitPrice,grade:p.grade,supplier:p.supplier});}}
+                    style={{padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12,flex:1,minWidth:230}}>
+                    {groupPresets.map(p=><option key={p.materialCode} value={p.materialCode}>{p.label} — {p.size} — R{p.unitPrice.toFixed(2)}</option>)}
+                  </select>
+                  <input type="number" min={0} max={500} value={fl.quantity}
+                    onChange={e=>updateFittingLine(fl.id,{quantity:Math.max(0,parseInt(e.target.value)||0)})}
+                    style={{width:64,padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:14,fontWeight:700,textAlign:"center"}}/>
+                  <span style={{fontSize:11,color:C.slateL,minWidth:72,textAlign:"right"}}>{fmt(fl.quantity*fl.unitPrice)}</span>
+                  <GradePill grade={fl.grade}/>
+                  <button onClick={()=>removeFittingLine(fl.id)} title="Remove" style={{padding:"4px 9px",borderRadius:6,border:"1px solid #E0B4B4",background:"#fff",color:C.red,cursor:"pointer",fontSize:13,fontWeight:700}}>✕</button>
+                </div>
+                <div style={{fontSize:10,color:C.slateL,marginTop:5}}>Plumblink {fl.plumblinkCode || fl.materialCode} · {fl.description}</div>
+              </div>);
+            })}
+            <div style={{display:"flex",gap:8,alignItems:"center",marginTop:4}}>
+              <button onClick={()=>addFittingLine("15mm")}
+                style={{padding:"7px 14px",borderRadius:6,border:\`1px dashed \${C.gold}\`,background:C.goldPale,color:C.navy,cursor:"pointer",fontSize:12,fontWeight:700}}>+ Add fitting</button>
+              <span style={{fontSize:10,color:C.muted}}>Compression fitting options are generated from the Plumblink material CSV.</span>
+            </div>
+          </div>
+        </div>
+        </>)}
+
+        {jobMode==="geyser"&&(
+`,
+  'fittings UI section',
+);
+}
 
 fs.writeFileSync(file, s);
-console.log('Invoice mode applied to EstimatePage.tsx');
+console.log('Invoice mode and compression fittings applied to EstimatePage.tsx');
