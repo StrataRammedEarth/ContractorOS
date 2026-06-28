@@ -3,6 +3,10 @@ import {
   buildGeyserReplacement, buildElementRepair,
   type GeyserAssembly, type GeyserSize, type GeyserBrand, type GeyserJobType,
 } from "@/lib/geyser-assembly";
+import {
+  COMPRESSION_FITTINGS, FITTING_SIZE_GROUPS, fittingsForSizeGroup,
+  type FittingPreset,
+} from "@/lib/plumblink-fittings";
 
 // ─── SUPABASE (for the scan-drawing edge function) ────────────────────────────
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? "";
@@ -116,6 +120,27 @@ interface PipeLine {
   supplier?: string;
 }
 
+// Repeatable fitting lines (Compression Fittings, and future families): each line
+// is a catalogue product (size group + product) + its own quantity. Pricing,
+// confidence, supplier and Plumblink code all populate from the fittings catalogue.
+// Mirrors the fixture builder. Source is the COMPRESSION_FITTINGS module, which is
+// generated from the Plumblink materials CSV — add a row there and it appears here.
+interface FittingLine {
+  id: string;
+  family: string;        // 'Compression Fittings' (only family enabled today)
+  sizeGroup: string;     // '15mm' | '22mm' | 'Reducing / 22→15 / ¾"' (data-driven)
+  materialCode: string;
+  plumblinkCode: string;
+  label: string;         // e.g. 'Female Elbow'
+  description: string;
+  size: string;
+  unit: string;
+  unitPrice: number;     // excl VAT
+  quantity: number;
+  grade: string;         // Sourced (catalogue price)
+  supplier?: string;
+}
+
 interface GeyserMeta {
   jobType: GeyserJobType; size: GeyserSize; brand: GeyserBrand; solar: boolean;
 }
@@ -124,6 +149,7 @@ interface Inputs {
   supplyMetres: number; drainMetres: number; points: number; trenching: boolean;
   fixtures: Fixtures;           // legacy (scan extraction still populates this)
   fixtureLines?: FixtureLine[]; // canonical fixtures for manual-entry pricing
+  fittingLines?: FittingLine[]; // compression fittings (catalogue-priced, optional)
   supplyLines?: PipeLine[];     // canonical supply pipe (replaces pipeType+supplyMetres)
   drainLines?: PipeLine[];      // canonical drainage pipe (replaces drainMetres)
   _scanNotes?: string; _scanConf?: string;
@@ -175,6 +201,23 @@ function makeFixtureLine(type: FixtureType): FixtureLine {
 }
 const fxCount = (ls: FixtureLine[] | undefined, t: FixtureType) =>
   (ls ?? []).filter(l => l.type === t).reduce((s, l) => s + (l.quantity || 0), 0);
+
+// ─── FITTINGS CATALOGUE (compression-fittings line builder) ───────────────────
+// Data-driven from COMPRESSION_FITTINGS (generated from the Plumblink CSV). Size
+// groups and products are derived from the catalogue, so adding a row there adds
+// it here with no code change. Only the 'Compression Fittings' family is enabled.
+const lineFromFitting = (id: string, f: FittingPreset, quantity: number): FittingLine => ({
+  id, family: f.family, sizeGroup: f.sizeGroup, materialCode: f.materialCode,
+  plumblinkCode: f.plumblinkCode, label: f.label, description: f.description,
+  size: f.size, unit: f.unit, unitPrice: f.unitPrice, quantity, grade: f.grade,
+  supplier: f.supplier,
+});
+function makeFittingLine(sizeGroup?: string, materialCode?: string): FittingLine {
+  const group = sizeGroup ?? FITTING_SIZE_GROUPS[0];
+  const inGroup = fittingsForSizeGroup(group);
+  const f = (materialCode && inGroup.find(x => x.materialCode === materialCode)) || inGroup[0];
+  return lineFromFitting(_uid(), f, 1);
+}
 
 // ─── PIPE LOOKUP (supply + drainage line builders) ────────────────────────────
 // type + diameter is the lookup key. PerMetre = PackPrice / PackLength (pre-calc).
@@ -323,6 +366,23 @@ function buildScope(inp: Inputs): ScopeLine[] {
     });
   });
 
+  // Fitting lines — one scope line per catalogue product (compression fittings).
+  // Material-only: installation effort is already carried by the pipework/point
+  // labour, so fittings do not add a separate labour line (avoids double-count).
+  (inp.fittingLines ?? []).forEach((ft, i) => {
+    if (ft.quantity <= 0) return;
+    lines.push({
+      id:`G${String(i+1).padStart(2,"0")}`,
+      code: ft.materialCode,
+      description: `${ft.label} ${ft.size} — ${ft.family}`,
+      qty: ft.quantity, unit: ft.unit, unitPrice: ft.unitPrice, conf: ft.grade,
+      total: ft.quantity*ft.unitPrice,
+      supplier: ft.supplier ?? "Plumblink",
+      derivation: `${ft.quantity} × R${ft.unitPrice.toFixed(2)} (${ft.grade} catalogue price${ft.plumblinkCode?`, PL ${ft.plumblinkCode}`:""})`,
+      mode:"Supply",
+    });
+  });
+
   return lines;
 }
 
@@ -417,6 +477,9 @@ function printQuotePDF(inp: Inputs, scope: ScopeLine[], labour: LabourLine[], qu
   const fixtureLines = g ? [] : (inp.fixtureLines ?? [])
     .filter(l=>l.quantity>0)
     .map(l=>`${l.description || l.type}: ${l.quantity}${l.source==="custom"?" (custom)":""}`);
+  const fittingLines = g ? [] : (inp.fittingLines ?? [])
+    .filter(l=>l.quantity>0)
+    .map(l=>`${l.label} ${l.size}: ${l.quantity}`);
   // Scope-of-work grid: geyser assembly vs plumbing run
   const scopeGrid = g
     ? [
@@ -427,7 +490,7 @@ function printQuotePDF(inp: Inputs, scope: ScopeLine[], labour: LabourLine[], qu
         ...scope.map(l=>`<div class="scope-item"><strong>${l.qty}× ${l.description}</strong></div>`),
         `<div class="scope-item"><strong>Commercial rules:</strong> 5% waste, 5% risk, 10% contingency, 25% markup</div>`,
       ].filter(Boolean).join("")
-    : `${(inp.supplyLines ?? []).filter(l=>l.metres>0).map(l=>`<div class="scope-item"><strong>Supply:</strong> ${l.metres}m ${l.type} ${l.diameter?l.diameter+"mm":""}</div>`).join("")}<div class="scope-item"><strong>Water points:</strong> ${inp.points}</div>${(inp.drainLines ?? []).filter(l=>l.metres>0).map(l=>`<div class="scope-item"><strong>Drainage:</strong> ${l.metres}m ${l.type} ${l.diameter?l.diameter+"mm":""}</div>`).join("")}${fixtureLines.map(l=>`<div class="scope-item"><strong>${l}</strong></div>`).join("")}<div class="scope-item"><strong>Commercial rules:</strong> 5% waste, 5% risk, 10% contingency, 25% markup</div>`;
+    : `${(inp.supplyLines ?? []).filter(l=>l.metres>0).map(l=>`<div class="scope-item"><strong>Supply:</strong> ${l.metres}m ${l.type} ${l.diameter?l.diameter+"mm":""}</div>`).join("")}<div class="scope-item"><strong>Water points:</strong> ${inp.points}</div>${(inp.drainLines ?? []).filter(l=>l.metres>0).map(l=>`<div class="scope-item"><strong>Drainage:</strong> ${l.metres}m ${l.type} ${l.diameter?l.diameter+"mm":""}</div>`).join("")}${fixtureLines.map(l=>`<div class="scope-item"><strong>${l}</strong></div>`).join("")}${fittingLines.map(l=>`<div class="scope-item"><strong>${l}</strong></div>`).join("")}<div class="scope-item"><strong>Commercial rules:</strong> 5% waste, 5% risk, 10% contingency, 25% markup</div>`;
   const scopeIntro = g
     ? `Supply and installation of a ${g.size}L ${g.jobType==="burst_replacement"?`${g.brand} geyser replacement assembly`:"geyser element / thermostat repair"} as set out below.`
     : "Supply and installation of plumbing connection assemblies as set out below.";
@@ -697,6 +760,8 @@ function ScopeModal({ scope, labour, inputs, onConfirm, onBack }: { scope: Scope
         inputs.trenching?"Trench excavation included":"No trenching",
         ...((inputs.fixtureLines ?? []).filter(l=>l.quantity>0)
           .map(l=>`${l.quantity}× ${l.description || l.type}${l.source==="custom"?" (custom)":""}`)),
+        ...((inputs.fittingLines ?? []).filter(l=>l.quantity>0)
+          .map(l=>`${l.quantity}× ${l.label} ${l.size} (${l.family})`)),
       ].filter(Boolean);
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(13,27,42,0.88)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999,padding:20}}>
@@ -982,6 +1047,7 @@ const DEFAULT: Inputs = {
   pipeType:"PEX 15mm (Cobra)", supplyMetres:20, drainMetres:15, points:3, trenching:true,
   fixtures:{toilet:1,basin:1,shower:1,showerDoor:1,showerRose:1,showerArm:1,kitchenMixer:0},
   fixtureLines:(["toilet","basin","shower_mixer","shower_door","shower_rose"] as FixtureType[]).map(t=>makeFixtureLine(t)),
+  fittingLines:[],
   supplyLines:[pipeLineFrom("supply","Copper",15,20)],
   drainLines:[pipeLineFrom("drainage","PVC",110,15)],
 };
@@ -1057,6 +1123,14 @@ export default function EstimatePage() {
     setInputs(p=>({...p, fixtureLines:(p.fixtureLines ?? []).filter(l=>l.id!==id)})),[]);
   const updateFixtureLine = useCallback((id: string, patch: Partial<FixtureLine>) =>
     setInputs(p=>({...p, fixtureLines:(p.fixtureLines ?? []).map(l=>l.id===id?{...l,...patch}:l)})),[]);
+
+  // Fitting-line builder management (compression fittings)
+  const addFittingLine = useCallback(() =>
+    setInputs(p=>({...p, fittingLines:[...(p.fittingLines ?? []), makeFittingLine()]})),[]);
+  const removeFittingLine = useCallback((id: string) =>
+    setInputs(p=>({...p, fittingLines:(p.fittingLines ?? []).filter(l=>l.id!==id)})),[]);
+  const updateFittingLine = useCallback((id: string, patch: Partial<FittingLine>) =>
+    setInputs(p=>({...p, fittingLines:(p.fittingLines ?? []).map(l=>l.id===id?{...l,...patch}:l)})),[]);
 
   // Pipe-line builder management (supply + drainage share these via the `key`)
   const addPipeLine = useCallback((use: 'supply'|'drainage') => {
@@ -1330,6 +1404,44 @@ export default function EstimatePage() {
               <button onClick={()=>addFixtureLine("toilet")}
                 style={{padding:"7px 14px",borderRadius:6,border:`1px dashed ${C.gold}`,background:C.goldPale,color:C.navy,cursor:"pointer",fontSize:12,fontWeight:700}}>+ Add fixture line</button>
               <span style={{fontSize:10,color:C.muted}}>Library prices are <GradePill grade="Sourced"/>; custom lines are <GradePill grade="Assumption"/> &amp; flagged.</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Fittings — compression fittings line builder (catalogue-priced).
+            Size groups + products are data-driven from COMPRESSION_FITTINGS. */}
+        <div style={{background:"#fff",borderRadius:8,border:"1px solid #DDE3EA",marginBottom:14,overflow:"hidden"}}>
+          <SectionHeader>Fittings — Compression Fittings (size + product + quantity)</SectionHeader>
+          <div style={{padding:"12px 16px"}}>
+            {(inputs.fittingLines ?? []).length===0&&
+              <div style={{fontSize:12,color:C.slateL,padding:"6px 2px 10px"}}>No fittings yet — add a line below.</div>}
+            {(inputs.fittingLines ?? []).map(ft=>{
+              const products=fittingsForSizeGroup(ft.sizeGroup);
+              return (
+              <div key={ft.id} style={{border:"1px solid #E0E5EC",borderRadius:8,padding:"8px 10px",marginBottom:8,background:C.offWhite}}>
+                <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                  <select value={ft.sizeGroup} onChange={e=>{const sg=e.target.value;const b=makeFittingLine(sg);updateFittingLine(ft.id,{sizeGroup:sg,materialCode:b.materialCode,plumblinkCode:b.plumblinkCode,label:b.label,description:b.description,size:b.size,unit:b.unit,unitPrice:b.unitPrice,grade:b.grade,supplier:b.supplier});}}
+                    style={{padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12,minWidth:90}}>
+                    {FITTING_SIZE_GROUPS.map(sg=><option key={sg} value={sg}>{sg}</option>)}
+                  </select>
+                  <select value={ft.materialCode} onChange={e=>{const b=makeFittingLine(ft.sizeGroup,e.target.value);updateFittingLine(ft.id,{materialCode:b.materialCode,plumblinkCode:b.plumblinkCode,label:b.label,description:b.description,size:b.size,unit:b.unit,unitPrice:b.unitPrice,grade:b.grade,supplier:b.supplier});}}
+                    style={{padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12,flex:1,minWidth:200}}>
+                    {products.map(p=><option key={p.materialCode} value={p.materialCode}>{p.label} — R{p.unitPrice} ({p.grade})</option>)}
+                  </select>
+                  <input type="number" min={0} max={99} value={ft.quantity}
+                    onChange={e=>updateFittingLine(ft.id,{quantity:Math.max(0,parseInt(e.target.value)||0)})}
+                    style={{width:60,padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:14,fontWeight:700,textAlign:"center"}}/>
+                  <span style={{fontSize:11,color:C.slateL,minWidth:70,textAlign:"right"}}>{fmt(ft.quantity*ft.unitPrice)}</span>
+                  <GradePill grade={ft.grade}/>
+                  <button onClick={()=>removeFittingLine(ft.id)} title="Remove" style={{padding:"4px 9px",borderRadius:6,border:"1px solid #E0B4B4",background:"#fff",color:C.red,cursor:"pointer",fontSize:13,fontWeight:700}}>✕</button>
+                </div>
+                <div style={{fontSize:10,color:C.muted,marginTop:5}}>{ft.description}{ft.plumblinkCode?` · PL ${ft.plumblinkCode}`:""} · {ft.supplier ?? "Plumblink"}</div>
+              </div>);
+            })}
+            <div style={{display:"flex",gap:8,alignItems:"center",marginTop:4}}>
+              <button onClick={addFittingLine}
+                style={{padding:"7px 14px",borderRadius:6,border:`1px dashed ${C.gold}`,background:C.goldPale,color:C.navy,cursor:"pointer",fontSize:12,fontWeight:700}}>+ Add fitting</button>
+              <span style={{fontSize:10,color:C.muted}}>Price, confidence, supplier &amp; Plumblink code populate automatically from the materials library.</span>
             </div>
           </div>
         </div>
