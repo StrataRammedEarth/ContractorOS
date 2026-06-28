@@ -7,6 +7,10 @@ import {
   COMPRESSION_FITTINGS, FITTING_SIZE_GROUPS, fittingsForSizeGroup,
   type FittingPreset,
 } from "@/lib/plumblink-fittings";
+import {
+  printInvoiceDocument, isoDate, addDays, DEFAULT_BANKING_DETAILS,
+  type InvoiceMeta, type DocumentType,
+} from "@/lib/invoice-document";
 
 // ─── SUPABASE (for the scan-drawing edge function) ────────────────────────────
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? "";
@@ -267,13 +271,22 @@ function applyLadder(mat: number, lab: number): Ladder {
   return { prime, waste, direct, risk, afterRisk, cont, afterCont, margin, sell };
 }
 
-// ─── QUOTE REF ────────────────────────────────────────────────────────────────
-let _quoteSeq = parseInt(sessionStorage?.getItem?.("cos_seq") ?? "0", 10);
-function nextQuoteRef() {
-  _quoteSeq += 1;
-  try { sessionStorage.setItem("cos_seq", String(_quoteSeq)); } catch(_) {}
-  const y = new Date().getFullYear();
-  return `PLB-${y}-${String(_quoteSeq).padStart(3, "0")}`;
+// ─── DOCUMENT REF ─────────────────────────────────────────────────────────────
+// Quotes keep the PLB-YYYY-NNN series; invoices get an independent INV-YYYYMM-NNN
+// series (separate sessionStorage counters), so issuing an invoice never advances
+// the quote number and vice-versa.
+function nextDocumentRef(type: DocumentType) {
+  const now = new Date();
+  const year = now.getFullYear();
+  const yearMonth = `${year}${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const key = type === "invoice" ? `cos_invoice_seq_${yearMonth}` : `cos_quote_seq_${year}`;
+  let seq = 0;
+  try { seq = parseInt(sessionStorage?.getItem?.(key) ?? "0", 10); } catch (_) {}
+  seq += 1;
+  try { sessionStorage.setItem(key, String(seq)); } catch (_) {}
+  return type === "invoice"
+    ? `INV-${yearMonth}-${String(seq).padStart(3, "0")}`
+    : `PLB-${year}-${String(seq).padStart(3, "0")}`;
 }
 
 // ─── ENGINE ───────────────────────────────────────────────────────────────────
@@ -789,12 +802,13 @@ function ScopeModal({ scope, labour, inputs, onConfirm, onBack }: { scope: Scope
 }
 
 // ─── OUTPUT TABS ──────────────────────────────────────────────────────────────
-function EstimateTab({ scope, labour, inputs, finalGrade, quoteRef, onPrintQuote }: { scope: ScopeLine[]; labour: LabourLine[]; inputs: Inputs; finalGrade: string; quoteRef: string; onPrintQuote: () => void }) {
+function EstimateTab({ scope, labour, inputs, finalGrade, docRef, documentType, onPrintDocument }: { scope: ScopeLine[]; labour: LabourLine[]; inputs: Inputs; finalGrade: string; docRef: string; documentType: DocumentType; onPrintDocument: () => void }) {
   const mat=scope.reduce((s,l)=>s+l.total,0);
   const lab=labour.reduce((s,l)=>s+l.cost,0);
   const ld=applyLadder(mat,lab);
   const allow=ld.sell-ld.prime;
-  const issuable=GRADES[finalGrade]?.rank>=GRADES["Assumption"].rank;
+  // Invoices record actual work and are always issuable; quotes keep the strict gate.
+  const issuable=documentType==="invoice"||GRADES[finalGrade]?.rank>=GRADES["Assumption"].rank;
   return (
     <div>
       <div style={{background:`linear-gradient(135deg,${C.navy},${C.navyMid})`,borderRadius:8,padding:"20px 24px",margin:16,border:`1px solid ${C.gold}40`}}>
@@ -803,12 +817,12 @@ function EstimateTab({ scope, labour, inputs, finalGrade, quoteRef, onPrintQuote
             <div style={{color:C.muted,fontSize:11,letterSpacing:1,textTransform:"uppercase"}}>Sell Price (excl. VAT)</div>
             <div style={{color:C.gold,fontSize:36,fontWeight:900,letterSpacing:-1}}>{fmt(ld.sell)}</div>
             <div style={{color:C.slateL,fontSize:12,marginTop:4}}>{fmt(ld.sell*1.15)} incl. 15% VAT</div>
-            <div style={{color:C.muted,fontSize:11,marginTop:2}}>Ref: {quoteRef}</div>
+            <div style={{color:C.muted,fontSize:11,marginTop:2}}>{documentType==="invoice"?"Invoice":"Quote"} ref: {docRef}</div>
           </div>
           <div style={{textAlign:"right"}}>
             <GradePill grade={finalGrade}/>
             <div style={{color:C.muted,fontSize:10,marginTop:6}}>{issuable?"✓ Internal use OK":"⚠ Not client-issuable"}</div>
-            <button onClick={onPrintQuote} style={{marginTop:10,padding:"7px 16px",borderRadius:6,border:"none",background:C.gold,color:C.navy,cursor:"pointer",fontWeight:700,fontSize:12}}>⬇ Download Quote</button>
+            <button onClick={onPrintDocument} style={{marginTop:10,padding:"7px 16px",borderRadius:6,border:"none",background:C.gold,color:C.navy,cursor:"pointer",fontWeight:700,fontSize:12}}>⬇ Download {documentType==="invoice"?"Invoice":"Quote"}</button>
           </div>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginTop:16,paddingTop:16,borderTop:`1px solid ${C.navyLt}`}}>
@@ -959,11 +973,11 @@ function BuildTab({ labour }: { labour: LabourLine[] }) {
   );
 }
 
-function LearnTab({ scope, labour, flags=[] }: { scope: ScopeLine[]; labour: LabourLine[]; flags?: string[] }) {
+function LearnTab({ scope, labour, flags=[], documentType="quote" }: { scope: ScopeLine[]; labour: LabourLine[]; flags?: string[]; documentType?: DocumentType }) {
   const isGeyser = scope.some(l=>l.code.startsWith("PLB-GEY"));
   const all=[...scope.map(l=>l.conf),...labour.map(l=>l.conf)];
   const weakest=all.reduce((m,g)=>(GRADES[g]?.rank<GRADES[m]?.rank?g:m),"Validated");
-  const issuable=GRADES[weakest]?.rank>=GRADES["Derived"].rank;
+  const issuable=documentType==="invoice"||GRADES[weakest]?.rank>=GRADES["Derived"].rank;
   const plumbingVR=[
     {id:"VR-01",desc:"AfriCamps baseline extracted to per-unit intensities",grade:"Pending",  closes:"Quantities derived and recorded"},
     {id:"VR-02",desc:"Scaling model: linear vs taper vs split",            grade:"Assumption",closes:"QS source material reviewed"},
@@ -1078,7 +1092,15 @@ export default function EstimatePage() {
   const [inputs, setInputs] = useState<Inputs>(DEFAULT);
   const [jobMode, setJobMode] = useState<"plumbing"|"geyser">("plumbing");
   const [geyser, setGeyser]   = useState<GeyserMeta>(GEYSER_DEFAULT);
-  const [quoteRef]          = useState(() => nextQuoteRef());
+  // Document mode: quote (default) vs invoice. Each keeps its own reference.
+  const [documentType, setDocumentType] = useState<DocumentType>("quote");
+  const [quoteRef]   = useState(() => nextDocumentRef("quote"));
+  const [invoiceRef] = useState(() => nextDocumentRef("invoice"));
+  const [invoiceMeta, setInvoiceMeta] = useState<InvoiceMeta>(() => {
+    const issue = isoDate(new Date());
+    return { issueDate: issue, dueDate: addDays(issue, 7), bankingDetails: "" };
+  });
+  const docRef = documentType === "invoice" ? invoiceRef : quoteRef;
 
   // Geyser assembly (fixed-composition) vs plumbing engine (baseline-and-scale)
   const geyserAsm = useMemo<GeyserAssembly | null>(() =>
@@ -1161,8 +1183,12 @@ export default function EstimatePage() {
   const labTotal=labour.reduce((s,l)=>s+l.cost,0);
   const sell=applyLadder(matTotal,labTotal).sell;
 
-  const printQuote=()=>printQuotePDF(effInputs,scope,labour,quoteRef);
-  const printBuy  =()=>printBuyPDF(effInputs,scope,quoteRef);
+  // Output branches on document type: invoice → past-tense invoice with VAT, due
+  // date & banking (printInvoiceDocument); quote → existing quotation PDF.
+  const printDocument=()=> documentType==="invoice"
+    ? printInvoiceDocument({ inputs:effInputs, scope, labour, invoiceRef:docRef, invoiceMeta, sellExVat:sell })
+    : printQuotePDF(effInputs,scope,labour,docRef);
+  const printBuy  =()=>printBuyPDF(effInputs,scope,docRef);
 
   const AppHeader = ({ showTabs }: { showTabs: boolean }) => (
     <div style={{background:C.navy,borderBottom:`3px solid ${C.gold}`,position:"sticky",top:0,zIndex:100}}>
@@ -1174,9 +1200,9 @@ export default function EstimatePage() {
         {showTabs
           ? <div style={{display:"flex",gap:12,alignItems:"center"}}>
               <div style={{textAlign:"right"}}>
-                <div style={{color:C.muted,fontSize:10,letterSpacing:0.5}}>SELL PRICE excl. VAT</div>
-                <div style={{color:C.gold,fontWeight:900,fontSize:20}}>{fmt(sell)}</div>
-                <div style={{color:C.slateL,fontSize:10}}>{quoteRef}</div>
+                <div style={{color:C.muted,fontSize:10,letterSpacing:0.5}}>{documentType==="invoice"?"AMOUNT DUE incl. VAT":"SELL PRICE excl. VAT"}</div>
+                <div style={{color:C.gold,fontWeight:900,fontSize:20}}>{fmt(documentType==="invoice"?sell*1.15:sell)}</div>
+                <div style={{color:C.slateL,fontSize:10}}>{documentType==="invoice"?"🧾 ":"📄 "}{docRef}</div>
               </div>
               <GradePill grade={finalGrade}/>
               <button onClick={()=>{setScreen("entry");setTab("estimate");}}
@@ -1237,10 +1263,10 @@ export default function EstimatePage() {
         {inputs._scanNotes&&!geyserAsm&&<div style={{background:"#FEF5E7",border:`1px solid ${C.amber}40`,borderRadius:"0 0 6px 6px",padding:"6px 16px",fontSize:11,color:C.navy,marginBottom:4}}>📐 <strong>Scan-derived scope:</strong> {inputs._scanNotes}</div>}
         {geyserAsm&&<div style={{background:"#FEF5E7",border:`1px solid ${C.amber}40`,borderRadius:"0 0 6px 6px",padding:"6px 16px",fontSize:11,color:C.navy,marginBottom:4}}>♨ <strong>Geyser assembly · {finalGrade} grade:</strong> fixed-composition quote — {flags.length} note{flags.length===1?"":"s"} in the Learn tab{GRADES[finalGrade]?.rank>=GRADES["Derived"].rank?" · client-issuable through the normal gate.":" · not client-issuable until grade lifts."}</div>}
         <div style={{background:"#fff",borderRadius:"0 8px 8px 8px",border:"1px solid #DDE3EA",borderTop:"none",overflow:"hidden"}}>
-          {tab==="estimate"&&<EstimateTab scope={scope} labour={labour} inputs={effInputs} finalGrade={finalGrade} quoteRef={quoteRef} onPrintQuote={printQuote}/>}
-          {tab==="buy"    &&<BuyTab scope={scope} inputs={effInputs} quoteRef={quoteRef} onPrintBuy={printBuy}/>}
+          {tab==="estimate"&&<EstimateTab scope={scope} labour={labour} inputs={effInputs} finalGrade={finalGrade} docRef={docRef} documentType={documentType} onPrintDocument={printDocument}/>}
+          {tab==="buy"    &&<BuyTab scope={scope} inputs={effInputs} quoteRef={docRef} onPrintBuy={printBuy}/>}
           {tab==="build"  &&<BuildTab labour={labour}/>}
-          {tab==="learn"  &&<LearnTab scope={scope} labour={labour} flags={flags}/>}
+          {tab==="learn"  &&<LearnTab scope={scope} labour={labour} flags={flags} documentType={documentType}/>}
         </div>
         <div style={{marginTop:8,fontSize:10,color:C.muted,textAlign:"center"}}>{geyserAsm?"ContractorOS v2 · Geyser Assembly (Tier 2) · Vissi evidence 2022–26 · true-cost + ladder · excl. VAT":"ContractorOS v2 · Plumbing Tier 2 · Plumblink/CTM/Gelmar 2025–26 · Spon's seed SA-adjusted · excl. VAT"}</div>
       </div>
@@ -1314,6 +1340,41 @@ export default function EstimatePage() {
     <div style={{fontFamily:"'Inter',system-ui,sans-serif",background:"#F1F4F8",minHeight:"100vh"}}>
       <AppHeader showTabs={false}/>
       <div style={{maxWidth:780,margin:"0 auto",padding:"24px 20px"}}>
+        {/* Document-type selector: client quote (forward-looking) vs invoice (work done) */}
+        <div style={{display:"flex",gap:8,marginBottom:12}}>
+          {([{d:"quote" as const,l:"📄 Quote"},{d:"invoice" as const,l:"🧾 Invoice"}]).map(o=>(
+            <button key={o.d} onClick={()=>setDocumentType(o.d)} style={{
+              flex:1,padding:"9px 20px",borderRadius:8,cursor:"pointer",fontWeight:800,fontSize:13,
+              border:`2px solid ${documentType===o.d?C.navy:"#C8D0DB"}`,
+              background:documentType===o.d?C.navy:"transparent",color:documentType===o.d?"#fff":C.slate}}>{o.l}</button>))}
+        </div>
+        {documentType==="invoice"&&(
+        <div style={{background:"#fff",borderRadius:8,border:"1px solid #DDE3EA",marginBottom:16,overflow:"hidden"}}>
+          <SectionHeader>🧾 Invoice details — issued for work completed</SectionHeader>
+          <div style={{padding:"14px 20px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <div>
+              <label style={{display:"block",fontSize:11,color:C.slateL,marginBottom:3,fontWeight:600}}>Issue date</label>
+              <input type="date" value={invoiceMeta.issueDate}
+                onChange={e=>setInvoiceMeta(m=>({...m,issueDate:e.target.value,dueDate:addDays(e.target.value,7)}))}
+                style={{width:"100%",padding:"7px 10px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:13,color:C.navy,boxSizing:"border-box"}}/>
+            </div>
+            <div>
+              <label style={{display:"block",fontSize:11,color:C.slateL,marginBottom:3,fontWeight:600}}>Due date <span style={{color:C.muted,fontWeight:400}}>(default issue + 7 days)</span></label>
+              <input type="date" value={invoiceMeta.dueDate}
+                onChange={e=>setInvoiceMeta(m=>({...m,dueDate:e.target.value}))}
+                style={{width:"100%",padding:"7px 10px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:13,color:C.navy,boxSizing:"border-box"}}/>
+            </div>
+            <div style={{gridColumn:"1 / -1"}}>
+              <label style={{display:"block",fontSize:11,color:C.slateL,marginBottom:3,fontWeight:600}}>Banking details</label>
+              <textarea value={invoiceMeta.bankingDetails} rows={2}
+                placeholder={DEFAULT_BANKING_DETAILS}
+                onChange={e=>setInvoiceMeta(m=>({...m,bankingDetails:e.target.value}))}
+                style={{width:"100%",padding:"7px 10px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12,color:C.navy,boxSizing:"border-box",fontFamily:"inherit",resize:"vertical"}}/>
+              <div style={{fontSize:10,color:C.muted,marginTop:3}}>Invoice ref: <strong>{invoiceRef}</strong> · totals include 15% VAT · payment due {invoiceMeta.dueDate||"—"}</div>
+            </div>
+          </div>
+        </div>)}
+
         {/* Job-type selector: baseline-and-scale plumbing vs fixed-composition geyser */}
         <div style={{display:"flex",gap:8,marginBottom:16}}>
           {([{m:"plumbing" as const,l:"🔧 Plumbing Estimate"},{m:"geyser" as const,l:"♨ Geyser Replacement"}]).map(j=>(
