@@ -3,6 +3,14 @@ import {
   buildGeyserReplacement, buildElementRepair,
   type GeyserAssembly, type GeyserSize, type GeyserBrand, type GeyserJobType,
 } from "@/lib/geyser-assembly";
+import {
+  COMPRESSION_FITTINGS, FITTING_SIZE_GROUPS, fittingsForSizeGroup,
+  type FittingPreset,
+} from "@/lib/plumblink-fittings";
+import {
+  printInvoiceDocument, isoDate, addDays, DEFAULT_BANKING_DETAILS,
+  type InvoiceMeta, type DocumentType,
+} from "@/lib/invoice-document";
 
 // ─── SUPABASE (for the scan-drawing edge function) ────────────────────────────
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? "";
@@ -116,6 +124,27 @@ interface PipeLine {
   supplier?: string;
 }
 
+// Repeatable fitting lines (Compression Fittings, and future families): each line
+// is a catalogue product (size group + product) + its own quantity. Pricing,
+// confidence, supplier and Plumblink code all populate from the fittings catalogue.
+// Mirrors the fixture builder. Source is the COMPRESSION_FITTINGS module, which is
+// generated from the Plumblink materials CSV — add a row there and it appears here.
+interface FittingLine {
+  id: string;
+  family: string;        // 'Compression Fittings' (only family enabled today)
+  sizeGroup: string;     // '15mm' | '22mm' | 'Reducing / 22→15 / ¾"' (data-driven)
+  materialCode: string;
+  plumblinkCode: string;
+  label: string;         // e.g. 'Female Elbow'
+  description: string;
+  size: string;
+  unit: string;
+  unitPrice: number;     // excl VAT
+  quantity: number;
+  grade: string;         // Sourced (catalogue price)
+  supplier?: string;
+}
+
 interface GeyserMeta {
   jobType: GeyserJobType; size: GeyserSize; brand: GeyserBrand; solar: boolean;
 }
@@ -124,6 +153,7 @@ interface Inputs {
   supplyMetres: number; drainMetres: number; points: number; trenching: boolean;
   fixtures: Fixtures;           // legacy (scan extraction still populates this)
   fixtureLines?: FixtureLine[]; // canonical fixtures for manual-entry pricing
+  fittingLines?: FittingLine[]; // compression fittings (catalogue-priced, optional)
   supplyLines?: PipeLine[];     // canonical supply pipe (replaces pipeType+supplyMetres)
   drainLines?: PipeLine[];      // canonical drainage pipe (replaces drainMetres)
   _scanNotes?: string; _scanConf?: string;
@@ -176,6 +206,23 @@ function makeFixtureLine(type: FixtureType): FixtureLine {
 const fxCount = (ls: FixtureLine[] | undefined, t: FixtureType) =>
   (ls ?? []).filter(l => l.type === t).reduce((s, l) => s + (l.quantity || 0), 0);
 
+// ─── FITTINGS CATALOGUE (compression-fittings line builder) ───────────────────
+// Data-driven from COMPRESSION_FITTINGS (generated from the Plumblink CSV). Size
+// groups and products are derived from the catalogue, so adding a row there adds
+// it here with no code change. Only the 'Compression Fittings' family is enabled.
+const lineFromFitting = (id: string, f: FittingPreset, quantity: number): FittingLine => ({
+  id, family: f.family, sizeGroup: f.sizeGroup, materialCode: f.materialCode,
+  plumblinkCode: f.plumblinkCode, label: f.label, description: f.description,
+  size: f.size, unit: f.unit, unitPrice: f.unitPrice, quantity, grade: f.grade,
+  supplier: f.supplier,
+});
+function makeFittingLine(sizeGroup?: string, materialCode?: string): FittingLine {
+  const group = sizeGroup ?? FITTING_SIZE_GROUPS[0];
+  const inGroup = fittingsForSizeGroup(group);
+  const f = (materialCode && inGroup.find(x => x.materialCode === materialCode)) || inGroup[0];
+  return lineFromFitting(_uid(), f, 1);
+}
+
 // ─── PIPE LOOKUP (supply + drainage line builders) ────────────────────────────
 // type + diameter is the lookup key. PerMetre = PackPrice / PackLength (pre-calc).
 // Pricing method A (per-metre × metres) is live; method B (whole-tube) is available
@@ -224,13 +271,22 @@ function applyLadder(mat: number, lab: number): Ladder {
   return { prime, waste, direct, risk, afterRisk, cont, afterCont, margin, sell };
 }
 
-// ─── QUOTE REF ────────────────────────────────────────────────────────────────
-let _quoteSeq = parseInt(sessionStorage?.getItem?.("cos_seq") ?? "0", 10);
-function nextQuoteRef() {
-  _quoteSeq += 1;
-  try { sessionStorage.setItem("cos_seq", String(_quoteSeq)); } catch(_) {}
-  const y = new Date().getFullYear();
-  return `PLB-${y}-${String(_quoteSeq).padStart(3, "0")}`;
+// ─── DOCUMENT REF ─────────────────────────────────────────────────────────────
+// Quotes keep the PLB-YYYY-NNN series; invoices get an independent INV-YYYYMM-NNN
+// series (separate sessionStorage counters), so issuing an invoice never advances
+// the quote number and vice-versa.
+function nextDocumentRef(type: DocumentType) {
+  const now = new Date();
+  const year = now.getFullYear();
+  const yearMonth = `${year}${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const key = type === "invoice" ? `cos_invoice_seq_${yearMonth}` : `cos_quote_seq_${year}`;
+  let seq = 0;
+  try { seq = parseInt(sessionStorage?.getItem?.(key) ?? "0", 10); } catch (_) {}
+  seq += 1;
+  try { sessionStorage.setItem(key, String(seq)); } catch (_) {}
+  return type === "invoice"
+    ? `INV-${yearMonth}-${String(seq).padStart(3, "0")}`
+    : `PLB-${year}-${String(seq).padStart(3, "0")}`;
 }
 
 // ─── ENGINE ───────────────────────────────────────────────────────────────────
@@ -320,6 +376,23 @@ function buildScope(inp: Inputs): ScopeLine[] {
         ? `${fl.quantity} × R${fl.unitPrice} (user-entered, unverified)`
         : `${fl.quantity} × R${fl.unitPrice} (${fl.grade} library price)`,
       mode:"Install",
+    });
+  });
+
+  // Fitting lines — one scope line per catalogue product (compression fittings).
+  // Material-only: installation effort is already carried by the pipework/point
+  // labour, so fittings do not add a separate labour line (avoids double-count).
+  (inp.fittingLines ?? []).forEach((ft, i) => {
+    if (ft.quantity <= 0) return;
+    lines.push({
+      id:`G${String(i+1).padStart(2,"0")}`,
+      code: ft.materialCode,
+      description: `${ft.label} ${ft.size} — ${ft.family}`,
+      qty: ft.quantity, unit: ft.unit, unitPrice: ft.unitPrice, conf: ft.grade,
+      total: ft.quantity*ft.unitPrice,
+      supplier: ft.supplier ?? "Plumblink",
+      derivation: `${ft.quantity} × R${ft.unitPrice.toFixed(2)} (${ft.grade} catalogue price${ft.plumblinkCode?`, PL ${ft.plumblinkCode}`:""})`,
+      mode:"Supply",
     });
   });
 
@@ -417,6 +490,9 @@ function printQuotePDF(inp: Inputs, scope: ScopeLine[], labour: LabourLine[], qu
   const fixtureLines = g ? [] : (inp.fixtureLines ?? [])
     .filter(l=>l.quantity>0)
     .map(l=>`${l.description || l.type}: ${l.quantity}${l.source==="custom"?" (custom)":""}`);
+  const fittingLines = g ? [] : (inp.fittingLines ?? [])
+    .filter(l=>l.quantity>0)
+    .map(l=>`${l.label} ${l.size}: ${l.quantity}`);
   // Scope-of-work grid: geyser assembly vs plumbing run
   const scopeGrid = g
     ? [
@@ -427,7 +503,7 @@ function printQuotePDF(inp: Inputs, scope: ScopeLine[], labour: LabourLine[], qu
         ...scope.map(l=>`<div class="scope-item"><strong>${l.qty}× ${l.description}</strong></div>`),
         `<div class="scope-item"><strong>Commercial rules:</strong> 5% waste, 5% risk, 10% contingency, 25% markup</div>`,
       ].filter(Boolean).join("")
-    : `${(inp.supplyLines ?? []).filter(l=>l.metres>0).map(l=>`<div class="scope-item"><strong>Supply:</strong> ${l.metres}m ${l.type} ${l.diameter?l.diameter+"mm":""}</div>`).join("")}<div class="scope-item"><strong>Water points:</strong> ${inp.points}</div>${(inp.drainLines ?? []).filter(l=>l.metres>0).map(l=>`<div class="scope-item"><strong>Drainage:</strong> ${l.metres}m ${l.type} ${l.diameter?l.diameter+"mm":""}</div>`).join("")}${fixtureLines.map(l=>`<div class="scope-item"><strong>${l}</strong></div>`).join("")}<div class="scope-item"><strong>Commercial rules:</strong> 5% waste, 5% risk, 10% contingency, 25% markup</div>`;
+    : `${(inp.supplyLines ?? []).filter(l=>l.metres>0).map(l=>`<div class="scope-item"><strong>Supply:</strong> ${l.metres}m ${l.type} ${l.diameter?l.diameter+"mm":""}</div>`).join("")}<div class="scope-item"><strong>Water points:</strong> ${inp.points}</div>${(inp.drainLines ?? []).filter(l=>l.metres>0).map(l=>`<div class="scope-item"><strong>Drainage:</strong> ${l.metres}m ${l.type} ${l.diameter?l.diameter+"mm":""}</div>`).join("")}${fixtureLines.map(l=>`<div class="scope-item"><strong>${l}</strong></div>`).join("")}${fittingLines.map(l=>`<div class="scope-item"><strong>${l}</strong></div>`).join("")}<div class="scope-item"><strong>Commercial rules:</strong> 5% waste, 5% risk, 10% contingency, 25% markup</div>`;
   const scopeIntro = g
     ? `Supply and installation of a ${g.size}L ${g.jobType==="burst_replacement"?`${g.brand} geyser replacement assembly`:"geyser element / thermostat repair"} as set out below.`
     : "Supply and installation of plumbing connection assemblies as set out below.";
@@ -697,6 +773,8 @@ function ScopeModal({ scope, labour, inputs, onConfirm, onBack }: { scope: Scope
         inputs.trenching?"Trench excavation included":"No trenching",
         ...((inputs.fixtureLines ?? []).filter(l=>l.quantity>0)
           .map(l=>`${l.quantity}× ${l.description || l.type}${l.source==="custom"?" (custom)":""}`)),
+        ...((inputs.fittingLines ?? []).filter(l=>l.quantity>0)
+          .map(l=>`${l.quantity}× ${l.label} ${l.size} (${l.family})`)),
       ].filter(Boolean);
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(13,27,42,0.88)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999,padding:20}}>
@@ -724,12 +802,13 @@ function ScopeModal({ scope, labour, inputs, onConfirm, onBack }: { scope: Scope
 }
 
 // ─── OUTPUT TABS ──────────────────────────────────────────────────────────────
-function EstimateTab({ scope, labour, inputs, finalGrade, quoteRef, onPrintQuote }: { scope: ScopeLine[]; labour: LabourLine[]; inputs: Inputs; finalGrade: string; quoteRef: string; onPrintQuote: () => void }) {
+function EstimateTab({ scope, labour, inputs, finalGrade, docRef, documentType, onPrintDocument }: { scope: ScopeLine[]; labour: LabourLine[]; inputs: Inputs; finalGrade: string; docRef: string; documentType: DocumentType; onPrintDocument: () => void }) {
   const mat=scope.reduce((s,l)=>s+l.total,0);
   const lab=labour.reduce((s,l)=>s+l.cost,0);
   const ld=applyLadder(mat,lab);
   const allow=ld.sell-ld.prime;
-  const issuable=GRADES[finalGrade]?.rank>=GRADES["Assumption"].rank;
+  // Invoices record actual work and are always issuable; quotes keep the strict gate.
+  const issuable=documentType==="invoice"||GRADES[finalGrade]?.rank>=GRADES["Assumption"].rank;
   return (
     <div>
       <div style={{background:`linear-gradient(135deg,${C.navy},${C.navyMid})`,borderRadius:8,padding:"20px 24px",margin:16,border:`1px solid ${C.gold}40`}}>
@@ -738,12 +817,12 @@ function EstimateTab({ scope, labour, inputs, finalGrade, quoteRef, onPrintQuote
             <div style={{color:C.muted,fontSize:11,letterSpacing:1,textTransform:"uppercase"}}>Sell Price (excl. VAT)</div>
             <div style={{color:C.gold,fontSize:36,fontWeight:900,letterSpacing:-1}}>{fmt(ld.sell)}</div>
             <div style={{color:C.slateL,fontSize:12,marginTop:4}}>{fmt(ld.sell*1.15)} incl. 15% VAT</div>
-            <div style={{color:C.muted,fontSize:11,marginTop:2}}>Ref: {quoteRef}</div>
+            <div style={{color:C.muted,fontSize:11,marginTop:2}}>{documentType==="invoice"?"Invoice":"Quote"} ref: {docRef}</div>
           </div>
           <div style={{textAlign:"right"}}>
             <GradePill grade={finalGrade}/>
             <div style={{color:C.muted,fontSize:10,marginTop:6}}>{issuable?"✓ Internal use OK":"⚠ Not client-issuable"}</div>
-            <button onClick={onPrintQuote} style={{marginTop:10,padding:"7px 16px",borderRadius:6,border:"none",background:C.gold,color:C.navy,cursor:"pointer",fontWeight:700,fontSize:12}}>⬇ Download Quote</button>
+            <button onClick={onPrintDocument} style={{marginTop:10,padding:"7px 16px",borderRadius:6,border:"none",background:C.gold,color:C.navy,cursor:"pointer",fontWeight:700,fontSize:12}}>⬇ Download {documentType==="invoice"?"Invoice":"Quote"}</button>
           </div>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginTop:16,paddingTop:16,borderTop:`1px solid ${C.navyLt}`}}>
@@ -894,11 +973,11 @@ function BuildTab({ labour }: { labour: LabourLine[] }) {
   );
 }
 
-function LearnTab({ scope, labour, flags=[] }: { scope: ScopeLine[]; labour: LabourLine[]; flags?: string[] }) {
+function LearnTab({ scope, labour, flags=[], documentType="quote" }: { scope: ScopeLine[]; labour: LabourLine[]; flags?: string[]; documentType?: DocumentType }) {
   const isGeyser = scope.some(l=>l.code.startsWith("PLB-GEY"));
   const all=[...scope.map(l=>l.conf),...labour.map(l=>l.conf)];
   const weakest=all.reduce((m,g)=>(GRADES[g]?.rank<GRADES[m]?.rank?g:m),"Validated");
-  const issuable=GRADES[weakest]?.rank>=GRADES["Derived"].rank;
+  const issuable=documentType==="invoice"||GRADES[weakest]?.rank>=GRADES["Derived"].rank;
   const plumbingVR=[
     {id:"VR-01",desc:"AfriCamps baseline extracted to per-unit intensities",grade:"Pending",  closes:"Quantities derived and recorded"},
     {id:"VR-02",desc:"Scaling model: linear vs taper vs split",            grade:"Assumption",closes:"QS source material reviewed"},
@@ -982,6 +1061,7 @@ const DEFAULT: Inputs = {
   pipeType:"PEX 15mm (Cobra)", supplyMetres:20, drainMetres:15, points:3, trenching:true,
   fixtures:{toilet:1,basin:1,shower:1,showerDoor:1,showerRose:1,showerArm:1,kitchenMixer:0},
   fixtureLines:(["toilet","basin","shower_mixer","shower_door","shower_rose"] as FixtureType[]).map(t=>makeFixtureLine(t)),
+  fittingLines:[],
   supplyLines:[pipeLineFrom("supply","Copper",15,20)],
   drainLines:[pipeLineFrom("drainage","PVC",110,15)],
 };
@@ -1012,7 +1092,15 @@ export default function EstimatePage() {
   const [inputs, setInputs] = useState<Inputs>(DEFAULT);
   const [jobMode, setJobMode] = useState<"plumbing"|"geyser">("plumbing");
   const [geyser, setGeyser]   = useState<GeyserMeta>(GEYSER_DEFAULT);
-  const [quoteRef]          = useState(() => nextQuoteRef());
+  // Document mode: quote (default) vs invoice. Each keeps its own reference.
+  const [documentType, setDocumentType] = useState<DocumentType>("quote");
+  const [quoteRef]   = useState(() => nextDocumentRef("quote"));
+  const [invoiceRef] = useState(() => nextDocumentRef("invoice"));
+  const [invoiceMeta, setInvoiceMeta] = useState<InvoiceMeta>(() => {
+    const issue = isoDate(new Date());
+    return { issueDate: issue, dueDate: addDays(issue, 7), bankingDetails: "" };
+  });
+  const docRef = documentType === "invoice" ? invoiceRef : quoteRef;
 
   // Geyser assembly (fixed-composition) vs plumbing engine (baseline-and-scale)
   const geyserAsm = useMemo<GeyserAssembly | null>(() =>
@@ -1058,6 +1146,14 @@ export default function EstimatePage() {
   const updateFixtureLine = useCallback((id: string, patch: Partial<FixtureLine>) =>
     setInputs(p=>({...p, fixtureLines:(p.fixtureLines ?? []).map(l=>l.id===id?{...l,...patch}:l)})),[]);
 
+  // Fitting-line builder management (compression fittings)
+  const addFittingLine = useCallback(() =>
+    setInputs(p=>({...p, fittingLines:[...(p.fittingLines ?? []), makeFittingLine()]})),[]);
+  const removeFittingLine = useCallback((id: string) =>
+    setInputs(p=>({...p, fittingLines:(p.fittingLines ?? []).filter(l=>l.id!==id)})),[]);
+  const updateFittingLine = useCallback((id: string, patch: Partial<FittingLine>) =>
+    setInputs(p=>({...p, fittingLines:(p.fittingLines ?? []).map(l=>l.id===id?{...l,...patch}:l)})),[]);
+
   // Pipe-line builder management (supply + drainage share these via the `key`)
   const addPipeLine = useCallback((use: 'supply'|'drainage') => {
     const key = use==='supply' ? 'supplyLines' : 'drainLines';
@@ -1087,8 +1183,12 @@ export default function EstimatePage() {
   const labTotal=labour.reduce((s,l)=>s+l.cost,0);
   const sell=applyLadder(matTotal,labTotal).sell;
 
-  const printQuote=()=>printQuotePDF(effInputs,scope,labour,quoteRef);
-  const printBuy  =()=>printBuyPDF(effInputs,scope,quoteRef);
+  // Output branches on document type: invoice → past-tense invoice with VAT, due
+  // date & banking (printInvoiceDocument); quote → existing quotation PDF.
+  const printDocument=()=> documentType==="invoice"
+    ? printInvoiceDocument({ inputs:effInputs, scope, labour, invoiceRef:docRef, invoiceMeta, sellExVat:sell })
+    : printQuotePDF(effInputs,scope,labour,docRef);
+  const printBuy  =()=>printBuyPDF(effInputs,scope,docRef);
 
   const AppHeader = ({ showTabs }: { showTabs: boolean }) => (
     <div style={{background:C.navy,borderBottom:`3px solid ${C.gold}`,position:"sticky",top:0,zIndex:100}}>
@@ -1100,9 +1200,9 @@ export default function EstimatePage() {
         {showTabs
           ? <div style={{display:"flex",gap:12,alignItems:"center"}}>
               <div style={{textAlign:"right"}}>
-                <div style={{color:C.muted,fontSize:10,letterSpacing:0.5}}>SELL PRICE excl. VAT</div>
-                <div style={{color:C.gold,fontWeight:900,fontSize:20}}>{fmt(sell)}</div>
-                <div style={{color:C.slateL,fontSize:10}}>{quoteRef}</div>
+                <div style={{color:C.muted,fontSize:10,letterSpacing:0.5}}>{documentType==="invoice"?"AMOUNT DUE incl. VAT":"SELL PRICE excl. VAT"}</div>
+                <div style={{color:C.gold,fontWeight:900,fontSize:20}}>{fmt(documentType==="invoice"?sell*1.15:sell)}</div>
+                <div style={{color:C.slateL,fontSize:10}}>{documentType==="invoice"?"🧾 ":"📄 "}{docRef}</div>
               </div>
               <GradePill grade={finalGrade}/>
               <button onClick={()=>{setScreen("entry");setTab("estimate");}}
@@ -1163,10 +1263,10 @@ export default function EstimatePage() {
         {inputs._scanNotes&&!geyserAsm&&<div style={{background:"#FEF5E7",border:`1px solid ${C.amber}40`,borderRadius:"0 0 6px 6px",padding:"6px 16px",fontSize:11,color:C.navy,marginBottom:4}}>📐 <strong>Scan-derived scope:</strong> {inputs._scanNotes}</div>}
         {geyserAsm&&<div style={{background:"#FEF5E7",border:`1px solid ${C.amber}40`,borderRadius:"0 0 6px 6px",padding:"6px 16px",fontSize:11,color:C.navy,marginBottom:4}}>♨ <strong>Geyser assembly · {finalGrade} grade:</strong> fixed-composition quote — {flags.length} note{flags.length===1?"":"s"} in the Learn tab{GRADES[finalGrade]?.rank>=GRADES["Derived"].rank?" · client-issuable through the normal gate.":" · not client-issuable until grade lifts."}</div>}
         <div style={{background:"#fff",borderRadius:"0 8px 8px 8px",border:"1px solid #DDE3EA",borderTop:"none",overflow:"hidden"}}>
-          {tab==="estimate"&&<EstimateTab scope={scope} labour={labour} inputs={effInputs} finalGrade={finalGrade} quoteRef={quoteRef} onPrintQuote={printQuote}/>}
-          {tab==="buy"    &&<BuyTab scope={scope} inputs={effInputs} quoteRef={quoteRef} onPrintBuy={printBuy}/>}
+          {tab==="estimate"&&<EstimateTab scope={scope} labour={labour} inputs={effInputs} finalGrade={finalGrade} docRef={docRef} documentType={documentType} onPrintDocument={printDocument}/>}
+          {tab==="buy"    &&<BuyTab scope={scope} inputs={effInputs} quoteRef={docRef} onPrintBuy={printBuy}/>}
           {tab==="build"  &&<BuildTab labour={labour}/>}
-          {tab==="learn"  &&<LearnTab scope={scope} labour={labour} flags={flags}/>}
+          {tab==="learn"  &&<LearnTab scope={scope} labour={labour} flags={flags} documentType={documentType}/>}
         </div>
         <div style={{marginTop:8,fontSize:10,color:C.muted,textAlign:"center"}}>{geyserAsm?"ContractorOS v2 · Geyser Assembly (Tier 2) · Vissi evidence 2022–26 · true-cost + ladder · excl. VAT":"ContractorOS v2 · Plumbing Tier 2 · Plumblink/CTM/Gelmar 2025–26 · Spon's seed SA-adjusted · excl. VAT"}</div>
       </div>
@@ -1240,6 +1340,41 @@ export default function EstimatePage() {
     <div style={{fontFamily:"'Inter',system-ui,sans-serif",background:"#F1F4F8",minHeight:"100vh"}}>
       <AppHeader showTabs={false}/>
       <div style={{maxWidth:780,margin:"0 auto",padding:"24px 20px"}}>
+        {/* Document-type selector: client quote (forward-looking) vs invoice (work done) */}
+        <div style={{display:"flex",gap:8,marginBottom:12}}>
+          {([{d:"quote" as const,l:"📄 Quote"},{d:"invoice" as const,l:"🧾 Invoice"}]).map(o=>(
+            <button key={o.d} onClick={()=>setDocumentType(o.d)} style={{
+              flex:1,padding:"9px 20px",borderRadius:8,cursor:"pointer",fontWeight:800,fontSize:13,
+              border:`2px solid ${documentType===o.d?C.navy:"#C8D0DB"}`,
+              background:documentType===o.d?C.navy:"transparent",color:documentType===o.d?"#fff":C.slate}}>{o.l}</button>))}
+        </div>
+        {documentType==="invoice"&&(
+        <div style={{background:"#fff",borderRadius:8,border:"1px solid #DDE3EA",marginBottom:16,overflow:"hidden"}}>
+          <SectionHeader>🧾 Invoice details — issued for work completed</SectionHeader>
+          <div style={{padding:"14px 20px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <div>
+              <label style={{display:"block",fontSize:11,color:C.slateL,marginBottom:3,fontWeight:600}}>Issue date</label>
+              <input type="date" value={invoiceMeta.issueDate}
+                onChange={e=>setInvoiceMeta(m=>({...m,issueDate:e.target.value,dueDate:addDays(e.target.value,7)}))}
+                style={{width:"100%",padding:"7px 10px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:13,color:C.navy,boxSizing:"border-box"}}/>
+            </div>
+            <div>
+              <label style={{display:"block",fontSize:11,color:C.slateL,marginBottom:3,fontWeight:600}}>Due date <span style={{color:C.muted,fontWeight:400}}>(default issue + 7 days)</span></label>
+              <input type="date" value={invoiceMeta.dueDate}
+                onChange={e=>setInvoiceMeta(m=>({...m,dueDate:e.target.value}))}
+                style={{width:"100%",padding:"7px 10px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:13,color:C.navy,boxSizing:"border-box"}}/>
+            </div>
+            <div style={{gridColumn:"1 / -1"}}>
+              <label style={{display:"block",fontSize:11,color:C.slateL,marginBottom:3,fontWeight:600}}>Banking details</label>
+              <textarea value={invoiceMeta.bankingDetails} rows={2}
+                placeholder={DEFAULT_BANKING_DETAILS}
+                onChange={e=>setInvoiceMeta(m=>({...m,bankingDetails:e.target.value}))}
+                style={{width:"100%",padding:"7px 10px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12,color:C.navy,boxSizing:"border-box",fontFamily:"inherit",resize:"vertical"}}/>
+              <div style={{fontSize:10,color:C.muted,marginTop:3}}>Invoice ref: <strong>{invoiceRef}</strong> · totals include 15% VAT · payment due {invoiceMeta.dueDate||"—"}</div>
+            </div>
+          </div>
+        </div>)}
+
         {/* Job-type selector: baseline-and-scale plumbing vs fixed-composition geyser */}
         <div style={{display:"flex",gap:8,marginBottom:16}}>
           {([{m:"plumbing" as const,l:"🔧 Plumbing Estimate"},{m:"geyser" as const,l:"♨ Geyser Replacement"}]).map(j=>(
@@ -1330,6 +1465,44 @@ export default function EstimatePage() {
               <button onClick={()=>addFixtureLine("toilet")}
                 style={{padding:"7px 14px",borderRadius:6,border:`1px dashed ${C.gold}`,background:C.goldPale,color:C.navy,cursor:"pointer",fontSize:12,fontWeight:700}}>+ Add fixture line</button>
               <span style={{fontSize:10,color:C.muted}}>Library prices are <GradePill grade="Sourced"/>; custom lines are <GradePill grade="Assumption"/> &amp; flagged.</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Fittings — compression fittings line builder (catalogue-priced).
+            Size groups + products are data-driven from COMPRESSION_FITTINGS. */}
+        <div style={{background:"#fff",borderRadius:8,border:"1px solid #DDE3EA",marginBottom:14,overflow:"hidden"}}>
+          <SectionHeader>Fittings — Compression Fittings (size + product + quantity)</SectionHeader>
+          <div style={{padding:"12px 16px"}}>
+            {(inputs.fittingLines ?? []).length===0&&
+              <div style={{fontSize:12,color:C.slateL,padding:"6px 2px 10px"}}>No fittings yet — add a line below.</div>}
+            {(inputs.fittingLines ?? []).map(ft=>{
+              const products=fittingsForSizeGroup(ft.sizeGroup);
+              return (
+              <div key={ft.id} style={{border:"1px solid #E0E5EC",borderRadius:8,padding:"8px 10px",marginBottom:8,background:C.offWhite}}>
+                <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                  <select value={ft.sizeGroup} onChange={e=>{const sg=e.target.value;const b=makeFittingLine(sg);updateFittingLine(ft.id,{sizeGroup:sg,materialCode:b.materialCode,plumblinkCode:b.plumblinkCode,label:b.label,description:b.description,size:b.size,unit:b.unit,unitPrice:b.unitPrice,grade:b.grade,supplier:b.supplier});}}
+                    style={{padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12,minWidth:90}}>
+                    {FITTING_SIZE_GROUPS.map(sg=><option key={sg} value={sg}>{sg}</option>)}
+                  </select>
+                  <select value={ft.materialCode} onChange={e=>{const b=makeFittingLine(ft.sizeGroup,e.target.value);updateFittingLine(ft.id,{materialCode:b.materialCode,plumblinkCode:b.plumblinkCode,label:b.label,description:b.description,size:b.size,unit:b.unit,unitPrice:b.unitPrice,grade:b.grade,supplier:b.supplier});}}
+                    style={{padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12,flex:1,minWidth:200}}>
+                    {products.map(p=><option key={p.materialCode} value={p.materialCode}>{p.label} — R{p.unitPrice} ({p.grade})</option>)}
+                  </select>
+                  <input type="number" min={0} max={99} value={ft.quantity}
+                    onChange={e=>updateFittingLine(ft.id,{quantity:Math.max(0,parseInt(e.target.value)||0)})}
+                    style={{width:60,padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:14,fontWeight:700,textAlign:"center"}}/>
+                  <span style={{fontSize:11,color:C.slateL,minWidth:70,textAlign:"right"}}>{fmt(ft.quantity*ft.unitPrice)}</span>
+                  <GradePill grade={ft.grade}/>
+                  <button onClick={()=>removeFittingLine(ft.id)} title="Remove" style={{padding:"4px 9px",borderRadius:6,border:"1px solid #E0B4B4",background:"#fff",color:C.red,cursor:"pointer",fontSize:13,fontWeight:700}}>✕</button>
+                </div>
+                <div style={{fontSize:10,color:C.muted,marginTop:5}}>{ft.description}{ft.plumblinkCode?` · PL ${ft.plumblinkCode}`:""} · {ft.supplier ?? "Plumblink"}</div>
+              </div>);
+            })}
+            <div style={{display:"flex",gap:8,alignItems:"center",marginTop:4}}>
+              <button onClick={addFittingLine}
+                style={{padding:"7px 14px",borderRadius:6,border:`1px dashed ${C.gold}`,background:C.goldPale,color:C.navy,cursor:"pointer",fontSize:12,fontWeight:700}}>+ Add fitting</button>
+              <span style={{fontSize:10,color:C.muted}}>Price, confidence, supplier &amp; Plumblink code populate automatically from the materials library.</span>
             </div>
           </div>
         </div>
