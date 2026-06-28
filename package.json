@@ -4,11 +4,9 @@
   "sideEffects": false,
   "type": "module",
   "scripts": {
-    "prepare:contractoros": "node scripts/apply-contractoros-patches.mjs && node scripts/fix-fittings-buildscope.mjs",
-    "prepare:invoice-mode": "node scripts/apply-contractoros-patches.mjs && node scripts/fix-fittings-buildscope.mjs",
-    "dev": "npm run prepare:contractoros && vite dev",
-    "build": "npm run prepare:contractoros && vite build",
-    "build:dev": "npm run prepare:contractoros && vite build --mode development",
+    "dev": "vite dev",
+    "build": "vite build",
+    "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier --write ."
