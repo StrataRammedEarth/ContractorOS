@@ -97,8 +97,16 @@ export interface ValidationResult {
 
 export interface SaveResult {
   success: boolean;
-  estimate?: { id: string; reference: string; status: string };
+  estimate?: { id: string; reference: string; status: string; document_type?: 'quote' | 'invoice' };
   error?: string;
+}
+
+export interface SaveOptions {
+  projectName: string;
+  clientName?: string;
+  documentType?: 'quote' | 'invoice';
+  invoiceMeta?: Record<string, unknown>;
+  status?: 'draft' | 'submitted' | 'approved';
 }
 
 // ─── LIBRARY LOADING ──────────────────────────────────────────────────────────
@@ -144,17 +152,22 @@ export async function validateEstimate(estimateData: Partial<EstimateData>): Pro
 // ─── SAVE ─────────────────────────────────────────────────────────────────────
 
 export async function saveEstimate(
-  estimateData: Partial<EstimateData>,
-  projectName: string,
-  clientName: string,
-  trade = 'plumbing',
-  status: 'draft' | 'submitted' | 'approved' = 'draft'
+  estimateData: Record<string, unknown>,
+  opts: SaveOptions
 ): Promise<SaveResult> {
+  const { projectName, clientName = '', documentType = 'quote', invoiceMeta = {}, status = 'draft' } = opts;
   try {
     const res = await fetch(`${supabaseUrl}/functions/v1/save-estimate`, {
       method: 'POST',
       headers: edgeHeaders(),
-      body: JSON.stringify({ estimate_data: estimateData, project_name: projectName, client_name: clientName, trade, status }),
+      body: JSON.stringify({
+        estimate_data: estimateData,
+        project_name: projectName,
+        client_name: clientName,
+        document_type: documentType,
+        invoice_meta: invoiceMeta,
+        status,
+      }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();

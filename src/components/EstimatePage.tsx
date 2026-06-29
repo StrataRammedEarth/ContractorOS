@@ -11,6 +11,9 @@ import {
   printInvoiceDocument, isoDate, addDays, DEFAULT_BANKING_DETAILS,
   type InvoiceMeta, type DocumentType,
 } from "@/lib/invoice-document";
+import { saveEstimate } from "@/lib/supabase-client";
+
+type SaveState = { s: "idle" | "saving" | "saved" | "error"; ref?: string; msg?: string };
 
 // ─── SUPABASE (for the scan-drawing edge function) ────────────────────────────
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? "";
@@ -802,7 +805,7 @@ function ScopeModal({ scope, labour, inputs, onConfirm, onBack }: { scope: Scope
 }
 
 // ─── OUTPUT TABS ──────────────────────────────────────────────────────────────
-function EstimateTab({ scope, labour, inputs, finalGrade, docRef, documentType, onPrintDocument }: { scope: ScopeLine[]; labour: LabourLine[]; inputs: Inputs; finalGrade: string; docRef: string; documentType: DocumentType; onPrintDocument: () => void }) {
+function EstimateTab({ scope, labour, inputs, finalGrade, docRef, documentType, onPrintDocument, onSave, saveState }: { scope: ScopeLine[]; labour: LabourLine[]; inputs: Inputs; finalGrade: string; docRef: string; documentType: DocumentType; onPrintDocument: () => void; onSave: () => void; saveState: SaveState }) {
   const mat=scope.reduce((s,l)=>s+l.total,0);
   const lab=labour.reduce((s,l)=>s+l.cost,0);
   const ld=applyLadder(mat,lab);
@@ -822,7 +825,15 @@ function EstimateTab({ scope, labour, inputs, finalGrade, docRef, documentType, 
           <div style={{textAlign:"right"}}>
             <GradePill grade={finalGrade}/>
             <div style={{color:C.muted,fontSize:10,marginTop:6}}>{issuable?"✓ Internal use OK":"⚠ Not client-issuable"}</div>
-            <button onClick={onPrintDocument} style={{marginTop:10,padding:"7px 16px",borderRadius:6,border:"none",background:C.gold,color:C.navy,cursor:"pointer",fontWeight:700,fontSize:12}}>⬇ Download {documentType==="invoice"?"Invoice":"Quote"}</button>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:10}}>
+              <button onClick={onSave} disabled={saveState.s==="saving"}
+                style={{padding:"7px 14px",borderRadius:6,border:`1px solid ${C.gold}80`,background:"transparent",color:C.gold,cursor:saveState.s==="saving"?"default":"pointer",fontWeight:700,fontSize:12,opacity:saveState.s==="saving"?0.6:1}}>
+                {saveState.s==="saving"?"Saving…":saveState.s==="saved"?"✓ Saved":"💾 Save to database"}
+              </button>
+              <button onClick={onPrintDocument} style={{padding:"7px 16px",borderRadius:6,border:"none",background:C.gold,color:C.navy,cursor:"pointer",fontWeight:700,fontSize:12}}>⬇ Download {documentType==="invoice"?"Invoice":"Quote"}</button>
+            </div>
+            {saveState.s==="saved"&&<div style={{color:C.green,fontSize:10,marginTop:6}}>Saved to database as <strong>{saveState.ref}</strong></div>}
+            {saveState.s==="error"&&<div style={{color:C.red,fontSize:10,marginTop:6,maxWidth:220}}>⚠ {saveState.msg}</div>}
           </div>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginTop:16,paddingTop:16,borderTop:`1px solid ${C.navyLt}`}}>
@@ -1100,6 +1111,7 @@ export default function EstimatePage() {
     const issue = isoDate(new Date());
     return { issueDate: issue, dueDate: addDays(issue, 7), bankingDetails: "" };
   });
+  const [saveState, setSaveState] = useState<SaveState>({ s: "idle" });
   const docRef = documentType === "invoice" ? invoiceRef : quoteRef;
 
   // Geyser assembly (fixed-composition) vs plumbing engine (baseline-and-scale)
@@ -1190,6 +1202,30 @@ export default function EstimatePage() {
     : printQuotePDF(effInputs,scope,labour,docRef);
   const printBuy  =()=>printBuyPDF(effInputs,scope,docRef);
 
+  // Persist the current document (quote or invoice) to Supabase as a draft record.
+  // The edge function mints the canonical reference and stores the full snapshot.
+  const handleSave = async () => {
+    setSaveState({ s: "saving" });
+    const snapshot: Record<string, unknown> = {
+      reference: docRef,
+      documentType,
+      grade: finalGrade,
+      inputs: effInputs,
+      scope, labour,
+      totals: { material: matTotal, labour: labTotal, sell, sellInclVat: sell * 1.15 },
+      ...(documentType === "invoice" ? { invoiceMeta } : {}),
+    };
+    const res = await saveEstimate(snapshot, {
+      projectName: effInputs.projectName || (documentType === "invoice" ? "Invoice" : "Quote"),
+      clientName: effInputs.clientName,
+      documentType,
+      invoiceMeta: documentType === "invoice" ? (invoiceMeta as unknown as Record<string, unknown>) : {},
+      status: "draft",
+    });
+    if (res.success && res.estimate) setSaveState({ s: "saved", ref: res.estimate.reference });
+    else setSaveState({ s: "error", msg: res.error || "Save failed" });
+  };
+
   const AppHeader = ({ showTabs }: { showTabs: boolean }) => (
     <div style={{background:C.navy,borderBottom:`3px solid ${C.gold}`,position:"sticky",top:0,zIndex:100}}>
       <div style={{maxWidth:960,margin:"0 auto",padding:"12px 20px",display:"flex",alignItems:"center",gap:14}}>
@@ -1263,7 +1299,7 @@ export default function EstimatePage() {
         {inputs._scanNotes&&!geyserAsm&&<div style={{background:"#FEF5E7",border:`1px solid ${C.amber}40`,borderRadius:"0 0 6px 6px",padding:"6px 16px",fontSize:11,color:C.navy,marginBottom:4}}>📐 <strong>Scan-derived scope:</strong> {inputs._scanNotes}</div>}
         {geyserAsm&&<div style={{background:"#FEF5E7",border:`1px solid ${C.amber}40`,borderRadius:"0 0 6px 6px",padding:"6px 16px",fontSize:11,color:C.navy,marginBottom:4}}>♨ <strong>Geyser assembly · {finalGrade} grade:</strong> fixed-composition quote — {flags.length} note{flags.length===1?"":"s"} in the Learn tab{GRADES[finalGrade]?.rank>=GRADES["Derived"].rank?" · client-issuable through the normal gate.":" · not client-issuable until grade lifts."}</div>}
         <div style={{background:"#fff",borderRadius:"0 8px 8px 8px",border:"1px solid #DDE3EA",borderTop:"none",overflow:"hidden"}}>
-          {tab==="estimate"&&<EstimateTab scope={scope} labour={labour} inputs={effInputs} finalGrade={finalGrade} docRef={docRef} documentType={documentType} onPrintDocument={printDocument}/>}
+          {tab==="estimate"&&<EstimateTab scope={scope} labour={labour} inputs={effInputs} finalGrade={finalGrade} docRef={docRef} documentType={documentType} onPrintDocument={printDocument} onSave={handleSave} saveState={saveState}/>}
           {tab==="buy"    &&<BuyTab scope={scope} inputs={effInputs} quoteRef={docRef} onPrintBuy={printBuy}/>}
           {tab==="build"  &&<BuildTab labour={labour}/>}
           {tab==="learn"  &&<LearnTab scope={scope} labour={labour} flags={flags} documentType={documentType}/>}
