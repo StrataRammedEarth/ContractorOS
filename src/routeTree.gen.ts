@@ -9,11 +9,23 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as ShowcaseRouteImport } from './routes/showcase'
+import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as PlumbingRouteImport } from './routes/plumbing'
 import { Route as CollectionsRouteImport } from './routes/collections'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ProductsSlugRouteImport } from './routes/products.$slug'
 
+const ShowcaseRoute = ShowcaseRouteImport.update({
+  id: '/showcase',
+  path: '/showcase',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProfileRoute = ProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PlumbingRoute = PlumbingRouteImport.update({
   id: '/plumbing',
   path: '/plumbing',
@@ -39,12 +51,16 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/collections': typeof CollectionsRoute
   '/plumbing': typeof PlumbingRoute
+  '/profile': typeof ProfileRoute
+  '/showcase': typeof ShowcaseRoute
   '/products/$slug': typeof ProductsSlugRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/collections': typeof CollectionsRoute
   '/plumbing': typeof PlumbingRoute
+  '/profile': typeof ProfileRoute
+  '/showcase': typeof ShowcaseRoute
   '/products/$slug': typeof ProductsSlugRoute
 }
 export interface FileRoutesById {
@@ -52,25 +68,62 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/collections': typeof CollectionsRoute
   '/plumbing': typeof PlumbingRoute
+  '/profile': typeof ProfileRoute
+  '/showcase': typeof ShowcaseRoute
   '/products/$slug': typeof ProductsSlugRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/collections' | '/plumbing' | '/products/$slug'
+  fullPaths:
+    | '/'
+    | '/collections'
+    | '/plumbing'
+    | '/profile'
+    | '/showcase'
+    | '/products/$slug'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/collections' | '/plumbing' | '/products/$slug'
-  id: '__root__' | '/' | '/collections' | '/plumbing' | '/products/$slug'
+  to:
+    | '/'
+    | '/collections'
+    | '/plumbing'
+    | '/profile'
+    | '/showcase'
+    | '/products/$slug'
+  id:
+    | '__root__'
+    | '/'
+    | '/collections'
+    | '/plumbing'
+    | '/profile'
+    | '/showcase'
+    | '/products/$slug'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CollectionsRoute: typeof CollectionsRoute
   PlumbingRoute: typeof PlumbingRoute
+  ProfileRoute: typeof ProfileRoute
+  ShowcaseRoute: typeof ShowcaseRoute
   ProductsSlugRoute: typeof ProductsSlugRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/showcase': {
+      id: '/showcase'
+      path: '/showcase'
+      fullPath: '/showcase'
+      preLoaderRoute: typeof ShowcaseRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/profile': {
+      id: '/profile'
+      path: '/profile'
+      fullPath: '/profile'
+      preLoaderRoute: typeof ProfileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/plumbing': {
       id: '/plumbing'
       path: '/plumbing'
@@ -106,6 +159,8 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CollectionsRoute: CollectionsRoute,
   PlumbingRoute: PlumbingRoute,
+  ProfileRoute: ProfileRoute,
+  ShowcaseRoute: ShowcaseRoute,
   ProductsSlugRoute: ProductsSlugRoute,
 }
 export const routeTree = rootRouteImport

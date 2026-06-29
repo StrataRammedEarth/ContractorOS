@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback } from "react";
+import { Link } from "@tanstack/react-router";
 import {
   buildGeyserReplacement, buildElementRepair,
   type GeyserAssembly, type GeyserSize, type GeyserBrand, type GeyserJobType,
@@ -11,6 +12,7 @@ import {
   printInvoiceDocument, isoDate, addDays, DEFAULT_BANKING_DETAILS,
   type InvoiceMeta, type DocumentType,
 } from "@/lib/invoice-document";
+import { useSettings, DEFAULT_SETTINGS, type OrgSettings } from "@/lib/settings-context";
 
 // ─── SUPABASE (for the scan-drawing edge function) ────────────────────────────
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? "";
@@ -71,6 +73,10 @@ const BL = { elbowsPPt:3.75, teesPPt:2.25, couplersPPt:1.5, insertsPPt:8.75 };
 //  The old hardcoded per-metre PIPE_PRICES (copper R58/m) was removed: it
 //  under-priced copper ~45% vs the real R102.41/m.)
 
+// Default composite crew hourly rate (plumber R600 + assistant R260) / 8h.
+// REPLACED BY SETTINGS CONTEXT: now a fallback default — the live rate is derived
+// from plumberDayRate / assistantDayRate / hoursPerDay and threaded into the
+// labour builders. Kept here so module-level callers still have a sane default.
 const CREW_RATE_HR = 860 / 8;
 const PROD = {
   trenchExcavation: 0.25,
@@ -258,15 +264,25 @@ function makePipeLine(use: 'supply'|'drainage'): PipeLine {
 const sumMetres = (ls: PipeLine[] | undefined) => (ls ?? []).reduce((s,l)=>s+(l.metres||0),0);
 
 // ─── COMMERCIAL LADDER ────────────────────────────────────────────────────────
-function applyLadder(mat: number, lab: number): Ladder {
+// Commercial-ladder percentages. Now configurable via Profile & Settings;
+// these constants remain the fallback default (Vissi).
+// REPLACED BY SETTINGS CONTEXT (kept as defaults): waste 5 · risk 5 · contingency 10 · margin 25
+export interface LadderRates { wastePct: number; riskPct: number; contingencyPct: number; marginPct: number; }
+const DEFAULT_LADDER: LadderRates = { wastePct: 5, riskPct: 5, contingencyPct: 10, marginPct: 25 };
+
+// Margin is markup on cost: sell = afterCont × (1 + marginPct/100)
+// NOT gross margin. 25% markup → ~20% of sell price.
+// Owner confirmed: Luke Erasmus, 2026-06-29.
+// Order and formula are fixed; only the percentages are configurable.
+function applyLadder(mat: number, lab: number, rates: LadderRates = DEFAULT_LADDER): Ladder {
   const prime     = mat + lab;
-  const waste     = mat * 0.05;
+  const waste     = mat * (rates.wastePct / 100);
   const direct    = prime + waste;
-  const risk      = direct * 0.05;
+  const risk      = direct * (rates.riskPct / 100);
   const afterRisk = direct + risk;
-  const cont      = afterRisk * 0.10;
+  const cont      = afterRisk * (rates.contingencyPct / 100);
   const afterCont = afterRisk + cont;
-  const margin    = afterCont * 0.25;
+  const margin    = afterCont * (rates.marginPct / 100);
   const sell      = afterCont + margin;
   return { prime, waste, direct, risk, afterRisk, cont, afterCont, margin, sell };
 }
@@ -275,7 +291,7 @@ function applyLadder(mat: number, lab: number): Ladder {
 // Quotes keep the PLB-YYYY-NNN series; invoices get an independent INV-YYYYMM-NNN
 // series (separate sessionStorage counters), so issuing an invoice never advances
 // the quote number and vice-versa.
-function nextDocumentRef(type: DocumentType) {
+function nextDocumentRef(type: DocumentType, quotePrefix = "PLB") {
   const now = new Date();
   const year = now.getFullYear();
   const yearMonth = `${year}${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -286,7 +302,7 @@ function nextDocumentRef(type: DocumentType) {
   try { sessionStorage.setItem(key, String(seq)); } catch (_) {}
   return type === "invoice"
     ? `INV-${yearMonth}-${String(seq).padStart(3, "0")}`
-    : `PLB-${year}-${String(seq).padStart(3, "0")}`;
+    : `${quotePrefix || "PLB"}-${year}-${String(seq).padStart(3, "0")}`;
 }
 
 // ─── ENGINE ───────────────────────────────────────────────────────────────────
@@ -399,14 +415,14 @@ function buildScope(inp: Inputs): ScopeLine[] {
   return lines;
 }
 
-function buildLabour(inp: Inputs): LabourLine[] {
+function buildLabour(inp: Inputs, crewRateHr: number = CREW_RATE_HR): LabourLine[] {
   const { points, trenching } = inp;
   const fixtureLines = inp.fixtureLines ?? [];
   const supplyMetres = sumMetres(inp.supplyLines);
   const drainMetres  = sumMetres(inp.drainLines);
   const lines: LabourLine[] = [];
   const add = (id: string, desc: string, hrs: number, grade: string, deriv: string) =>
-    lines.push({ id, description:desc, hours:hrs, rate:CREW_RATE_HR, cost:hrs*CREW_RATE_HR, conf:grade, derivation:deriv });
+    lines.push({ id, description:desc, hours:hrs, rate:crewRateHr, cost:hrs*crewRateHr, conf:grade, derivation:deriv });
   if (trenching && drainMetres>0)
     add("L01","Trench excavation",drainMetres*PROD.trenchExcavation,"Sourced",`${drainMetres}m × ${PROD.trenchExcavation}hr/m (Vazirani)`);
   add("L02","Pipework installation",supplyMetres*PROD.pipeworkInstall,"Sourced",`${supplyMetres}m × ${PROD.pipeworkInstall}hr/m (Spon's)`);
@@ -446,13 +462,13 @@ function geyserToScope(asm: GeyserAssembly): ScopeLine[] {
     mode: l.writingMode,
   }));
 }
-function geyserToLabour(asm: GeyserAssembly): LabourLine[] {
+function geyserToLabour(asm: GeyserAssembly, crewRateHr: number = CREW_RATE_HR): LabourLine[] {
   const burst = asm.jobType === "burst_replacement";
   return [{
     id: "GL01",
     description: burst ? "Geyser remove & replace — labour block" : "Element / thermostat repair — labour",
-    hours: asm.labourCost / CREW_RATE_HR,
-    rate: CREW_RATE_HR,
+    hours: asm.labourCost / crewRateHr,
+    rate: crewRateHr,
     cost: asm.labourCost,
     conf: asm.grade,
     derivation: burst
@@ -478,14 +494,24 @@ function SectionHeader({ children }: { children: React.ReactNode }) {
     borderBottom:`2px solid ${C.gold}40` }}>{children}</div>;
 }
 
+// ─── SETTINGS → ENGINE DERIVATIONS ────────────────────────────────────────────
+const ladderFrom = (s: OrgSettings): LadderRates =>
+  ({ wastePct: s.wastePct, riskPct: s.riskPct, contingencyPct: s.contingencyPct, marginPct: s.marginPct });
+const crewRateFrom = (s: OrgSettings): number =>
+  s.hoursPerDay > 0 ? (s.plumberDayRate + s.assistantDayRate) / s.hoursPerDay : CREW_RATE_HR;
+const ladderLabel = (s: OrgSettings): string =>
+  `${s.wastePct}% waste, ${s.riskPct}% risk, ${s.contingencyPct}% contingency, ${s.marginPct}% markup`;
+const businessFrom = (s: OrgSettings): string => s.businessName.trim() || "[Your Plumbing Business]";
+
 // ─── PDF GENERATORS ───────────────────────────────────────────────────────────
-function printQuotePDF(inp: Inputs, scope: ScopeLine[], labour: LabourLine[], quoteRef: string) {
+function printQuotePDF(inp: Inputs, scope: ScopeLine[], labour: LabourLine[], quoteRef: string, cfg: OrgSettings = DEFAULT_SETTINGS) {
   const mat   = scope.reduce((s,l)=>s+l.total,0);
   const lab   = labour.reduce((s,l)=>s+l.cost,0);
-  const ld    = applyLadder(mat,lab);
+  const ld    = applyLadder(mat,lab,ladderFrom(cfg));
   const allow = ld.sell - ld.prime;
-  const vat   = ld.sell * 0.15;
+  const vat   = ld.sell * (cfg.vatRatePct / 100);
   const total = ld.sell + vat;
+  const biz   = businessFrom(cfg);
   const g = inp._geyser;
   const fixtureLines = g ? [] : (inp.fixtureLines ?? [])
     .filter(l=>l.quantity>0)
@@ -501,16 +527,16 @@ function printQuotePDF(inp: Inputs, scope: ScopeLine[], labour: LabourLine[], qu
         g.jobType==="burst_replacement"?`<div class="scope-item"><strong>Brand:</strong> ${g.brand} (B-rated, 5yr warranty)</div>`:"",
         g.jobType==="element_repair"?`<div class="scope-item"><strong>Solar geyser:</strong> ${g.solar?"Yes — thermostat retained":"No"}</div>`:"",
         ...scope.map(l=>`<div class="scope-item"><strong>${l.qty}× ${l.description}</strong></div>`),
-        `<div class="scope-item"><strong>Commercial rules:</strong> 5% waste, 5% risk, 10% contingency, 25% markup</div>`,
+        `<div class="scope-item"><strong>Commercial rules:</strong> ${ladderLabel(cfg)}</div>`,
       ].filter(Boolean).join("")
-    : `${(inp.supplyLines ?? []).filter(l=>l.metres>0).map(l=>`<div class="scope-item"><strong>Supply:</strong> ${l.metres}m ${l.type} ${l.diameter?l.diameter+"mm":""}</div>`).join("")}<div class="scope-item"><strong>Water points:</strong> ${inp.points}</div>${(inp.drainLines ?? []).filter(l=>l.metres>0).map(l=>`<div class="scope-item"><strong>Drainage:</strong> ${l.metres}m ${l.type} ${l.diameter?l.diameter+"mm":""}</div>`).join("")}${fixtureLines.map(l=>`<div class="scope-item"><strong>${l}</strong></div>`).join("")}${fittingLines.map(l=>`<div class="scope-item"><strong>${l}</strong></div>`).join("")}<div class="scope-item"><strong>Commercial rules:</strong> 5% waste, 5% risk, 10% contingency, 25% markup</div>`;
+    : `${(inp.supplyLines ?? []).filter(l=>l.metres>0).map(l=>`<div class="scope-item"><strong>Supply:</strong> ${l.metres}m ${l.type} ${l.diameter?l.diameter+"mm":""}</div>`).join("")}<div class="scope-item"><strong>Water points:</strong> ${inp.points}</div>${(inp.drainLines ?? []).filter(l=>l.metres>0).map(l=>`<div class="scope-item"><strong>Drainage:</strong> ${l.metres}m ${l.type} ${l.diameter?l.diameter+"mm":""}</div>`).join("")}${fixtureLines.map(l=>`<div class="scope-item"><strong>${l}</strong></div>`).join("")}${fittingLines.map(l=>`<div class="scope-item"><strong>${l}</strong></div>`).join("")}<div class="scope-item"><strong>Commercial rules:</strong> ${ladderLabel(cfg)}</div>`;
   const scopeIntro = g
     ? `Supply and installation of a ${g.size}L ${g.jobType==="burst_replacement"?`${g.brand} geyser replacement assembly`:"geyser element / thermostat repair"} as set out below.`
     : "Supply and installation of plumbing connection assemblies as set out below.";
   const assumptions = g
     ? [
         `Asset: ${g.size}L geyser, ${g.jobType==="burst_replacement"?`${g.brand} B-rated (5yr warranty)`:"element/thermostat repair"}`,
-        "Commercial rules: 5% waste, 5% risk, 10% contingency, 25% markup",
+        "Commercial rules: ${ladderLabel(cfg)}",
         "Geyser unit + kit costs back-derived (Assumption) — confirm buy-prices [VR-07, VR-08]",
         "Labour block crew-derived (Assumption) — confirm vs actual crew hours [VR-09]",
         g.size===200?"200L pricing interpolated — no direct quote evidence":"",
@@ -522,7 +548,7 @@ function printQuotePDF(inp: Inputs, scope: ScopeLine[], labour: LabourLine[], qu
         `Drainage: ${(inp.drainLines ?? []).filter(l=>l.metres>0).map(l=>`${l.metres}m ${l.type} ${l.diameter}mm`).join(", ") || "none"}`,
         `Trenching: ${inp.trenching?"Yes":"No"}`,
         "Pipe rates per-metre from pack price (Plumblink 2026, excl VAT)",
-        "Commercial rules: 5% waste, 5% risk, 10% contingency, 25% markup",
+        "Commercial rules: ${ladderLabel(cfg)}",
         "SA productivity factor: ×1.20 on Spon's UK constants (Assumption VR-05)",
       ];
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
@@ -530,15 +556,15 @@ function printQuotePDF(inp: Inputs, scope: ScopeLine[], labour: LabourLine[], qu
 <style>
 *{margin:0;padding:0;box-sizing:border-box}body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:12px;color:#1a1a2e;background:#fff}.page{max-width:800px;margin:0 auto;padding:32px 40px}.header{background:#0D1B2A;padding:24px 32px;display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #F5A623}.logo-mark{width:42px;height:42px;background:#F5A623;clip-path:polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:13px;color:#0D1B2A}.logo-text{color:#F5A623;font-weight:900;font-size:20px}.logo-sub{color:#8FA3B8;font-size:9px;letter-spacing:2px;text-transform:uppercase;margin-top:2px}.quote-label{text-align:right}.quote-label h2{color:#F5A623;font-size:22px;letter-spacing:3px;text-transform:uppercase}.quote-label p{color:#8FA3B8;font-size:11px;margin-top:4px}.quote-label strong{color:#fff}.parties{display:grid;grid-template-columns:1fr 1fr;gap:0;margin:28px 0;border:1px solid #e0e5ec}.party{padding:18px 20px}.party:first-child{border-right:1px solid #e0e5ec}.party-label{font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:#8FA3B8;margin-bottom:6px}.party h3{font-size:15px;font-weight:800;color:#0D1B2A}.party p{font-size:11px;color:#6B859E;margin-top:3px}.section-bar{background:#0D1B2A;color:#F5A623;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;padding:7px 16px;margin:20px 0 0}.scope-box{border:1px solid #e0e5ec;border-top:none;padding:16px;margin-bottom:0}.scope-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px 24px;margin-top:8px}.scope-item{font-size:11px;color:#4A6080;padding:2px 0}.scope-item strong{color:#0D1B2A}table{width:100%;border-collapse:collapse;margin-top:0}thead tr{background:#0D1B2A}thead th{color:#8FA3B8;font-size:10px;font-weight:600;text-align:left;padding:8px 16px}thead th:last-child{text-align:right}tbody tr{border-bottom:1px solid #f0f4f8}tbody tr:nth-child(odd){background:#f7f8fa}td{padding:10px 16px;font-size:12px;color:#0D1B2A}td:last-child{text-align:right;font-weight:600}td .sub{font-size:10px;color:#8FA3B8;margin-top:2px}.totals{margin-top:0;border:1px solid #e0e5ec;border-top:none}.total-row{display:flex;justify-content:space-between;padding:9px 16px;font-size:12px;border-bottom:1px solid #f0f4f8}.total-final{background:#0D1B2A;color:#fff;display:flex;justify-content:space-between;padding:14px 16px;font-size:16px;font-weight:900}.total-final span:last-child{color:#F5A623}.bottom-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:24px 0}.bottom-box{font-size:11px;color:#4A6080;line-height:1.7}.bottom-box h4{font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:#0D1B2A;font-weight:700;margin-bottom:6px}.sig-grid{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:16px}.sig-line{border-top:1px solid #ccc;padding-top:6px;font-size:10px;color:#8FA3B8;text-transform:uppercase}.footer{margin-top:32px;text-align:center;font-size:9px;color:#8FA3B8;text-transform:uppercase}.gold-bar{height:3px;background:#F5A623;margin:0}@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
 </style></head><body><div class="page">
-<div class="header"><div style="display:flex;align-items:center;gap:14px"><div class="logo-mark">CO</div><div><div class="logo-text">ContractorOS</div><div class="logo-sub">Plumbing · One Job. Four Outputs.</div></div></div><div class="quote-label"><h2>Quotation</h2><p>Ref: <strong>${quoteRef}</strong></p><p>${today()} · <strong>DRAFT</strong></p><p>Valid: 30 days</p></div></div>
+<div class="header"><div style="display:flex;align-items:center;gap:14px"><div class="logo-mark">CO</div><div><div class="logo-text">ContractorOS</div><div class="logo-sub">Plumbing · One Job. Four Outputs.</div></div></div><div class="quote-label"><h2>Quotation</h2><p>Ref: <strong>${quoteRef}</strong></p><p>${today()} · <strong>DRAFT</strong></p><p>Valid: ${cfg.quoteValidityDays} days</p></div></div>
 <div class="gold-bar"></div>
-<div class="parties"><div class="party"><div class="party-label">From</div><h3>[Your Plumbing Business]</h3><p>Registration / VAT no.</p><p>Phone · Email</p></div><div class="party"><div class="party-label">To</div><h3>${inp.projectName||"Project"}</h3><p>${inp.clientName||"Client name &amp; site address"}</p></div></div>
+<div class="parties"><div class="party"><div class="party-label">From</div><h3>${biz}</h3><p>${cfg.vatNumber?`VAT no. ${cfg.vatNumber}`:"Not VAT registered"}</p><p>${[cfg.contactName,cfg.phone,cfg.email].filter(Boolean).join(" · ")||"Phone · Email"}</p></div><div class="party"><div class="party-label">To</div><h3>${inp.projectName||"Project"}</h3><p>${inp.clientName||"Client name &amp; site address"}</p></div></div>
 <div class="section-bar">Scope of Work</div><div class="scope-box"><p style="font-size:11px;color:#4A6080;line-height:1.6">${scopeIntro}</p><div class="scope-grid">${scopeGrid}</div></div>
 <div class="section-bar">Pricing</div><table><thead><tr><th>Description</th><th style="text-align:right">Amount (excl VAT)</th></tr></thead><tbody><tr><td>Materials &amp; Supply<div class="sub">${g?"Geyser unit, valves, tray, vacuum breakers, consumables":"Pipe, fittings, connection assemblies, consumables"}</div></td><td>${fmtN(mat)}</td></tr><tr><td>Labour &amp; Installation<div class="sub">${g?(g.jobType==="burst_replacement"?"Remove old geyser, install &amp; commission new assembly":"Element / thermostat repair labour"):"Pipework, point make-off, fixture connection"}</div></td><td>${fmtN(lab)}</td></tr><tr><td>Project allowances &amp; margin<div class="sub">Waste, risk, contingency &amp; markup</div></td><td>${fmtN(allow)}</td></tr></tbody></table>
-<div class="totals"><div class="total-row"><span>Subtotal (excl VAT)</span><span>R ${fmtN(ld.sell)}</span></div><div class="total-row"><span>VAT @ 15%</span><span>R ${fmtN(vat)}</span></div></div>
+<div class="totals"><div class="total-row"><span>Subtotal (excl VAT)</span><span>R ${fmtN(ld.sell)}</span></div><div class="total-row"><span>VAT @ ${cfg.vatRatePct}%</span><span>R ${fmtN(vat)}</span></div></div>
 <div class="total-final"><span>Total Due</span><span>R ${fmtN(total)}</span></div>
-<div class="bottom-grid"><div class="bottom-box"><h4>Assumptions</h4>${assumptions.map(a=>`<div>— ${a}</div>`).join("")}</div><div class="bottom-box"><h4>Exclusions &amp; Terms</h4><div>— Builder's work, tiling, electrical and making-good excluded.</div><div>— 50% deposit on acceptance; balance on completion.</div><div>— Quote valid 30 days; subject to site confirmation.</div></div></div>
-<div class="section-bar">Acceptance</div><div class="sig-grid" style="margin-top:24px"><div class="sig-line">Client Signature</div><div class="sig-line">For [Your Plumbing Business]</div></div>
+<div class="bottom-grid"><div class="bottom-box"><h4>Assumptions</h4>${assumptions.map(a=>`<div>— ${a}</div>`).join("")}</div><div class="bottom-box"><h4>Exclusions &amp; Terms</h4><div>— Builder's work, tiling, electrical and making-good excluded.</div><div>— 50% deposit on acceptance; balance on completion.</div><div>— Quote valid ${cfg.quoteValidityDays} days; subject to site confirmation.</div>${cfg.termsConditions?`<div>— ${cfg.termsConditions}</div>`:""}</div></div>
+<div class="section-bar">Acceptance</div><div class="sig-grid" style="margin-top:24px"><div class="sig-line">Client Signature</div><div class="sig-line">For ${biz}</div></div>
 <div class="footer">ContractorOS — One Job. Four Outputs. · ${quoteRef} · All prices excl. VAT</div>
 </div></body></html>`;
   const blob = new Blob([html],{type:"text/html"});
@@ -802,11 +828,12 @@ function ScopeModal({ scope, labour, inputs, onConfirm, onBack }: { scope: Scope
 }
 
 // ─── OUTPUT TABS ──────────────────────────────────────────────────────────────
-function EstimateTab({ scope, labour, inputs, finalGrade, docRef, documentType, onPrintDocument }: { scope: ScopeLine[]; labour: LabourLine[]; inputs: Inputs; finalGrade: string; docRef: string; documentType: DocumentType; onPrintDocument: () => void }) {
+function EstimateTab({ scope, labour, inputs, finalGrade, docRef, documentType, onPrintDocument, ladder, vatRate }: { scope: ScopeLine[]; labour: LabourLine[]; inputs: Inputs; finalGrade: string; docRef: string; documentType: DocumentType; onPrintDocument: () => void; ladder: LadderRates; vatRate: number }) {
   const mat=scope.reduce((s,l)=>s+l.total,0);
   const lab=labour.reduce((s,l)=>s+l.cost,0);
-  const ld=applyLadder(mat,lab);
+  const ld=applyLadder(mat,lab,ladder);
   const allow=ld.sell-ld.prime;
+  const vatPct=+(vatRate*100).toFixed(2);
   // Invoices record actual work and are always issuable; quotes keep the strict gate.
   const issuable=documentType==="invoice"||GRADES[finalGrade]?.rank>=GRADES["Assumption"].rank;
   return (
@@ -816,7 +843,7 @@ function EstimateTab({ scope, labour, inputs, finalGrade, docRef, documentType, 
           <div>
             <div style={{color:C.muted,fontSize:11,letterSpacing:1,textTransform:"uppercase"}}>Sell Price (excl. VAT)</div>
             <div style={{color:C.gold,fontSize:36,fontWeight:900,letterSpacing:-1}}>{fmt(ld.sell)}</div>
-            <div style={{color:C.slateL,fontSize:12,marginTop:4}}>{fmt(ld.sell*1.15)} incl. 15% VAT</div>
+            <div style={{color:C.slateL,fontSize:12,marginTop:4}}>{fmt(ld.sell*(1+vatRate))} incl. {vatPct}% VAT</div>
             <div style={{color:C.muted,fontSize:11,marginTop:2}}>{documentType==="invoice"?"Invoice":"Quote"} ref: {docRef}</div>
           </div>
           <div style={{textAlign:"right"}}>
@@ -838,10 +865,10 @@ function EstimateTab({ scope, labour, inputs, finalGrade, docRef, documentType, 
         <tbody>
           {[
             {l:"Material",v:mat,n:""},{l:"Labour",v:lab,n:""},
-            {l:"Prime cost",v:ld.prime,n:"mat + lab"},{l:"+ Material waste 5%",v:ld.waste,n:"on material only"},
-            {l:"= Direct cost",v:ld.direct,n:""},{l:"+ Risk 5%",v:ld.risk,n:"on direct"},
-            {l:"+ Contingency 10%",v:ld.cont,n:"on risk-adjusted"},{l:"+ Margin 25%",v:ld.margin,n:"on cont-adjusted"},
-            {l:"= Sell (excl. VAT)",v:ld.sell,n:"",bold:true},{l:"= Sell (incl. 15% VAT)",v:ld.sell*1.15,n:"",gold:true},
+            {l:"Prime cost",v:ld.prime,n:"mat + lab"},{l:`+ Material waste ${ladder.wastePct}%`,v:ld.waste,n:"on material only"},
+            {l:"= Direct cost",v:ld.direct,n:""},{l:`+ Risk ${ladder.riskPct}%`,v:ld.risk,n:"on direct"},
+            {l:`+ Contingency ${ladder.contingencyPct}%`,v:ld.cont,n:"on risk-adjusted"},{l:`+ Margin ${ladder.marginPct}%`,v:ld.margin,n:"on cont-adjusted"},
+            {l:"= Sell (excl. VAT)",v:ld.sell,n:"",bold:true},{l:`= Sell (incl. ${vatPct}% VAT)`,v:ld.sell*(1+vatRate),n:"",gold:true},
           ].map((r,i)=>(
             <tr key={i} style={{background:r.gold?`${C.gold}12`:r.bold?C.navyLt:i%2===0?C.offWhite:"#fff",borderBottom:"1px solid #E0E5EC"}}>
               <td style={{padding:"7px 16px",color:r.bold||r.gold?C.navy:C.slate,fontWeight:r.bold||r.gold?700:400}}>{r.l}</td>
@@ -1087,6 +1114,13 @@ const TABS = [
 const GEYSER_DEFAULT: GeyserMeta = { jobType:"burst_replacement", size:150, brand:"Kwikot", solar:false };
 
 export default function EstimatePage() {
+  // Per-contractor configuration (commercial ladder, labour rates, VAT, identity,
+  // document prefixes). Falls back to DEFAULT_SETTINGS for a first-time user.
+  const { settings } = useSettings();
+  const ladder = ladderFrom(settings);
+  const vatRate = settings.vatRatePct / 100;
+  const crewRateHr = crewRateFrom(settings);
+
   const [screen, setScreen] = useState<"entry"|"scan"|"review"|"output">("entry");
   const [tab,    setTab]    = useState("estimate");
   const [inputs, setInputs] = useState<Inputs>(DEFAULT);
@@ -1094,11 +1128,11 @@ export default function EstimatePage() {
   const [geyser, setGeyser]   = useState<GeyserMeta>(GEYSER_DEFAULT);
   // Document mode: quote (default) vs invoice. Each keeps its own reference.
   const [documentType, setDocumentType] = useState<DocumentType>("quote");
-  const [quoteRef]   = useState(() => nextDocumentRef("quote"));
+  const [quoteRef]   = useState(() => nextDocumentRef("quote", settings.quotePrefix));
   const [invoiceRef] = useState(() => nextDocumentRef("invoice"));
   const [invoiceMeta, setInvoiceMeta] = useState<InvoiceMeta>(() => {
     const issue = isoDate(new Date());
-    return { issueDate: issue, dueDate: addDays(issue, 7), bankingDetails: "" };
+    return { issueDate: issue, dueDate: addDays(issue, settings.invoicePaymentDays), bankingDetails: settings.bankingDetails ?? "" };
   });
   const docRef = documentType === "invoice" ? invoiceRef : quoteRef;
 
@@ -1111,7 +1145,7 @@ export default function EstimatePage() {
       : null, [jobMode, geyser]);
 
   const scope  = useMemo(()=> geyserAsm ? geyserToScope(geyserAsm)  : buildScope(inputs),  [geyserAsm, inputs]);
-  const labour = useMemo(()=> geyserAsm ? geyserToLabour(geyserAsm) : buildLabour(inputs), [geyserAsm, inputs]);
+  const labour = useMemo(()=> geyserAsm ? geyserToLabour(geyserAsm, crewRateHr) : buildLabour(inputs, crewRateHr), [geyserAsm, inputs, crewRateHr]);
   // Flags: geyser flags, or warnings for any user-entered (custom) lines.
   const flags  = geyserAsm
     ? geyserAsm.flags
@@ -1181,27 +1215,28 @@ export default function EstimatePage() {
 
   const matTotal=scope.reduce((s,l)=>s+l.total,0);
   const labTotal=labour.reduce((s,l)=>s+l.cost,0);
-  const sell=applyLadder(matTotal,labTotal).sell;
+  const sell=applyLadder(matTotal,labTotal,ladder).sell;
 
   // Output branches on document type: invoice → past-tense invoice with VAT, due
   // date & banking (printInvoiceDocument); quote → existing quotation PDF.
   const printDocument=()=> documentType==="invoice"
-    ? printInvoiceDocument({ inputs:effInputs, scope, labour, invoiceRef:docRef, invoiceMeta, sellExVat:sell })
-    : printQuotePDF(effInputs,scope,labour,docRef);
+    ? printInvoiceDocument({ inputs:effInputs, scope, labour, invoiceRef:docRef, invoiceMeta, sellExVat:sell, vatRate, business:businessFrom(settings), vatNumber:settings.vatNumber, terms:settings.termsConditions })
+    : printQuotePDF(effInputs,scope,labour,docRef,settings);
   const printBuy  =()=>printBuyPDF(effInputs,scope,docRef);
 
   const AppHeader = ({ showTabs }: { showTabs: boolean }) => (
     <div style={{background:C.navy,borderBottom:`3px solid ${C.gold}`,position:"sticky",top:0,zIndex:100}}>
       <div style={{maxWidth:960,margin:"0 auto",padding:"12px 20px",display:"flex",alignItems:"center",gap:14}}>
-        <Logo/>
+        <Link to="/" style={{textDecoration:"none"}}><Logo/></Link>
         <div style={{flex:1,marginLeft:4}}>
           {showTabs&&<div style={{color:C.slateL,fontSize:12}}>{effInputs.projectName}</div>}
         </div>
+        <Link to="/profile" title="Profile & Settings" style={{color:C.gold,fontSize:12,fontWeight:600,textDecoration:"none",border:`1px solid ${C.gold}50`,borderRadius:6,padding:"5px 10px",whiteSpace:"nowrap"}}>⚙ Settings</Link>
         {showTabs
           ? <div style={{display:"flex",gap:12,alignItems:"center"}}>
               <div style={{textAlign:"right"}}>
                 <div style={{color:C.muted,fontSize:10,letterSpacing:0.5}}>{documentType==="invoice"?"AMOUNT DUE incl. VAT":"SELL PRICE excl. VAT"}</div>
-                <div style={{color:C.gold,fontWeight:900,fontSize:20}}>{fmt(documentType==="invoice"?sell*1.15:sell)}</div>
+                <div style={{color:C.gold,fontWeight:900,fontSize:20}}>{fmt(documentType==="invoice"?sell*(1+vatRate):sell)}</div>
                 <div style={{color:C.slateL,fontSize:10}}>{documentType==="invoice"?"🧾 ":"📄 "}{docRef}</div>
               </div>
               <GradePill grade={finalGrade}/>
@@ -1263,7 +1298,7 @@ export default function EstimatePage() {
         {inputs._scanNotes&&!geyserAsm&&<div style={{background:"#FEF5E7",border:`1px solid ${C.amber}40`,borderRadius:"0 0 6px 6px",padding:"6px 16px",fontSize:11,color:C.navy,marginBottom:4}}>📐 <strong>Scan-derived scope:</strong> {inputs._scanNotes}</div>}
         {geyserAsm&&<div style={{background:"#FEF5E7",border:`1px solid ${C.amber}40`,borderRadius:"0 0 6px 6px",padding:"6px 16px",fontSize:11,color:C.navy,marginBottom:4}}>♨ <strong>Geyser assembly · {finalGrade} grade:</strong> fixed-composition quote — {flags.length} note{flags.length===1?"":"s"} in the Learn tab{GRADES[finalGrade]?.rank>=GRADES["Derived"].rank?" · client-issuable through the normal gate.":" · not client-issuable until grade lifts."}</div>}
         <div style={{background:"#fff",borderRadius:"0 8px 8px 8px",border:"1px solid #DDE3EA",borderTop:"none",overflow:"hidden"}}>
-          {tab==="estimate"&&<EstimateTab scope={scope} labour={labour} inputs={effInputs} finalGrade={finalGrade} docRef={docRef} documentType={documentType} onPrintDocument={printDocument}/>}
+          {tab==="estimate"&&<EstimateTab scope={scope} labour={labour} inputs={effInputs} finalGrade={finalGrade} docRef={docRef} documentType={documentType} onPrintDocument={printDocument} ladder={ladder} vatRate={vatRate}/>}
           {tab==="buy"    &&<BuyTab scope={scope} inputs={effInputs} quoteRef={docRef} onPrintBuy={printBuy}/>}
           {tab==="build"  &&<BuildTab labour={labour}/>}
           {tab==="learn"  &&<LearnTab scope={scope} labour={labour} flags={flags} documentType={documentType}/>}
