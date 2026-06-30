@@ -1,5 +1,7 @@
+import { useState, useEffect } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useSettings } from "@/lib/settings-context";
+import { supabase } from "@/lib/supabase-client";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -171,8 +173,122 @@ function DocumentCard({
   );
 }
 
+// ─── RECENT QUOTES ────────────────────────────────────────────────────────────
+interface RecentQuote {
+  reference: string;
+  document_type: string;
+  project_name?: string;
+  sell_price?: number;
+  created_at: string;
+}
+
+function RecentQuotesPanel({ organizationId }: { organizationId: string }) {
+  const [quotes, setQuotes] = useState<RecentQuote[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchQuotes = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('estimate_versions')
+          .select('reference, document_type, snapshot, created_at')
+          .eq('organization_id', organizationId)
+          .order('created_at', { ascending: false })
+          .limit(5);
+
+        if (error) {
+          console.error('Failed to fetch quotes:', error);
+          setQuotes([]);
+        } else if (data) {
+          const formatted: RecentQuote[] = data.map((row: any) => ({
+            reference: row.reference,
+            document_type: row.document_type,
+            project_name: row.snapshot?.projectName || 'Unnamed project',
+            sell_price: row.snapshot?.totals?.sellExclVat,
+            created_at: row.created_at,
+          }));
+          setQuotes(formatted);
+        }
+      } catch (err) {
+        console.error('Error fetching quotes:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchQuotes();
+  }, [organizationId]);
+
+  if (loading) {
+    return (
+      <div style={{ padding: "28px 16px", textAlign: "center", color: C.slateL, fontSize: 13 }}>
+        Loading...
+      </div>
+    );
+  }
+
+  if (quotes.length === 0) {
+    return (
+      <div style={{ padding: "28px 16px", textAlign: "center", color: C.slateL, fontSize: 13 }}>
+        No quotes yet — start one above.
+      </div>
+    );
+  }
+
+  const formatDate = (isoStr: string) => {
+    const d = new Date(isoStr);
+    return d.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' });
+  };
+
+  const formatPrice = (price?: number) => {
+    if (!price) return '—';
+    return `R${price.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
+
+  return (
+    <div>
+      {quotes.map((q) => (
+        <div
+          key={q.reference}
+          style={{
+            padding: "12px 16px",
+            borderBottom: "1px solid #EEF0F5",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            fontSize: 13,
+          }}
+        >
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 600, color: C.navy }}>{q.reference}</div>
+            <div style={{ color: C.slateL, fontSize: 12, marginTop: 2 }}>{q.project_name}</div>
+          </div>
+          <div style={{ textAlign: "right", marginLeft: 16 }}>
+            <div style={{ color: C.gold, fontWeight: 600 }}>{formatPrice(q.sell_price)}</div>
+            <div style={{ color: C.muted, fontSize: 11, marginTop: 2 }}>{formatDate(q.created_at)}</div>
+          </div>
+          <div
+            style={{
+              background: q.document_type === "invoice" ? "#FEF5E7" : "#E8F4F8",
+              color: q.document_type === "invoice" ? C.amber : "#2E86AB",
+              padding: "2px 8px",
+              borderRadius: 4,
+              fontSize: 10,
+              fontWeight: 600,
+              marginLeft: 12,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {q.document_type === "invoice" ? "Invoice" : "Quote"}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Home() {
-  const { profileComplete } = useSettings();
+  const { profileComplete, settings } = useSettings();
 
   return (
     <div
@@ -277,7 +393,7 @@ function Home() {
           />
         </div>
 
-        {/* Recent quotes (empty state — persistence is a future step) */}
+        {/* Recent quotes */}
         <div
           style={{
             background: C.panel,
@@ -299,9 +415,7 @@ function Home() {
           >
             Recent quotes
           </div>
-          <div style={{ padding: "28px 16px", textAlign: "center", color: C.slateL, fontSize: 13 }}>
-            No quotes yet — start one above.
-          </div>
+          <RecentQuotesPanel organizationId={settings.organizationId} />
         </div>
 
         <div style={{ marginTop: 18, display: "flex", gap: 12 }}>

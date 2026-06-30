@@ -13,6 +13,7 @@ import {
   type InvoiceMeta, type DocumentType,
 } from "@/lib/invoice-document";
 import { useSettings, DEFAULT_SETTINGS, type OrgSettings } from "@/lib/settings-context";
+import { supabase } from "@/lib/supabase-client";
 
 // ─── SUPABASE (for the scan-drawing edge function) ────────────────────────────
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? "";
@@ -288,21 +289,19 @@ function applyLadder(mat: number, lab: number, rates: LadderRates = DEFAULT_LADD
 }
 
 // ─── DOCUMENT REF ─────────────────────────────────────────────────────────────
-// Quotes keep the PLB-YYYY-NNN series; invoices get an independent INV-YYYYMM-NNN
-// series (separate sessionStorage counters), so issuing an invoice never advances
-// the quote number and vice-versa.
-function nextDocumentRef(type: DocumentType, quotePrefix = "PLB") {
-  const now = new Date();
-  const year = now.getFullYear();
-  const yearMonth = `${year}${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const key = type === "invoice" ? `cos_invoice_seq_${yearMonth}` : `cos_quote_seq_${year}`;
-  let seq = 0;
-  try { seq = parseInt(sessionStorage?.getItem?.(key) ?? "0", 10); } catch (_) {}
-  seq += 1;
-  try { sessionStorage.setItem(key, String(seq)); } catch (_) {}
-  return type === "invoice"
-    ? `INV-${yearMonth}-${String(seq).padStart(3, "0")}`
-    : `${quotePrefix || "PLB"}-${year}-${String(seq).padStart(3, "0")}`;
+// Generate the next document reference atomically from the DB.
+async function nextDocumentRef(orgId: string, type: DocumentType): Promise<string> {
+  const { data, error } = await supabase.rpc('next_document_reference', {
+    p_org_id: orgId,
+    p_document_type: type
+  });
+
+  if (error || !data) {
+    console.error('Failed to generate document reference:', error?.message);
+    throw new Error(`Failed to generate document reference: ${error?.message || 'Unknown error'}`);
+  }
+
+  return data as string;
 }
 
 // ─── ENGINE ───────────────────────────────────────────────────────────────────
@@ -834,7 +833,7 @@ function ScopeModal({ scope, labour, inputs, onConfirm, onBack }: { scope: Scope
 }
 
 // ─── OUTPUT TABS ──────────────────────────────────────────────────────────────
-function EstimateTab({ scope, labour, inputs, finalGrade, docRef, documentType, onPrintDocument, ladder, vatRate }: { scope: ScopeLine[]; labour: LabourLine[]; inputs: Inputs; finalGrade: string; docRef: string; documentType: DocumentType; onPrintDocument: () => void; ladder: LadderRates; vatRate: number }) {
+function EstimateTab({ scope, labour, inputs, finalGrade, docRef, documentType, onPrintDocument, ladder, vatRate, isGeneratingRef }: { scope: ScopeLine[]; labour: LabourLine[]; inputs: Inputs; finalGrade: string; docRef: string | null; documentType: DocumentType; onPrintDocument: () => Promise<void>; ladder: LadderRates; vatRate: number; isGeneratingRef: boolean }) {
   const mat=scope.reduce((s,l)=>s+l.total,0);
   const lab=labour.reduce((s,l)=>s+l.cost,0);
   const ld=applyLadder(mat,lab,ladder);
@@ -842,6 +841,7 @@ function EstimateTab({ scope, labour, inputs, finalGrade, docRef, documentType, 
   const vatPct=+(vatRate*100).toFixed(2);
   // Invoices record actual work and are always issuable; quotes keep the strict gate.
   const issuable=documentType==="invoice"||GRADES[finalGrade]?.rank>=GRADES["Assumption"].rank;
+  const refDisplay = docRef || (isGeneratingRef ? "Generating..." : "Pending");
   return (
     <div>
       <div style={{background:`linear-gradient(135deg,${C.navy},${C.navyMid})`,borderRadius:8,padding:"20px 24px",margin:16,border:`1px solid ${C.gold}40`}}>
@@ -850,12 +850,12 @@ function EstimateTab({ scope, labour, inputs, finalGrade, docRef, documentType, 
             <div style={{color:C.muted,fontSize:11,letterSpacing:1,textTransform:"uppercase"}}>Sell Price (excl. VAT)</div>
             <div style={{color:C.gold,fontSize:36,fontWeight:900,letterSpacing:-1}}>{fmt(ld.sell)}</div>
             <div style={{color:C.slateL,fontSize:12,marginTop:4}}>{fmt(ld.sell*(1+vatRate))} incl. {vatPct}% VAT</div>
-            <div style={{color:C.muted,fontSize:11,marginTop:2}}>{documentType==="invoice"?"Invoice":"Quote"} ref: {docRef}</div>
+            <div style={{color:C.muted,fontSize:11,marginTop:2}}>{documentType==="invoice"?"Invoice":"Quote"} ref: {refDisplay}</div>
           </div>
           <div style={{textAlign:"right"}}>
             <GradePill grade={finalGrade}/>
             <div style={{color:C.muted,fontSize:10,marginTop:6}}>{issuable?"✓ Internal use OK":"⚠ Not client-issuable"}</div>
-            <button onClick={onPrintDocument} style={{marginTop:10,padding:"7px 16px",borderRadius:6,border:"none",background:C.gold,color:C.navy,cursor:"pointer",fontWeight:700,fontSize:12}}>⬇ Download {documentType==="invoice"?"Invoice":"Quote"}</button>
+            <button onClick={onPrintDocument} disabled={isGeneratingRef} style={{marginTop:10,padding:"7px 16px",borderRadius:6,border:"none",background:C.gold,color:C.navy,cursor:isGeneratingRef?"wait":"pointer",fontWeight:700,fontSize:12,opacity:isGeneratingRef?0.6:1}}>⬇ Download {documentType==="invoice"?"Invoice":"Quote"}</button>
           </div>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginTop:16,paddingTop:16,borderTop:`1px solid ${C.navyLt}`}}>
@@ -1137,16 +1137,13 @@ export default function EstimatePage() {
   const [inputs, setInputs] = useState<Inputs>(DEFAULT);
   const [jobMode, setJobMode] = useState<"plumbing"|"geyser">("plumbing");
   const [geyser, setGeyser]   = useState<GeyserMeta>(GEYSER_DEFAULT);
-  // Document mode comes from the home page (?doc) — quote vs invoice. Each keeps
-  // its own reference. No on-page toggle: the choice was already made at home.
   const [documentType] = useState<DocumentType>(doc);
-  const [quoteRef]   = useState(() => nextDocumentRef("quote", settings.quotePrefix));
-  const [invoiceRef] = useState(() => nextDocumentRef("invoice"));
+  const [docRef, setDocRef] = useState<string | null>(null);
+  const [isGeneratingRef, setIsGeneratingRef] = useState(false);
   const [invoiceMeta, setInvoiceMeta] = useState<InvoiceMeta>(() => {
     const issue = isoDate(new Date());
     return { issueDate: issue, dueDate: addDays(issue, settings.invoicePaymentDays), bankingDetails: settings.bankingDetails ?? "" };
   });
-  const docRef = documentType === "invoice" ? invoiceRef : quoteRef;
 
   // Geyser assembly (fixed-composition) vs plumbing engine (baseline-and-scale)
   const geyserAsm = useMemo<GeyserAssembly | null>(() =>
@@ -1229,12 +1226,81 @@ export default function EstimatePage() {
   const labTotal=labour.reduce((s,l)=>s+l.cost,0);
   const sell=applyLadder(matTotal,labTotal,ladder).sell;
 
-  // Output branches on document type: invoice → past-tense invoice with VAT, due
-  // date & banking (printInvoiceDocument); quote → existing quotation PDF.
-  const printDocument=()=> documentType==="invoice"
-    ? printInvoiceDocument({ inputs:effInputs, scope, labour, invoiceRef:docRef, invoiceMeta, sellExVat:sell, vatRate, business:businessFrom(settings), vatNumber:settings.vatNumber, terms:settings.termsConditions })
-    : printQuotePDF(effInputs,scope,labour,docRef,settings);
-  const printBuy  =()=>printBuyPDF(effInputs,scope,docRef);
+  // Save document to DB for persistence
+  const saveDocumentToDB = async (reference: string) => {
+    try {
+      const snapshot = {
+        projectName: effInputs.projectName,
+        clientName: effInputs.clientName,
+        supplyLines: effInputs.supplyLines,
+        drainLines: effInputs.drainLines,
+        fixtureLines: effInputs.fixtureLines,
+        fittingLines: effInputs.fittingLines,
+        points: effInputs.points,
+        totals: {
+          material: matTotal,
+          labour: labTotal,
+          sellExclVat: sell,
+        },
+      };
+
+      const invoiceMeta2 = documentType === "invoice" ? invoiceMeta : undefined;
+
+      const { error } = await supabase
+        .from('estimate_versions')
+        .insert({
+          organization_id: settings.organizationId,
+          reference,
+          version: 1,
+          document_type: documentType,
+          status: 'final',
+          snapshot,
+          invoice_meta: invoiceMeta2 ?? {},
+        });
+
+      if (error) {
+        console.error('Save failed:', error);
+        // Non-blocking — show toast but don't interrupt download
+        return false;
+      }
+      return true;
+    } catch (err) {
+      console.error('Save error:', err);
+      return false;
+    }
+  };
+
+  // Generate reference and print document
+  const printDocument = async () => {
+    try {
+      // Generate reference if not already done
+      let currentRef = docRef;
+      if (!currentRef) {
+        setIsGeneratingRef(true);
+        currentRef = await nextDocumentRef(settings.organizationId, documentType);
+        setDocRef(currentRef);
+      }
+
+      // Save to DB (non-blocking)
+      await saveDocumentToDB(currentRef);
+
+      // Generate and download the document
+      if (documentType === "invoice") {
+        printInvoiceDocument({ inputs:effInputs, scope, labour, invoiceRef:currentRef, invoiceMeta, sellExVat:sell, vatRate, business:businessFrom(settings), vatNumber:settings.vatNumber, terms:settings.termsConditions });
+      } else {
+        printQuotePDF(effInputs,scope,labour,currentRef,settings);
+      }
+    } catch (err) {
+      console.error('Failed to generate reference:', err);
+    } finally {
+      setIsGeneratingRef(false);
+    }
+  };
+
+  const printBuy = () => {
+    if (!docRef) return;
+    printBuyPDF(effInputs,scope,docRef);
+  };
 
   const AppHeader = ({ showTabs }: { showTabs: boolean }) => (
     <div style={{background:C.navy,borderBottom:`3px solid ${C.gold}`,position:"sticky",top:0,zIndex:100}}>
@@ -1249,7 +1315,7 @@ export default function EstimatePage() {
               <div style={{textAlign:"right"}}>
                 <div style={{color:C.muted,fontSize:10,letterSpacing:0.5}}>{documentType==="invoice"?"AMOUNT DUE incl. VAT":"SELL PRICE excl. VAT"}</div>
                 <div style={{color:C.gold,fontWeight:900,fontSize:20}}>{fmt(documentType==="invoice"?sell*(1+vatRate):sell)}</div>
-                <div style={{color:C.slateL,fontSize:10}}>{documentType==="invoice"?"🧾 ":"📄 "}{docRef}</div>
+                <div style={{color:C.slateL,fontSize:10}}>{documentType==="invoice"?"🧾 ":"📄 "}{docRef || (isGeneratingRef ? "Generating..." : "Pending")}</div>
               </div>
               <GradePill grade={finalGrade}/>
               <button onClick={()=>{setScreen("entry");setTab("estimate");}}
@@ -1310,7 +1376,7 @@ export default function EstimatePage() {
         {inputs._scanNotes&&!geyserAsm&&<div style={{background:"#FEF5E7",border:`1px solid ${C.amber}40`,borderRadius:"0 0 6px 6px",padding:"6px 16px",fontSize:11,color:C.navy,marginBottom:4}}>📐 <strong>Scan-derived scope:</strong> {inputs._scanNotes}</div>}
         {geyserAsm&&<div style={{background:"#FEF5E7",border:`1px solid ${C.amber}40`,borderRadius:"0 0 6px 6px",padding:"6px 16px",fontSize:11,color:C.navy,marginBottom:4}}>♨ <strong>Geyser assembly · {finalGrade} grade:</strong> fixed-composition quote — {flags.length} note{flags.length===1?"":"s"} in the Learn tab{GRADES[finalGrade]?.rank>=GRADES["Derived"].rank?" · client-issuable through the normal gate.":" · not client-issuable until grade lifts."}</div>}
         <div style={{background:"#fff",borderRadius:"0 8px 8px 8px",border:"1px solid #DDE3EA",borderTop:"none",overflow:"hidden"}}>
-          {tab==="estimate"&&<EstimateTab scope={scope} labour={labour} inputs={effInputs} finalGrade={finalGrade} docRef={docRef} documentType={documentType} onPrintDocument={printDocument} ladder={ladder} vatRate={vatRate}/>}
+          {tab==="estimate"&&<EstimateTab scope={scope} labour={labour} inputs={effInputs} finalGrade={finalGrade} docRef={docRef} documentType={documentType} onPrintDocument={printDocument} ladder={ladder} vatRate={vatRate} isGeneratingRef={isGeneratingRef}/>}
           {tab==="buy"    &&<BuyTab scope={scope} inputs={effInputs} quoteRef={docRef} onPrintBuy={printBuy}/>}
           {tab==="build"  &&<BuildTab labour={labour}/>}
           {tab==="learn"  &&<LearnTab scope={scope} labour={labour} flags={flags} documentType={documentType}/>}

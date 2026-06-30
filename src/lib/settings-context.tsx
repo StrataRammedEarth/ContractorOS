@@ -4,6 +4,9 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 // The configurable per-contractor settings that drive the estimate engine and
 // the client-facing documents. Percentages are whole numbers (e.g. 5 = 5%).
 export interface OrgSettings {
+  // Organization identity (Supabase org_id)
+  organizationId: string;
+
   // Business identity
   businessName: string;
   tradingName?: string;
@@ -40,6 +43,7 @@ export interface OrgSettings {
 // values that were previously hardcoded inside EstimatePage (Vissi defaults),
 // so a first-time user gets identical behaviour to before this feature landed.
 export const DEFAULT_SETTINGS: OrgSettings = {
+  organizationId: "d2d278de-9286-4859-afd7-be4e657d6fda",
   businessName: "",
   contactName: "",
   wastePct: 5,
