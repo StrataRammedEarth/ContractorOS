@@ -66,6 +66,111 @@ function Logo() {
   );
 }
 
+// ─── ICONS (inline SVG, white line icons on the navy badge) ──────────────────
+function DocumentIcon() {
+  return (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff"
+      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <path d="M14 2v6h6" />
+      <line x1="8" y1="13" x2="16" y2="13" />
+      <line x1="8" y1="17" x2="16" y2="17" />
+      <line x1="8" y1="9" x2="10" y2="9" />
+    </svg>
+  );
+}
+function ClipboardDollarIcon() {
+  return (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff"
+      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+      <rect x="8" y="2" width="8" height="4" rx="1" />
+      <path d="M12 11v6" />
+      <path d="M13.8 12.2a1.6 1.6 0 0 0-1.8-.9c-1 .1-1.5.7-1.5 1.4 0 .8.7 1.1 1.5 1.3.8.2 1.5.5 1.5 1.3 0 .7-.5 1.3-1.5 1.4a1.6 1.6 0 0 1-1.8-.9" />
+    </svg>
+  );
+}
+function ArrowIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.navy}
+      strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <line x1="5" y1="12" x2="19" y2="12" />
+      <polyline points="12 5 19 12 12 19" />
+    </svg>
+  );
+}
+
+// ─── DOCUMENT-TYPE CARD ──────────────────────────────────────────────────────
+// Whole card is the click target → /plumbing?doc=<quote|invoice>. Navy circular
+// icon badge, gold left-border accent, decorative gold arrow on the right.
+function DocumentCard({
+  doc,
+  heading,
+  subtext,
+  ariaLabel,
+  icon,
+}: {
+  doc: "quote" | "invoice";
+  heading: string;
+  subtext: string;
+  ariaLabel: string;
+  icon: React.ReactNode;
+}) {
+  return (
+    <Link
+      to="/plumbing"
+      search={{ doc }}
+      aria-label={ariaLabel}
+      className="doc-card"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 16,
+        background: C.panel,
+        border: "1px solid #DDE3EA",
+        borderLeft: `4px solid ${C.gold}`,
+        borderRadius: 10,
+        padding: "20px 22px",
+        textDecoration: "none",
+        boxShadow: "0 1px 3px rgba(13,27,42,0.06)",
+      }}
+    >
+      <div
+        style={{
+          width: 64,
+          height: 64,
+          flexShrink: 0,
+          borderRadius: "50%",
+          background: C.navy,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        {icon}
+      </div>
+      <div style={{ flex: 1 }}>
+        <div style={{ color: C.navy, fontWeight: 800, fontSize: 18 }}>{heading}</div>
+        <div style={{ color: C.slateL, fontSize: 13, marginTop: 4 }}>{subtext}</div>
+      </div>
+      <div
+        style={{
+          width: 32,
+          height: 32,
+          flexShrink: 0,
+          borderRadius: "50%",
+          background: `${C.gold}26`,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <ArrowIcon />
+      </div>
+    </Link>
+  );
+}
+
 function Home() {
   const { profileComplete } = useSettings();
 
@@ -145,7 +250,9 @@ function Home() {
           </div>
         )}
 
-        {/* Job-type cards */}
+        {/* Document-type cards — the only choice the home page makes:
+            Quote vs Invoice. Each carries that choice to the plumbing
+            workflow page via the ?doc search param. */}
         <div
           style={{
             display: "grid",
@@ -154,41 +261,20 @@ function Home() {
             marginBottom: 20,
           }}
         >
-          <Link
-            to="/plumbing"
-            style={{
-              display: "block",
-              background: C.panel,
-              border: "1px solid #DDE3EA",
-              borderRadius: 10,
-              padding: "24px 22px",
-              textDecoration: "none",
-            }}
-          >
-            <div style={{ fontSize: 30 }}>🔧</div>
-            <div style={{ color: C.navy, fontWeight: 800, fontSize: 18, marginTop: 10 }}>
-              Plumbing Estimator
-            </div>
-            <div style={{ color: C.slateL, fontSize: 13, marginTop: 4 }}>New quote</div>
-          </Link>
-
-          <Link
-            to="/plumbing"
-            style={{
-              display: "block",
-              background: C.panel,
-              border: "1px solid #DDE3EA",
-              borderRadius: 10,
-              padding: "24px 22px",
-              textDecoration: "none",
-            }}
-          >
-            <div style={{ fontSize: 30 }}>🔥</div>
-            <div style={{ color: C.navy, fontWeight: 800, fontSize: 18, marginTop: 10 }}>
-              Geyser Replacement
-            </div>
-            <div style={{ color: C.slateL, fontSize: 13, marginTop: 4 }}>New job</div>
-          </Link>
+          <DocumentCard
+            doc="quote"
+            heading="Quote"
+            subtext="New quote"
+            ariaLabel="Create new quote"
+            icon={<DocumentIcon />}
+          />
+          <DocumentCard
+            doc="invoice"
+            heading="Invoice"
+            subtext="New job"
+            ariaLabel="Create new invoice"
+            icon={<ClipboardDollarIcon />}
+          />
         </div>
 
         {/* Recent quotes (empty state — persistence is a future step) */}
