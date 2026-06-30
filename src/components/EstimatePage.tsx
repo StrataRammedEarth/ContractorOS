@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback } from "react";
-import { Link } from "@tanstack/react-router";
+import { Link, getRouteApi } from "@tanstack/react-router";
 import {
   buildGeyserReplacement, buildElementRepair,
   type GeyserAssembly, type GeyserSize, type GeyserBrand, type GeyserJobType,
@@ -1113,7 +1113,12 @@ const TABS = [
 
 const GEYSER_DEFAULT: GeyserMeta = { jobType:"burst_replacement", size:150, brand:"Kwikot", solar:false };
 
+// Document type (quote vs invoice) is chosen on the home page and arrives here
+// as the ?doc search param — this page does not re-ask it.
+const plumbingRoute = getRouteApi("/plumbing");
+
 export default function EstimatePage() {
+  const { doc } = plumbingRoute.useSearch();
   // Per-contractor configuration (commercial ladder, labour rates, VAT, identity,
   // document prefixes). Falls back to DEFAULT_SETTINGS for a first-time user.
   const { settings } = useSettings();
@@ -1126,8 +1131,9 @@ export default function EstimatePage() {
   const [inputs, setInputs] = useState<Inputs>(DEFAULT);
   const [jobMode, setJobMode] = useState<"plumbing"|"geyser">("plumbing");
   const [geyser, setGeyser]   = useState<GeyserMeta>(GEYSER_DEFAULT);
-  // Document mode: quote (default) vs invoice. Each keeps its own reference.
-  const [documentType, setDocumentType] = useState<DocumentType>("quote");
+  // Document mode comes from the home page (?doc) — quote vs invoice. Each keeps
+  // its own reference. No on-page toggle: the choice was already made at home.
+  const [documentType] = useState<DocumentType>(doc);
   const [quoteRef]   = useState(() => nextDocumentRef("quote", settings.quotePrefix));
   const [invoiceRef] = useState(() => nextDocumentRef("invoice"));
   const [invoiceMeta, setInvoiceMeta] = useState<InvoiceMeta>(() => {
@@ -1375,14 +1381,8 @@ export default function EstimatePage() {
     <div style={{fontFamily:"'Inter',system-ui,sans-serif",background:"#F1F4F8",minHeight:"100vh"}}>
       <AppHeader showTabs={false}/>
       <div style={{maxWidth:780,margin:"0 auto",padding:"24px 20px"}}>
-        {/* Document-type selector: client quote (forward-looking) vs invoice (work done) */}
-        <div style={{display:"flex",gap:8,marginBottom:12}}>
-          {([{d:"quote" as const,l:"📄 Quote"},{d:"invoice" as const,l:"🧾 Invoice"}]).map(o=>(
-            <button key={o.d} onClick={()=>setDocumentType(o.d)} style={{
-              flex:1,padding:"9px 20px",borderRadius:8,cursor:"pointer",fontWeight:800,fontSize:13,
-              border:`2px solid ${documentType===o.d?C.navy:"#C8D0DB"}`,
-              background:documentType===o.d?C.navy:"transparent",color:documentType===o.d?"#fff":C.slate}}>{o.l}</button>))}
-        </div>
+        {/* Document type (quote vs invoice) is set on the home page and arrives
+            via the ?doc search param — no on-page toggle here. */}
         {documentType==="invoice"&&(
         <div style={{background:"#fff",borderRadius:8,border:"1px solid #DDE3EA",marginBottom:16,overflow:"hidden"}}>
           <SectionHeader>🧾 Invoice details — issued for work completed</SectionHeader>
@@ -1410,20 +1410,34 @@ export default function EstimatePage() {
           </div>
         </div>)}
 
-        {/* Job-type selector: baseline-and-scale plumbing vs fixed-composition geyser */}
-        <div style={{display:"flex",gap:8,marginBottom:16}}>
-          {([{m:"plumbing" as const,l:"🔧 Plumbing Estimate"},{m:"geyser" as const,l:"♨ Geyser Replacement"}]).map(j=>(
-            <button key={j.m} onClick={()=>setJobMode(j.m)} style={{
-              flex:1,padding:"11px 20px",borderRadius:8,cursor:"pointer",fontWeight:800,fontSize:13,
-              border:`2px solid ${jobMode===j.m?C.gold:C.gold+"50"}`,
-              background:jobMode===j.m?C.gold:"transparent",color:jobMode===j.m?C.navy:C.gold}}>{j.l}</button>))}
+        {/* Job-type selector — a single dropdown replacing the old button rows.
+            Plumbing Estimate / Geyser Replacement / Scan Drawing. The document
+            type (quote vs invoice) is NOT chosen here — it arrives from home. */}
+        <div style={{background:"#fff",borderRadius:8,border:"1px solid #DDE3EA",marginBottom:14,overflow:"hidden"}}>
+          <SectionHeader>Job type</SectionHeader>
+          <div style={{padding:"14px 20px"}}>
+            <select
+              value={jobMode==="geyser"?"geyser":"plumbing"}
+              onChange={e=>{
+                const v=e.target.value;
+                if(v==="geyser"){setJobMode("geyser");}
+                else if(v==="scan"){setJobMode("plumbing");setScreen("scan");}
+                else{setJobMode("plumbing");setScreen("entry");}
+              }}
+              style={{width:"100%",padding:"11px 14px",border:`1px solid #C8D0DB`,borderRadius:8,
+                fontSize:14,fontWeight:700,color:C.navy,background:C.white,cursor:"pointer",
+                appearance:"none",
+                backgroundImage:`url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23${C.gold.slice(1)}' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>")`,
+                backgroundRepeat:"no-repeat",backgroundPosition:"right 14px center"}}>
+              <option value="plumbing">Plumbing Estimate</option>
+              <option value="geyser">Geyser Replacement</option>
+              <option value="scan">Scan Drawing</option>
+            </select>
+            <div style={{fontSize:11,color:C.muted,marginTop:8}}>
+              Options: Plumbing Estimate · Geyser Replacement · Scan Drawing
+            </div>
+          </div>
         </div>
-
-        {jobMode==="plumbing"&&(
-        <div style={{display:"flex",gap:8,marginBottom:16}}>
-          <button onClick={()=>setScreen("entry")} style={{padding:"9px 20px",borderRadius:8,border:`2px solid ${C.gold}`,background:C.gold,color:C.navy,cursor:"pointer",fontWeight:800,fontSize:13}}>✏ Manual Entry</button>
-          <button onClick={()=>setScreen("scan")}  style={{padding:"9px 20px",borderRadius:8,border:`2px solid ${C.gold}60`,background:"transparent",color:C.gold,cursor:"pointer",fontWeight:700,fontSize:13}}>📐 Scan Drawing</button>
-        </div>)}
 
         <div style={{background:"#fff",borderRadius:8,border:"1px solid #DDE3EA",marginBottom:14,overflow:"hidden"}}>
           <SectionHeader>Project Details</SectionHeader>
