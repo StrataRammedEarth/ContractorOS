@@ -1452,7 +1452,7 @@ export default function EstimatePage() {
         </div>
 
         {jobMode==="plumbing"&&(<>
-        {pipeSection("supply","Supply Runs — Copper / PEX (type + diameter + metres)",
+        {pipeSection("supply","Water Supply",
           <div style={{display:"flex",alignItems:"center",gap:8,marginTop:10,paddingTop:10,borderTop:"1px solid #EDF0F5"}}>
             <label style={{fontSize:11,color:C.slateL,fontWeight:600}}>Points (make-offs)</label>
             <input type="number" min={1} value={inputs.points}
@@ -1461,14 +1461,14 @@ export default function EstimatePage() {
             <span style={{fontSize:10,color:C.muted}}>drives fittings & stop taps</span>
           </div>)}
 
-        {pipeSection("drainage","Drainage — PVC (type + diameter + metres)",
+        {pipeSection("drainage","Drainage",
           <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",marginTop:10,paddingTop:10,borderTop:"1px solid #EDF0F5"}}>
             <input type="checkbox" checked={inputs.trenching} onChange={e=>setInp("trenching",e.target.checked)} style={{width:16,height:16}}/>
             <span style={{fontSize:13,color:C.navy}}>Include trench excavation labour (across drainage lines)</span>
           </label>)}
 
         <div style={{background:"#fff",borderRadius:8,border:"1px solid #DDE3EA",marginBottom:14,overflow:"hidden"}}>
-          <SectionHeader>Fixtures — one line per product (add variants &amp; quantities)</SectionHeader>
+          <SectionHeader>Fixtures</SectionHeader>
           <div style={{padding:"12px 16px"}}>
             {(inputs.fixtureLines ?? []).length===0&&
               <div style={{fontSize:12,color:C.slateL,padding:"6px 2px 10px"}}>No fixtures yet — add a line below.</div>}
@@ -1521,7 +1521,7 @@ export default function EstimatePage() {
         {/* Fittings — compression fittings line builder (catalogue-priced).
             Size groups + products are data-driven from COMPRESSION_FITTINGS. */}
         <div style={{background:"#fff",borderRadius:8,border:"1px solid #DDE3EA",marginBottom:14,overflow:"hidden"}}>
-          <SectionHeader>Fittings — Compression Fittings (size + product + quantity)</SectionHeader>
+          <SectionHeader>Fittings</SectionHeader>
           <div style={{padding:"12px 16px"}}>
             {(inputs.fittingLines ?? []).length===0&&
               <div style={{fontSize:12,color:C.slateL,padding:"6px 2px 10px"}}>No fittings yet — add a line below.</div>}
@@ -1559,7 +1559,7 @@ export default function EstimatePage() {
 
         {jobMode==="geyser"&&(
         <div style={{background:"#fff",borderRadius:8,border:"1px solid #DDE3EA",marginBottom:14,overflow:"hidden"}}>
-          <SectionHeader>♨ Geyser Assembly — fixed composition by size</SectionHeader>
+          <SectionHeader>Geyser Job Specs</SectionHeader>
           <div style={{padding:"14px 20px"}}>
             <div style={{marginBottom:14}}>
               <label style={{display:"block",fontSize:11,color:C.slateL,marginBottom:6,fontWeight:600}}>Job type</label>
