@@ -325,7 +325,10 @@ function buildScope(inp: Inputs): ScopeLine[] {
       derivation:`${l.metres}m × R${l.perMetre.toFixed(2)}/m${l.source==="custom"?" (user-entered)":""}`, mode:"Install" });
   });
 
-  ([
+  // Points-driven auto-generated fittings (the make-off intensity). A zero-point
+  // job — a maintenance callout or repair — has no make-offs, so we skip these
+  // entirely rather than invent phantom fittings the plumber never bought.
+  if (points > 0) ([
     { id:"F01", key:"PLB-PD-021", ppt:BL.elbowsPPt },
     { id:"F02", key:"PLB-PD-022", ppt:BL.teesPPt },
     { id:"F03", key:"PLB-PD-026", ppt:BL.couplersPPt },
@@ -338,9 +341,12 @@ function buildScope(inp: Inputs): ScopeLine[] {
       supplier:it.supplier, derivation:`${f.ppt}/pt × ${points} pts (AfriCamps baseline)`, mode:"Supply" });
   });
 
+  // Pipe-run consumables (tape C01, cement C02) are only auto-added alongside
+  // make-off points; at points === 0 they are suppressed so a repair invoice
+  // shows only what was explicitly entered. C03 sealant stays fixture-driven.
   ([
-    { id:"C01", key:"PLB-PD-006", qty:Math.ceil(supplyMetres/10) },
-    { id:"C02", key:"PLB-PD-001", qty:Math.max(1,Math.ceil(supplyMetres/20)) },
+    { id:"C01", key:"PLB-PD-006", qty:points>0 ? Math.ceil(supplyMetres/10) : 0 },
+    { id:"C02", key:"PLB-PD-001", qty:points>0 ? Math.max(1,Math.ceil(supplyMetres/20)) : 0 },
     { id:"C03", key:"PLB-PD-002", qty:Math.max(0,Math.ceil(fxCount(fixtureLines,"shower_mixer")+fxCount(fixtureLines,"basin"))) },
   ] as const).forEach(c => {
     const it = LIBRARY[c.key]; if (!it || c.qty===0) return;
@@ -350,7 +356,7 @@ function buildScope(inp: Inputs): ScopeLine[] {
   });
 
   const st = LIBRARY["PLB-PD-071"];
-  if (st) lines.push({ id:"A01", code:"PLB-PD-071", description:st.desc, qty:points*2, unit:"ea",
+  if (st && points > 0) lines.push({ id:"A01", code:"PLB-PD-071", description:st.desc, qty:points*2, unit:"ea",
     unitPrice:st.price, conf:st.conf, total:points*2*st.price, supplier:st.supplier,
     derivation:`2 per point × ${points}`, mode:"Install" });
 
@@ -1455,10 +1461,10 @@ export default function EstimatePage() {
         {pipeSection("supply","Water Supply",
           <div style={{display:"flex",alignItems:"center",gap:8,marginTop:10,paddingTop:10,borderTop:"1px solid #EDF0F5"}}>
             <label style={{fontSize:11,color:C.slateL,fontWeight:600}}>Points (make-offs)</label>
-            <input type="number" min={1} value={inputs.points}
-              onChange={e=>setInp("points",Math.max(1,parseInt(e.target.value)||1))}
+            <input type="number" min={0} value={inputs.points}
+              onChange={e=>setInp("points",Math.max(0,parseInt(e.target.value)||0))}
               style={{width:70,padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:13,textAlign:"center"}}/>
-            <span style={{fontSize:10,color:C.muted}}>drives fittings & stop taps</span>
+            <span style={{fontSize:10,color:C.muted}}>drives fittings & stop taps — set to 0 for maintenance callouts or repairs</span>
           </div>)}
 
         {pipeSection("drainage","Drainage",
