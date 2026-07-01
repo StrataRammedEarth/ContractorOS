@@ -19,14 +19,18 @@ import {
   type FixtureTemplate,
 } from "@/lib/fixture-templates";
 import {
-  initialRowInstance, createCustomRowInstance, rowState, isPriced,
+  initialRowInstance, createCustomRowInstance, createCatalogRowInstance, rowState, isPriced,
   resolvedGrade, pricingGrade, resolvedQty, resolvedTotal,
   isCheckboxDisabled, usesManualEntry, setChecked as rowSetChecked,
   selectMaterial as rowSelectMaterial, setManualProduct as rowSetManual,
+  setApplication as rowSetApplication, setSize as rowSetSize, setFittingType as rowSetFittingType,
   sectionCounts, quantityInputLabel,
   type TemplateRowInstance,
 } from "@/lib/template-row-state";
 import type { PlumblinkMaterial } from "@/lib/product-filter";
+import {
+  fetchCascadeCatalogue, distinctApplications, distinctSizes, distinctFittingTypes, matchingProducts,
+} from "@/lib/product-cascade";
 import { aggregateBuyList } from "@/lib/buy-list";
 
 // ─── SUPABASE (for the scan-drawing edge function) ────────────────────────────
@@ -175,6 +179,7 @@ interface AppliedTemplate {
   templateId: string;
   fixtureType: string;
   templateName: string;
+  templateVariant: string;
   scope: 'fixture' | 'system';
   quantityBasis: number;
   rows: TemplateRowInstance[];
@@ -1252,59 +1257,170 @@ function TemplateProductSelect({ row, onSelect, onManual, onResolveDefault }: {
   );
 }
 
-// One applied template: its Suggested/Optional/Custom rows with informational
-// section counts (NOT interactive toggles — bulk-toggle-on-header was rejected in
-// design review) and the quantity-basis input (fixture count vs pipe run metres).
-function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, onAddCustomRow, onRemoveRow }: {
+// Column grid shared by the header row, group headers (which span it via
+// gridColumn:"1 / -1"), and every data row (rendered as display:"contents"
+// wrappers so their cells land in the parent grid's columns).
+const TEMPLATE_ROW_GRID = "22px 100px 84px 140px 1fr 52px 58px 26px";
+const templateHeaderCellStyle: React.CSSProperties = {fontSize:10,fontWeight:700,color:C.slateL,textTransform:"uppercase",letterSpacing:0.4};
+// minWidth:0 overrides the grid item's default min-width:auto (which otherwise
+// sizes to the element's intrinsic content — e.g. a <select>'s longest option
+// text — and forces the whole row to overflow its container).
+const templateSmallInputStyle: React.CSSProperties = {padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12,width:"100%",minWidth:0,boxSizing:"border-box"};
+const templateLockedTextStyle: React.CSSProperties = {fontSize:11,color:C.slate,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"};
+
+// A catalogue-cascade row's Application/Size/Fitting Type/Product cells — four
+// dependent dropdowns, each disabled until the one before it is resolved. Size
+// gating uses local `sizeChosen` state rather than `row.nominalSize !== null`
+// because null is also the valid "—" selection (a real no-size row); only a
+// per-mount flag can tell "untouched" apart from "explicitly chose no size".
+function CatalogFittingRow({ row, catalogue, catalogueLoading, onUpdate, onRemove }: {
+  row: TemplateRowInstance;
+  catalogue: PlumblinkMaterial[];
+  catalogueLoading: boolean;
+  onUpdate: (fn: (r: TemplateRowInstance) => TemplateRowInstance) => void;
+  onRemove: () => void;
+}) {
+  const [sizeChosen, setSizeChosen] = useState(false);
+  useEffect(() => { setSizeChosen(false); }, [row.application]);
+
+  const disabled = isCheckboxDisabled(row);
+  const grade = resolvedGrade(row);
+  const applications = distinctApplications(catalogue);
+  const sizes = row.application ? distinctSizes(catalogue, row.application) : [];
+  const fittingTypes = sizeChosen ? distinctFittingTypes(catalogue, row.application, row.nominalSize) : [];
+  const products = row.fittingType ? matchingProducts(catalogue, row.application, row.nominalSize, row.fittingType) : [];
+
+  return (
+    <div style={{display:"contents"}}>
+      <input type="checkbox" checked={row.checked} disabled={disabled}
+        title={disabled?"Select a product first":""}
+        onChange={e=>onUpdate(x=>rowSetChecked(x,e.target.checked))}
+        style={{width:16,height:16,cursor:disabled?"not-allowed":"pointer"}}/>
+      <select value={row.application||"__select__"} disabled={catalogueLoading}
+        onChange={e=>{const v=e.target.value;if(v==="__select__")return;onUpdate(x=>rowSetApplication(x,v));}}
+        style={templateSmallInputStyle}>
+        <option value="__select__" disabled>{catalogueLoading?"Loading catalogue…":"Select…"}</option>
+        {applications.map(a=><option key={a} value={a}>{a}</option>)}
+      </select>
+      <select value={!sizeChosen?"__select__":(row.nominalSize===null?"__null__":row.nominalSize)} disabled={!row.application}
+        onChange={e=>{const v=e.target.value;if(v==="__select__")return;setSizeChosen(true);onUpdate(x=>rowSetSize(x,v==="__null__"?null:v));}}
+        style={templateSmallInputStyle}>
+        <option value="__select__" disabled>Select…</option>
+        {sizes.map(s=><option key={s===null?"__null__":s} value={s===null?"__null__":s}>{s===null?"—":s}</option>)}
+      </select>
+      <select value={row.fittingType||"__select__"} disabled={!sizeChosen}
+        onChange={e=>{const v=e.target.value;if(v==="__select__")return;onUpdate(x=>rowSetFittingType(x,v));}}
+        style={templateSmallInputStyle}>
+        <option value="__select__" disabled>Select…</option>
+        {fittingTypes.map(ft=><option key={ft} value={ft}>{ft}</option>)}
+      </select>
+      <select value={row.materialCode??"__select__"} disabled={!row.fittingType}
+        onChange={e=>{
+          const v=e.target.value; if(v==="__select__")return;
+          const m=products.find(p=>p.material_code===v);
+          if(m) onUpdate(x=>rowSelectMaterial(x,{materialCode:m.material_code,description:m.description??"",unitPrice:m.unit_price_excl_vat??0}));
+        }}
+        style={templateSmallInputStyle}>
+        <option value="__select__" disabled>{products.length?"Select product…":"No matching products"}</option>
+        {products.map(p=><option key={p.material_code} value={p.material_code}>{(p.description??p.material_code)} — R{(p.unit_price_excl_vat??0).toFixed(2)}</option>)}
+      </select>
+      <input type="number" min={0} step={1} value={row.defaultQty} title="Qty per unit"
+        onChange={e=>{const q=Math.max(0,parseFloat(e.target.value)||0);onUpdate(x=>({...x,defaultQty:q}));}}
+        style={{width:48,padding:"6px 6px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center"}}/>
+      {grade ? <GradePill grade={grade}/> : <span/>}
+      <button onClick={onRemove} title="Remove"
+        style={{padding:"3px 8px",borderRadius:6,border:"1px solid #E0B4B4",background:"#fff",color:C.red,cursor:"pointer",fontSize:12,fontWeight:700}}>✕</button>
+    </div>
+  );
+}
+
+// One applied template: its Suggested/Optional/Custom/Catalog rows with
+// informational section counts (NOT interactive toggles — bulk-toggle-on-header
+// was rejected in design review) and the quantity-basis input (fixture count vs
+// pipe run metres).
+function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, onAddCustomRow, onAddCatalogRow, onRemoveRow, catalogue, catalogueLoading }: {
   tpl: AppliedTemplate;
   onRemoveTemplate: (instanceId: string) => void;
   onSetBasis: (instanceId: string, basis: number) => void;
   onUpdateRow: (instanceId: string, rowId: string, fn: (r: TemplateRowInstance) => TemplateRowInstance) => void;
   onAddCustomRow: (instanceId: string) => void;
+  onAddCatalogRow: (instanceId: string) => void;
   onRemoveRow: (instanceId: string, rowId: string) => void;
+  catalogue: PlumblinkMaterial[];
+  catalogueLoading: boolean;
 }) {
   const sc = sectionCounts(tpl.rows,"suggested");
   const oc = sectionCounts(tpl.rows,"optional");
   const suggested = tpl.rows.filter(r=>r.origin==="suggested");
   const optional  = tpl.rows.filter(r=>r.origin==="optional");
   const custom    = tpl.rows.filter(r=>r.origin==="custom");
+  const catalog   = tpl.rows.filter(r=>r.origin==="catalog");
 
+  // Suggested/Optional/Custom rows share this renderer — Application/Size/Fitting
+  // Type are locked display text for the first two, free-text inputs for Custom.
+  // Catalog rows are rendered separately by CatalogFittingRow (cascade dropdowns).
   const renderRow = (r: TemplateRowInstance) => {
     const disabled = isCheckboxDisabled(r);
     const grade = resolvedGrade(r);
+    const editable = r.origin==="custom";
+    const rowOpacity = rowState(r)==="removed"?0.5:1;
     return (
-      <div key={r.id} style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",padding:"6px 2px",
-        borderBottom:"1px solid #EEF1F5",opacity:rowState(r)==="removed"?0.5:1}}>
+      <div key={r.id} style={{display:"contents"}}>
         <input type="checkbox" checked={r.checked} disabled={disabled}
           title={disabled?"Select a product first":""}
           onChange={e=>{const c=e.target.checked;onUpdateRow(tpl.instanceId,r.id,x=>rowSetChecked(x,c));}}
-          style={{width:16,height:16,cursor:disabled?"not-allowed":"pointer"}}/>
-        {r.origin==="custom"
+          style={{width:16,height:16,cursor:disabled?"not-allowed":"pointer",opacity:rowOpacity}}/>
+        {editable
+          ? <input placeholder="Application" value={r.application}
+              onChange={e=>{const v=e.target.value;onUpdateRow(tpl.instanceId,r.id,x=>({...x,application:v}));}}
+              style={{...templateSmallInputStyle,opacity:rowOpacity}}/>
+          : <span style={{...templateLockedTextStyle,fontWeight:600,opacity:rowOpacity}}>{r.application}</span>}
+        {editable
+          ? <input placeholder="Size" value={r.nominalSize ?? ""}
+              onChange={e=>{const v=e.target.value;onUpdateRow(tpl.instanceId,r.id,x=>({...x,nominalSize:v}));}}
+              style={{...templateSmallInputStyle,opacity:rowOpacity}}/>
+          : <span style={{...templateLockedTextStyle,opacity:rowOpacity}}>{r.nominalSize ?? "—"}</span>}
+        {editable
           ? <input placeholder="Fitting type" value={r.fittingType}
               onChange={e=>{const v=e.target.value;onUpdateRow(tpl.instanceId,r.id,x=>({...x,fittingType:v}));}}
-              style={{width:120,padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12}}/>
-          : <span title={r.productRole ?? undefined} style={{fontSize:11,color:C.slate,minWidth:120,fontWeight:600}}>{r.fittingType}{r.nominalSize?` · ${r.nominalSize}`:""}</span>}
-        <TemplateProductSelect row={r}
-          onSelect={m=>onUpdateRow(tpl.instanceId,r.id,x=>rowSelectMaterial(x,m))}
-          onManual={(d,p)=>onUpdateRow(tpl.instanceId,r.id,x=>rowSetManual(x,d,p))}
-          onResolveDefault={(p,d)=>onUpdateRow(tpl.instanceId,r.id,x=>({...x,unitPrice:p,description:x.description||d}))}/>
+              style={{...templateSmallInputStyle,opacity:rowOpacity}}/>
+          : <span title={r.productRole ?? undefined} style={{...templateLockedTextStyle,fontWeight:600,opacity:rowOpacity}}>{r.fittingType}</span>}
+        <div style={{opacity:rowOpacity,minWidth:0,overflow:"hidden"}}>
+          <TemplateProductSelect row={r}
+            onSelect={m=>onUpdateRow(tpl.instanceId,r.id,x=>rowSelectMaterial(x,m))}
+            onManual={(d,p)=>onUpdateRow(tpl.instanceId,r.id,x=>rowSetManual(x,d,p))}
+            onResolveDefault={(p,d)=>onUpdateRow(tpl.instanceId,r.id,x=>({...x,unitPrice:p,description:x.description||d}))}/>
+        </div>
         <input type="number" min={0} step={1} value={r.defaultQty} title="Qty per unit"
           onChange={e=>{const q=Math.max(0,parseFloat(e.target.value)||0);onUpdateRow(tpl.instanceId,r.id,x=>({...x,defaultQty:q}));}}
-          style={{width:48,padding:"6px 6px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center"}}/>
-        <span style={{fontSize:11,color:C.slateL,minWidth:66,textAlign:"right"}}>{isPriced(r)?fmt(resolvedTotal(r)):"—"}</span>
-        {grade ? <GradePill grade={grade}/> : <span style={{minWidth:52}}/>}
-        {r.origin==="custom"&&<button onClick={()=>onRemoveRow(tpl.instanceId,r.id)} title="Remove"
-          style={{padding:"3px 8px",borderRadius:6,border:"1px solid #E0B4B4",background:"#fff",color:C.red,cursor:"pointer",fontSize:12,fontWeight:700}}>✕</button>}
+          style={{width:48,padding:"6px 6px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center",opacity:rowOpacity}}/>
+        {grade ? <GradePill grade={grade}/> : <span/>}
+        {r.origin==="custom"
+          ? <button onClick={()=>onRemoveRow(tpl.instanceId,r.id)} title="Remove"
+              style={{padding:"3px 8px",borderRadius:6,border:"1px solid #E0B4B4",background:"#fff",color:C.red,cursor:"pointer",fontSize:12,fontWeight:700,opacity:rowOpacity}}>✕</button>
+          : <span/>}
       </div>
     );
   };
 
-  const subHead = (t: string) => <div style={{fontSize:11,fontWeight:700,color:C.slate,textTransform:"uppercase",letterSpacing:0.6,margin:"10px 0 4px"}}>{t}</div>;
+  const plainHead = (t: string) => <div style={{gridColumn:"1 / -1",fontSize:11,fontWeight:700,color:C.slate,textTransform:"uppercase",letterSpacing:0.6,margin:"10px 0 4px"}}>{t}</div>;
+  // Filled green check / empty radio — decorative group markers only, no click
+  // handler (bulk-toggle-on-header was explicitly rejected in design review).
+  const groupHead = (icon: React.ReactNode, t: string) => (
+    <div style={{gridColumn:"1 / -1",display:"flex",alignItems:"center",gap:6,fontSize:11,fontWeight:700,color:C.slate,textTransform:"uppercase",letterSpacing:0.6,margin:"10px 0 4px"}}>
+      {icon}<span>{t}</span>
+    </div>
+  );
+  const filledCheck = <span style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:14,height:14,borderRadius:"50%",background:C.green,color:"#fff",fontSize:9,fontWeight:900,flexShrink:0}}>✓</span>;
+  const emptyRadio = <span style={{display:"inline-block",width:14,height:14,borderRadius:"50%",border:`2px solid ${C.slateL}`,flexShrink:0}}/>;
 
   return (
     <div style={{border:`1px solid ${C.gold}55`,borderRadius:8,marginBottom:12,overflow:"hidden"}}>
       <div style={{background:C.goldPale,padding:"8px 12px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-        <div style={{fontWeight:800,fontSize:13,color:C.navy}}>{tpl.templateName}<span style={{fontWeight:600,color:C.slateL,fontSize:11}}> · {tpl.scope}</span></div>
+        <div style={{fontWeight:800,fontSize:13,color:C.navy}}>
+          {tpl.fixtureType} Template — {tpl.templateVariant} <span style={{fontSize:11}}>🔗</span>
+          <span style={{fontWeight:600,color:C.slateL,fontSize:11}}> · {tpl.scope}</span>
+        </div>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
           <label style={{fontSize:11,color:C.slateL,fontWeight:600}}>{quantityInputLabel(tpl.scope)}</label>
           <input type="number" min={tpl.scope==="system"?0:1} step={tpl.scope==="system"?0.5:1} value={tpl.quantityBasis}
@@ -1314,29 +1430,57 @@ function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, 
             style={{padding:"4px 9px",borderRadius:6,border:"1px solid #E0B4B4",background:"#fff",color:C.red,cursor:"pointer",fontSize:13,fontWeight:700}}>✕</button>
         </div>
       </div>
-      <div style={{padding:"4px 12px 10px"}}>
-        {suggested.length>0&&<>{subHead(`Suggested fittings (${sc.active} of ${sc.total} confirmed)`)}{suggested.map(renderRow)}</>}
-        {optional.length>0&&<>{subHead(`Optional fittings (${oc.active} of ${oc.total} selected)`)}{optional.map(renderRow)}</>}
-        {custom.length>0&&<>{subHead("Custom fittings")}{custom.map(renderRow)}</>}
-        <button onClick={()=>onAddCustomRow(tpl.instanceId)}
-          style={{marginTop:10,padding:"6px 12px",borderRadius:6,border:`1px dashed ${C.gold}`,background:C.goldPale,color:C.navy,cursor:"pointer",fontSize:12,fontWeight:700}}>+ Add custom fitting</button>
+      <div style={{padding:"2px 12px 0",fontSize:10,color:C.slateL,fontStyle:"italic"}}>Suggested fittings for this fixture</div>
+      <div style={{padding:"6px 12px 10px"}}>
+        <div style={{display:"grid",gridTemplateColumns:TEMPLATE_ROW_GRID,columnGap:8,rowGap:4,alignItems:"center"}}>
+          <span/>
+          <span style={templateHeaderCellStyle}>Application</span>
+          <span style={templateHeaderCellStyle}>Size</span>
+          <span style={templateHeaderCellStyle}>Fitting Type</span>
+          <span style={templateHeaderCellStyle}>Product</span>
+          <span style={{...templateHeaderCellStyle,textAlign:"center"}}>Qty</span>
+          <span/>
+          <span/>
+
+          {suggested.length>0&&groupHead(filledCheck,`Suggested fittings (${sc.active} of ${sc.total} confirmed)`)}
+          {suggested.map(renderRow)}
+          {optional.length>0&&groupHead(emptyRadio,`Optional fittings (${oc.active} of ${oc.total} selected)`)}
+          {optional.map(renderRow)}
+          {catalog.length>0&&plainHead("Catalogue fittings")}
+          {catalog.map(r=>(
+            <CatalogFittingRow key={r.id} row={r} catalogue={catalogue} catalogueLoading={catalogueLoading}
+              onUpdate={fn=>onUpdateRow(tpl.instanceId,r.id,fn)} onRemove={()=>onRemoveRow(tpl.instanceId,r.id)}/>
+          ))}
+          {custom.length>0&&plainHead("Custom fittings")}
+          {custom.map(renderRow)}
+        </div>
+        <div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}>
+          <button onClick={()=>onAddCatalogRow(tpl.instanceId)}
+            style={{padding:"6px 12px",borderRadius:6,border:`1px dashed ${C.gold}`,background:C.goldPale,color:C.navy,cursor:"pointer",fontSize:12,fontWeight:700}}>+ Add fitting</button>
+          <button onClick={()=>onAddCustomRow(tpl.instanceId)}
+            style={{padding:"6px 12px",borderRadius:6,border:`1px dashed ${C.gold}`,background:C.goldPale,color:C.navy,cursor:"pointer",fontSize:12,fontWeight:700}}>+ Add custom fitting</button>
+        </div>
+        <div style={{fontSize:10,color:C.muted,marginTop:6}}>ⓘ Only confirmed rows are priced and added to the buy list.</div>
       </div>
     </div>
   );
 }
 
-function FixtureTemplatesSection({ applied, onApply, onRemoveTemplate, onSetBasis, onUpdateRow, onAddCustomRow, onRemoveRow }: {
+function FixtureTemplatesSection({ applied, onApply, onRemoveTemplate, onSetBasis, onUpdateRow, onAddCustomRow, onAddCatalogRow, onRemoveRow }: {
   applied: AppliedTemplate[];
   onApply: (t: FixtureTemplate) => void;
   onRemoveTemplate: (instanceId: string) => void;
   onSetBasis: (instanceId: string, basis: number) => void;
   onUpdateRow: (instanceId: string, rowId: string, fn: (r: TemplateRowInstance) => TemplateRowInstance) => void;
   onAddCustomRow: (instanceId: string) => void;
+  onAddCatalogRow: (instanceId: string) => void;
   onRemoveRow: (instanceId: string, rowId: string) => void;
 }) {
   const [templates, setTemplates] = useState<FixtureTemplate[]>([]);
   const [picked, setPicked] = useState("");
   const [loading, setLoading] = useState(true);
+  const [catalogue, setCatalogue] = useState<PlumblinkMaterial[]>([]);
+  const [catalogueLoading, setCatalogueLoading] = useState(true);
 
   useEffect(() => {
     let alive = true;
@@ -1344,6 +1488,17 @@ function FixtureTemplatesSection({ applied, onApply, onRemoveTemplate, onSetBasi
       if (!alive) return;
       setTemplates(ts); setLoading(false);
       if (ts[0]) setPicked(ts[0].template_id);
+    });
+    return () => { alive = false; };
+  }, []);
+
+  // Loaded once per section, not per row or per keystroke — shared by every
+  // catalog row's cascade dropdowns.
+  useEffect(() => {
+    let alive = true;
+    fetchCascadeCatalogue().then(rows => {
+      if (!alive) return;
+      setCatalogue(rows); setCatalogueLoading(false);
     });
     return () => { alive = false; };
   }, []);
@@ -1368,7 +1523,8 @@ function FixtureTemplatesSection({ applied, onApply, onRemoveTemplate, onSetBasi
           ? <div style={{fontSize:12,color:C.slateL,padding:"2px 2px 4px"}}>No templates added. A template <em>suggests</em> scope; you confirm what gets priced — nothing is priced from a suggestion alone.</div>
           : applied.map(tpl=><AppliedTemplateBlock key={tpl.instanceId} tpl={tpl}
               onRemoveTemplate={onRemoveTemplate} onSetBasis={onSetBasis} onUpdateRow={onUpdateRow}
-              onAddCustomRow={onAddCustomRow} onRemoveRow={onRemoveRow}/>)}
+              onAddCustomRow={onAddCustomRow} onAddCatalogRow={onAddCatalogRow} onRemoveRow={onRemoveRow}
+              catalogue={catalogue} catalogueLoading={catalogueLoading}/>)}
       </div>
     </div>
   );
@@ -1470,7 +1626,7 @@ export default function EstimatePage() {
     const basis = template.scope === "system" ? 6 : 1;
     const applied: AppliedTemplate = {
       instanceId: _uid(), templateId: template.template_id, fixtureType: template.fixture_type,
-      templateName: template.template_name, scope: template.scope,
+      templateName: template.template_name, templateVariant: template.template_variant, scope: template.scope,
       quantityBasis: basis, rows: rows.map(r => initialRowInstance(r, basis)),
     };
     setInputs(p => ({ ...p, fittingTemplates: [...(p.fittingTemplates ?? []), applied] }));
@@ -1486,6 +1642,9 @@ export default function EstimatePage() {
   const addCustomTemplateRow = useCallback((instanceId: string) =>
     setInputs(p => ({ ...p, fittingTemplates: (p.fittingTemplates ?? []).map(t =>
       t.instanceId !== instanceId ? t : { ...t, rows: [...t.rows, createCustomRowInstance(t.quantityBasis)] }) })), []);
+  const addCatalogTemplateRow = useCallback((instanceId: string) =>
+    setInputs(p => ({ ...p, fittingTemplates: (p.fittingTemplates ?? []).map(t =>
+      t.instanceId !== instanceId ? t : { ...t, rows: [...t.rows, createCatalogRowInstance(t.quantityBasis)] }) })), []);
   const removeTemplateRow = useCallback((instanceId: string, rowId: string) =>
     setInputs(p => ({ ...p, fittingTemplates: (p.fittingTemplates ?? []).map(t =>
       t.instanceId !== instanceId ? t : { ...t, rows: t.rows.filter(r => r.id !== rowId) }) })), []);
@@ -1887,10 +2046,10 @@ export default function EstimatePage() {
         {/* Fittings — compression fittings line builder (catalogue-priced).
             Size groups + products are data-driven from COMPRESSION_FITTINGS. */}
         <div style={{background:"#fff",borderRadius:8,border:"1px solid #DDE3EA",marginBottom:14,overflow:"hidden"}}>
-          <SectionHeader>Fittings</SectionHeader>
+          <SectionHeader>General fittings (not linked to a fixture)</SectionHeader>
           <div style={{padding:"12px 16px"}}>
             {(inputs.fittingLines ?? []).length===0&&
-              <div style={{fontSize:12,color:C.slateL,padding:"6px 2px 10px"}}>No fittings yet — add a line below.</div>}
+              <div style={{fontSize:12,color:C.slateL,padding:"6px 2px 10px"}}>No general fittings yet — add a line below.</div>}
             {(inputs.fittingLines ?? []).map(ft=>{
               const products=fittingsForSizeGroup(ft.sizeGroup);
               return (
@@ -1929,6 +2088,7 @@ export default function EstimatePage() {
           onSetBasis={setTemplateBasis}
           onUpdateRow={updateTemplateRow}
           onAddCustomRow={addCustomTemplateRow}
+          onAddCatalogRow={addCatalogTemplateRow}
           onRemoveRow={removeTemplateRow}
         />
         </>)}
