@@ -1,12 +1,11 @@
 {
   "buildCommand": "npm run build",
   "outputDirectory": "dist/client",
-  "cleanUrls": true,
-  "trailingSlash": false,
+  "framework": null,
   "rewrites": [
     {
       "source": "/(.*)",
-      "destination": "/index.html"
+      "destination": "/_shell.html"
     }
   ]
 }
