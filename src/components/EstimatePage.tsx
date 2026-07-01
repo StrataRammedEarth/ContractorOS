@@ -912,7 +912,7 @@ function EstimateTab({ scope, labour, inputs, finalGrade, docRef, documentType, 
   );
 }
 
-function BuyTab({ scope, quoteRef, onPrintBuy }: { scope: ScopeLine[]; inputs: Inputs; quoteRef: string; onPrintBuy: () => void }) {
+function BuyTab({ scope, quoteRef, onPrintBuy }: { scope: ScopeLine[]; inputs: Inputs; quoteRef: string | null; onPrintBuy: () => void }) {
   const bySupplier: Record<string, ScopeLine[]> = {};
   scope.forEach(l=>{const s=l.supplier||"Other";if(!bySupplier[s])bySupplier[s]=[];bySupplier[s].push(l);});
   const total=scope.reduce((s,l)=>s+l.total,0);
@@ -1477,7 +1477,7 @@ export default function EstimatePage() {
                 placeholder={DEFAULT_BANKING_DETAILS}
                 onChange={e=>setInvoiceMeta(m=>({...m,bankingDetails:e.target.value}))}
                 style={{width:"100%",padding:"7px 10px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12,color:C.navy,boxSizing:"border-box",fontFamily:"inherit",resize:"vertical"}}/>
-              <div style={{fontSize:10,color:C.muted,marginTop:3}}>Invoice ref: <strong>{invoiceRef}</strong> · totals include 15% VAT · payment due {invoiceMeta.dueDate||"—"}</div>
+              <div style={{fontSize:10,color:C.muted,marginTop:3}}>Invoice ref: <strong>{docRef || (isGeneratingRef ? "Generating…" : "generated on download")}</strong> · totals include 15% VAT · payment due {invoiceMeta.dueDate||"—"}</div>
             </div>
           </div>
         </div>)}
