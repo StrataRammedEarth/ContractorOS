@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { FixtureTemplateRow } from './fixture-templates';
 import {
+  createCatalogRowInstance,
   createCustomRowInstance,
   hasProductSelected,
   initialRowInstance,
@@ -15,8 +16,11 @@ import {
   rowState,
   sectionCounts,
   selectMaterial,
+  setApplication,
   setChecked,
+  setFittingType,
   setManualProduct,
+  setSize,
   shouldShowGradeChip,
   usesManualEntry,
   type TemplateRowInstance,
@@ -273,6 +277,88 @@ describe('quantityInputLabel', () => {
 
   it('labels fixture-scope templates by fixture count', () => {
     expect(quantityInputLabel('fixture')).toBe('Fixture count');
+  });
+});
+
+describe('createCatalogRowInstance', () => {
+  it('is checked and touched from creation, with empty identity fields and no product resolved', () => {
+    const inst = createCatalogRowInstance(1);
+    expect(inst.origin).toBe('catalog');
+    expect(inst.checked).toBe(true);
+    expect(inst.touched).toBe(true);
+    expect(inst.application).toBe('');
+    expect(inst.nominalSize).toBeNull();
+    expect(inst.fittingType).toBe('');
+    expect(inst.materialCode).toBeNull();
+    expect(inst.productFilter).toBe('');
+    expect(isPriced(inst)).toBe(false);
+    expect(rowState(inst)).toBe('catalog');
+  });
+});
+
+describe('usesManualEntry — catalog vs custom', () => {
+  it('is false for a catalog row (drives cascade dropdowns, not free text)', () => {
+    expect(usesManualEntry(createCatalogRowInstance(1))).toBe(false);
+  });
+
+  it('is true for a custom row', () => {
+    expect(usesManualEntry(createCustomRowInstance(1))).toBe(true);
+  });
+});
+
+describe('cascade field setters — each resets everything downstream', () => {
+  it('setApplication clears nominalSize, fittingType, materialCode, description, unitPrice', () => {
+    const resolved = selectMaterial(createCatalogRowInstance(1), { materialCode: 'PLB-1', description: 'Bend', unitPrice: 40 });
+    const withSize = setSize(resolved, '110mm');
+    const reapplied = setApplication(withSize, 'Sanware');
+    expect(reapplied.application).toBe('Sanware');
+    expect(reapplied.nominalSize).toBeNull();
+    expect(reapplied.fittingType).toBe('');
+    expect(reapplied.materialCode).toBeNull();
+    expect(reapplied.description).toBe('');
+    expect(reapplied.unitPrice).toBe(0);
+    expect(reapplied.touched).toBe(true);
+  });
+
+  it('setSize clears fittingType, materialCode, description, unitPrice', () => {
+    const resolved = selectMaterial(
+      setFittingType(createCatalogRowInstance(1), 'Bend'),
+      { materialCode: 'PLB-1', description: 'Bend', unitPrice: 40 },
+    );
+    const resized = setSize(resolved, '15mm');
+    expect(resized.nominalSize).toBe('15mm');
+    expect(resized.fittingType).toBe('');
+    expect(resized.materialCode).toBeNull();
+    expect(resized.description).toBe('');
+    expect(resized.unitPrice).toBe(0);
+  });
+
+  it('setSize accepts null (the "—" option) as a valid size', () => {
+    const withNullSize = setSize(createCatalogRowInstance(1), null);
+    expect(withNullSize.nominalSize).toBeNull();
+    expect(withNullSize.touched).toBe(true);
+  });
+
+  it('setFittingType clears materialCode, description, unitPrice', () => {
+    const resolved = selectMaterial(createCatalogRowInstance(1), { materialCode: 'PLB-1', description: 'Bend', unitPrice: 40 });
+    const retyped = setFittingType(resolved, 'Coupler');
+    expect(retyped.fittingType).toBe('Coupler');
+    expect(retyped.materialCode).toBeNull();
+    expect(retyped.description).toBe('');
+    expect(retyped.unitPrice).toBe(0);
+  });
+});
+
+describe('catalog vs custom row grading', () => {
+  it('a catalog row grades Sourced once a real catalog material is selected', () => {
+    const resolved = selectMaterial(createCatalogRowInstance(1), { materialCode: 'PLB-1', description: 'Bend', unitPrice: 40 });
+    expect(shouldShowGradeChip(resolved)).toBe(true);
+    expect(resolvedGrade(resolved)).toBe('Sourced');
+  });
+
+  it('a custom row grades Assumption (no catalog material code)', () => {
+    const custom = setManualProduct(createCustomRowInstance(1), 'Off-brand part', 15);
+    expect(resolvedGrade(custom)).toBe('Assumption');
   });
 });
 

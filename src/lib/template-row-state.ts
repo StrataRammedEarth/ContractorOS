@@ -6,8 +6,8 @@ import { isManualLine } from './product-filter';
 // "A template suggests scope; the plumber confirms scope": nothing here prices
 // until a row is both checked AND resolved to an actual product.
 
-export type RowOrigin = 'suggested' | 'optional' | 'custom';
-export type RowState = 'suggested' | 'optional' | 'confirmed' | 'removed' | 'custom';
+export type RowOrigin = 'suggested' | 'optional' | 'custom' | 'catalog';
+export type RowState = 'suggested' | 'optional' | 'confirmed' | 'removed' | 'custom' | 'catalog';
 export type Grade = 'Sourced' | 'Assumption';
 
 export interface TemplateRowInstance {
@@ -83,11 +83,39 @@ export function createCustomRowInstance(quantityBasis: number): TemplateRowInsta
   };
 }
 
+// A catalogue-cascade row ("+ Add fitting") — like Custom, auto-confirmed and
+// terminal, but its identity fields are resolved via the Application → Size →
+// Fitting Type → Product dropdown chain instead of free text.
+export function createCatalogRowInstance(quantityBasis: number): TemplateRowInstance {
+  return {
+    id: _uid(),
+    templateRowId: null,
+    origin: 'catalog',
+    checked: true,
+    touched: true,
+    application: '',
+    system: null,
+    nominalSize: null,
+    fittingType: '',
+    materialCode: null,
+    description: '',
+    productRole: null,
+    unitPrice: 0,
+    quantityBasis,
+    defaultQty: 1,
+    allowAlternatives: true,
+    productFilter: '',
+  };
+}
+
 // A row takes free-text manual entry (no catalog dropdown) when it's a Custom
 // row, or when its filter is the Manual/custom line sentinel (the Underground
 // Drainage "Bedding / Backfill" row). Everything else drives a Product dropdown
-// from a product_filter query.
+// from a product_filter query. Catalog rows are the exception to the sentinel
+// check below — their productFilter is always '' (they drive the cascade
+// dropdowns instead), which would otherwise misread as the manual-line case.
 export function usesManualEntry(row: Pick<TemplateRowInstance, 'origin' | 'productFilter'>): boolean {
+  if (row.origin === 'catalog') return false;
   return row.origin === 'custom' || isManualLine(row.productFilter);
 }
 
@@ -107,6 +135,7 @@ export function isCheckboxDisabled(row: Pick<TemplateRowInstance, 'materialCode'
 
 export function rowState(row: Pick<TemplateRowInstance, 'origin' | 'checked' | 'touched'>): RowState {
   if (row.origin === 'custom') return 'custom';
+  if (row.origin === 'catalog') return 'catalog';
   if (!row.touched) return row.origin; // 'suggested' | 'optional', exactly as loaded
   return row.checked ? 'confirmed' : 'removed';
 }
@@ -124,7 +153,7 @@ export function isInBuyList(row: Pick<TemplateRowInstance, 'checked' | 'material
 
 export function shouldShowGradeChip(row: Pick<TemplateRowInstance, 'origin' | 'checked' | 'touched'>): boolean {
   const state = rowState(row);
-  return state === 'confirmed' || state === 'custom';
+  return state === 'confirmed' || state === 'custom' || state === 'catalog';
 }
 
 // Sourced if linked to a real catalog material_code, Assumption if the plumber
@@ -190,6 +219,21 @@ export function setManualProduct(row: TemplateRowInstance, description: string, 
     unitPrice,
     touched: row.checked ? true : row.touched,
   };
+}
+
+// Cascade field setters for catalog rows — each clears every field downstream
+// of it in the Application → Size → Fitting Type → Product chain, so a stale
+// selection can never survive an upstream change.
+export function setApplication(row: TemplateRowInstance, application: string): TemplateRowInstance {
+  return { ...row, application, nominalSize: null, fittingType: '', materialCode: null, description: '', unitPrice: 0, touched: true };
+}
+
+export function setSize(row: TemplateRowInstance, size: string | null): TemplateRowInstance {
+  return { ...row, nominalSize: size, fittingType: '', materialCode: null, description: '', unitPrice: 0, touched: true };
+}
+
+export function setFittingType(row: TemplateRowInstance, fittingType: string): TemplateRowInstance {
+  return { ...row, fittingType, materialCode: null, description: '', unitPrice: 0, touched: true };
 }
 
 // "Suggested fittings (2 of 2 confirmed)" / "Optional fittings (0 of 6 selected)"
