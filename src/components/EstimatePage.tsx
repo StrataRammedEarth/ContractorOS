@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { Link, getRouteApi } from "@tanstack/react-router";
 import {
   buildGeyserReplacement, buildElementRepair,
@@ -14,6 +14,20 @@ import {
 } from "@/lib/invoice-document";
 import { useSettings, DEFAULT_SETTINGS, type OrgSettings } from "@/lib/settings-context";
 import { supabase } from "@/lib/supabase-client";
+import {
+  fetchFixtureTemplates, fetchTemplateRows, fetchCandidateMaterials,
+  type FixtureTemplate,
+} from "@/lib/fixture-templates";
+import {
+  initialRowInstance, createCustomRowInstance, rowState, isPriced,
+  resolvedGrade, pricingGrade, resolvedQty, resolvedTotal,
+  isCheckboxDisabled, usesManualEntry, setChecked as rowSetChecked,
+  selectMaterial as rowSelectMaterial, setManualProduct as rowSetManual,
+  sectionCounts, quantityInputLabel,
+  type TemplateRowInstance,
+} from "@/lib/template-row-state";
+import type { PlumblinkMaterial } from "@/lib/product-filter";
+import { aggregateBuyList } from "@/lib/buy-list";
 
 // ─── SUPABASE (for the scan-drawing edge function) ────────────────────────────
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? "";
@@ -152,6 +166,20 @@ interface FittingLine {
   supplier?: string;
 }
 
+// A fixture/system template applied to the estimate — its rows carry live
+// TemplateRowInstance state (checkbox, resolved product, grade). Only priced
+// rows (isPriced) become scope lines; see buildScope. quantityBasis is the
+// fixture count (scope='fixture') or pipe run length in metres (scope='system').
+interface AppliedTemplate {
+  instanceId: string;
+  templateId: string;
+  fixtureType: string;
+  templateName: string;
+  scope: 'fixture' | 'system';
+  quantityBasis: number;
+  rows: TemplateRowInstance[];
+}
+
 interface GeyserMeta {
   jobType: GeyserJobType; size: GeyserSize; brand: GeyserBrand; solar: boolean;
 }
@@ -161,6 +189,7 @@ interface Inputs {
   fixtures: Fixtures;           // legacy (scan extraction still populates this)
   fixtureLines?: FixtureLine[]; // canonical fixtures for manual-entry pricing
   fittingLines?: FittingLine[]; // compression fittings (catalogue-priced, optional)
+  fittingTemplates?: AppliedTemplate[]; // fixture-linked fitting templates
   supplyLines?: PipeLine[];     // canonical supply pipe (replaces pipeType+supplyMetres)
   drainLines?: PipeLine[];      // canonical drainage pipe (replaces drainMetres)
   _scanNotes?: string; _scanConf?: string;
@@ -305,7 +334,13 @@ async function nextDocumentRef(orgId: string, type: DocumentType): Promise<strin
 }
 
 // ─── ENGINE ───────────────────────────────────────────────────────────────────
-function buildScope(inp: Inputs): ScopeLine[] {
+// invoiceStrict (brief §2 "Invoice strictness"): when true, unconfirmed Suggested
+// template rows are excluded — even though they're priced in a draft quote, they
+// must never leak onto an invoice. Only rows the plumber actually confirmed
+// (state 'confirmed') or added ('custom') survive. Non-template scope (fixtures,
+// pipes, fittings, points-driven lines) is unaffected — it is either user-added
+// or already gated by the existing Points=0 guards.
+function buildScope(inp: Inputs, opts: { invoiceStrict?: boolean } = {}): ScopeLine[] {
   const { points } = inp;
   const fixtureLines = inp.fixtureLines ?? [];
   const supplyLines = inp.supplyLines ?? [];
@@ -414,6 +449,37 @@ function buildScope(inp: Inputs): ScopeLine[] {
       supplier: ft.supplier ?? "Plumblink",
       derivation: `${ft.quantity} × R${ft.unitPrice.toFixed(2)} (${ft.grade} catalogue price${ft.plumblinkCode?`, PL ${ft.plumblinkCode}`:""})`,
       mode:"Supply",
+    });
+  });
+
+  // Fixture-template fitting rows — one scope line per priced row. isPriced()
+  // gates this exactly as the brief's row-state table requires: Suggested
+  // (unconfirmed) and Confirmed/Custom priced rows flow through; Optional,
+  // Removed, and unresolved Placeholder rows do not. Grade is computed from the
+  // row's live resolution (Sourced if a real material_code is linked, else
+  // Assumption), never trusted blindly from the static template column.
+  (inp.fittingTemplates ?? []).forEach((tpl, ti) => {
+    tpl.rows.forEach((r, ri) => {
+      if (!isPriced(r)) return;
+      // Invoice strictness: a priced-but-unconfirmed Suggested row is the only
+      // priced state that isn't a deliberate confirmation, so it's the leak this
+      // guard blocks. Confirmed and Custom rows pass through to the invoice.
+      if (opts.invoiceStrict && rowState(r) === "suggested") return;
+      const qty = resolvedQty(r);
+      // pricingGrade (not resolvedGrade) — resolvedGrade returns null for an
+      // unconfirmed Suggested row, but that row is still priced here and must
+      // carry its real Sourced/Assumption grade, not a fallback.
+      const grade = pricingGrade(r);
+      lines.push({
+        id:`T${ti+1}-${String(ri+1).padStart(2,"0")}`,
+        code: r.materialCode ?? "CUSTOM",
+        description: r.description || r.fittingType || "(fitting)",
+        qty, unit:"ea", unitPrice: r.unitPrice, conf: grade,
+        total: resolvedTotal(r),
+        supplier: r.materialCode ? "Plumblink" : "Custom",
+        derivation: `${qty} × R${r.unitPrice.toFixed(2)} (${tpl.templateName} · ${rowState(r)} · ${grade})`,
+        mode:"Supply",
+      });
     });
   });
 
@@ -580,9 +646,11 @@ function printQuotePDF(inp: Inputs, scope: ScopeLine[], labour: LabourLine[], qu
 }
 
 function printBuyPDF(inp: Inputs, scope: ScopeLine[], quoteRef: string) {
-  const bySupplier: Record<string, ScopeLine[]> = {};
-  scope.forEach(l=>{const s=l.supplier||"Other";if(!bySupplier[s])bySupplier[s]=[];bySupplier[s].push(l);});
-  const matTotal=scope.reduce((s,l)=>s+l.total,0);
+  // Same aggregation as the Buy tab so the downloaded list matches on screen.
+  const buyLines = aggregateBuyList(scope, lowestGrade);
+  const bySupplier: Record<string, typeof buyLines> = {};
+  buyLines.forEach(l=>{const s=l.supplier||"Other";if(!bySupplier[s])bySupplier[s]=[];bySupplier[s].push(l);});
+  const matTotal=buyLines.reduce((s,l)=>s+l.total,0);
   const supplierBlocks=Object.entries(bySupplier).map(([sup,items])=>{
     const st=items.reduce((s,l)=>s+l.total,0);
     return `<div style="background:#0D1B2A;color:#F5A623;font-size:10px;font-weight:700;padding:7px 10px;display:flex;justify-content:space-between"><span>${sup.toUpperCase()} (${items.length})</span><span>R ${fmtN(st)}</span></div>${items.map(l=>`<tr><td style="padding:8px 10px;font-family:monospace;font-size:10px;color:#6B859E">${l.code}</td><td style="padding:8px 10px">${l.description}</td><td style="padding:8px 10px;text-align:right;font-weight:600">${l.qty}</td><td style="padding:8px 10px">${l.unit}</td><td style="padding:8px 10px;text-align:right">R ${fmtN(l.unitPrice)}</td><td style="padding:8px 10px;text-align:right;font-weight:700">R ${fmtN(l.total)}</td></tr>`).join("")}`;
@@ -913,16 +981,19 @@ function EstimateTab({ scope, labour, inputs, finalGrade, docRef, documentType, 
 }
 
 function BuyTab({ scope, quoteRef, onPrintBuy }: { scope: ScopeLine[]; inputs: Inputs; quoteRef: string | null; onPrintBuy: () => void }) {
-  const bySupplier: Record<string, ScopeLine[]> = {};
-  scope.forEach(l=>{const s=l.supplier||"Other";if(!bySupplier[s])bySupplier[s]=[];bySupplier[s].push(l);});
-  const total=scope.reduce((s,l)=>s+l.total,0);
+  // Collapse identical material codes into one procurement line (summed qty);
+  // custom lines stay separate. Procurement total is unchanged by aggregation.
+  const buyLines = aggregateBuyList(scope, lowestGrade);
+  const bySupplier: Record<string, typeof buyLines> = {};
+  buyLines.forEach(l=>{const s=l.supplier||"Other";if(!bySupplier[s])bySupplier[s]=[];bySupplier[s].push(l);});
+  const total=buyLines.reduce((s,l)=>s+l.total,0);
   return (
     <div>
       <div style={{background:`linear-gradient(90deg,${C.navyMid},${C.navy})`,padding:"12px 20px",borderRadius:8,margin:16,display:"flex",justifyContent:"space-between",alignItems:"center",border:`1px solid ${C.gold}30`}}>
         <div>
           <div style={{color:C.muted,fontSize:11,textTransform:"uppercase",letterSpacing:1}}>Procurement Total (excl. VAT)</div>
           <div style={{color:C.gold,fontSize:26,fontWeight:900}}>{fmt(total)}</div>
-          <div style={{color:C.slateL,fontSize:11}}>{fmt(total*1.15)} incl. VAT · {scope.length} lines</div>
+          <div style={{color:C.slateL,fontSize:11}}>{fmt(total*1.15)} incl. VAT · {buyLines.length} lines</div>
         </div>
         <button onClick={onPrintBuy} style={{padding:"8px 18px",borderRadius:6,border:"none",background:C.gold,color:C.navy,cursor:"pointer",fontWeight:700,fontSize:12}}>⬇ Download Buy List</button>
       </div>
@@ -940,9 +1011,9 @@ function BuyTab({ scope, quoteRef, onPrintBuy }: { scope: ScopeLine[]; inputs: I
                     <th key={h} style={{padding:"6px 10px",textAlign:"left",fontWeight:600,fontSize:10}}>{h}</th>))}
                 </tr></thead>
                 <tbody>{items.map((l,i)=>(
-                  <tr key={l.id} style={{background:i%2===0?C.offWhite:"#fff",borderBottom:"1px solid #E8EDF2"}}>
+                  <tr key={`${l.code}-${i}`} style={{background:i%2===0?C.offWhite:"#fff",borderBottom:"1px solid #E8EDF2"}}>
                     <td style={{padding:"6px 10px",fontFamily:"monospace",fontSize:10,color:C.slateL}}>{l.code}</td>
-                    <td style={{padding:"6px 10px",color:C.navy}}>{l.description}</td>
+                    <td style={{padding:"6px 10px",color:C.navy}}>{l.description}{l.sourceCount>1&&<span style={{color:C.slateL,fontWeight:600}}> · ×{l.sourceCount} lines merged</span>}</td>
                     <td style={{padding:"6px 10px",textAlign:"right",fontWeight:600}}>{l.qty}</td>
                     <td style={{padding:"6px 10px",color:C.slateL}}>{l.unit}</td>
                     <td style={{padding:"6px 10px",textAlign:"right"}}>{fmt(l.unitPrice)}</td>
@@ -1095,6 +1166,7 @@ const DEFAULT: Inputs = {
   fixtures:{toilet:1,basin:1,shower:1,showerDoor:1,showerRose:1,showerArm:1,kitchenMixer:0},
   fixtureLines:(["toilet","basin","shower_mixer","shower_door","shower_rose"] as FixtureType[]).map(t=>makeFixtureLine(t)),
   fittingLines:[],
+  fittingTemplates:[],
   supplyLines:[pipeLineFrom("supply","Copper",15,20)],
   drainLines:[pipeLineFrom("drainage","PVC",110,15)],
 };
@@ -1108,6 +1180,198 @@ function scanFixturesToLines(f: Fixtures): FixtureLine[] {
   const out: FixtureLine[] = [];
   for (const [k,t] of map) { const q=f[k]??0; if (q>0) out.push({ ...makeFixtureLine(t), quantity:q }); }
   return out;
+}
+
+// ─── FIXTURE-TEMPLATE UI ──────────────────────────────────────────────────────
+// Per-row Product control. Runs the row's product_filter against plumblink_materials
+// to populate the dropdown, or falls back to free-text for Custom rows and the
+// Manual/custom line sentinel. Seeds a Suggested row's default price on load
+// WITHOUT confirming it (onResolveDefault leaves `touched` false) — pricing a seed is
+// not the same as the plumber picking a product.
+function TemplateProductSelect({ row, onSelect, onManual, onResolveDefault }: {
+  row: TemplateRowInstance;
+  onSelect: (m: { materialCode: string; description: string; unitPrice: number }) => void;
+  onManual: (description: string, unitPrice: number) => void;
+  onResolveDefault: (unitPrice: number, description: string) => void;
+}) {
+  const manualOnly = usesManualEntry(row);
+  const [materials, setMaterials] = useState<PlumblinkMaterial[]>([]);
+  const [loading, setLoading] = useState(!manualOnly);
+  const [manual, setManual] = useState(false);
+
+  useEffect(() => {
+    if (manualOnly) { setLoading(false); return; }
+    let alive = true;
+    setLoading(true);
+    fetchCandidateMaterials({ product_filter: row.productFilter }).then(ms => {
+      if (!alive) return;
+      setMaterials(ms);
+      setLoading(false);
+      // Seed the default material's price (Suggested rows load with unitPrice 0).
+      if (row.materialCode && row.unitPrice === 0) {
+        const m = ms.find(x => x.material_code === row.materialCode);
+        if (m) onResolveDefault(m.unit_price_excl_vat ?? 0, m.description ?? "");
+      }
+    });
+    return () => { alive = false; };
+    // Fetch once per row instance; row.id is stable across its edits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [row.id]);
+
+  const inputStyle: React.CSSProperties = { flex:1,minWidth:200,padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12 };
+
+  if (manualOnly || manual) {
+    return (
+      <div style={{display:"flex",gap:6,flex:1,minWidth:200,alignItems:"center"}}>
+        <input placeholder={row.origin==="custom"?"Custom fitting product":"Manual / site allowance"} value={row.description}
+          onChange={e=>onManual(e.target.value, row.unitPrice)} style={inputStyle}/>
+        <span style={{fontSize:11,color:C.slateL}}>R</span>
+        <input type="number" min={0} step="0.01" placeholder="price" value={row.unitPrice||""}
+          onChange={e=>onManual(row.description, Math.max(0,parseFloat(e.target.value)||0))}
+          style={{width:88,padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12}}/>
+        {!manualOnly&&<button onClick={()=>setManual(false)} title="Back to catalogue"
+          style={{padding:"4px 8px",borderRadius:6,border:"1px solid #C8D0DB",background:"#fff",color:C.slate,cursor:"pointer",fontSize:12}}>↺</button>}
+      </div>
+    );
+  }
+
+  if (loading) return <span style={{fontSize:11,color:C.muted,flex:1,minWidth:200}}>Loading products…</span>;
+
+  return (
+    <select value={row.materialCode ?? "__select__"} onChange={e=>{
+      const v=e.target.value;
+      if (v==="__manual__"){ setManual(true); return; }
+      const m=materials.find(x=>x.material_code===v);
+      if (m) onSelect({ materialCode:m.material_code, description:m.description ?? "", unitPrice:m.unit_price_excl_vat ?? 0 });
+    }} style={inputStyle}>
+      <option value="__select__" disabled>{materials.length? "Select product…" : "No matching products"}</option>
+      {materials.map(m=><option key={m.material_code} value={m.material_code}>
+        {(m.description ?? m.material_code)} — R{(m.unit_price_excl_vat ?? 0).toFixed(2)} ({m.confidence ?? "—"})</option>)}
+      <option value="__manual__">Enter manually…</option>
+    </select>
+  );
+}
+
+// One applied template: its Suggested/Optional/Custom rows with informational
+// section counts (NOT interactive toggles — bulk-toggle-on-header was rejected in
+// design review) and the quantity-basis input (fixture count vs pipe run metres).
+function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, onAddCustomRow, onRemoveRow }: {
+  tpl: AppliedTemplate;
+  onRemoveTemplate: (instanceId: string) => void;
+  onSetBasis: (instanceId: string, basis: number) => void;
+  onUpdateRow: (instanceId: string, rowId: string, fn: (r: TemplateRowInstance) => TemplateRowInstance) => void;
+  onAddCustomRow: (instanceId: string) => void;
+  onRemoveRow: (instanceId: string, rowId: string) => void;
+}) {
+  const sc = sectionCounts(tpl.rows,"suggested");
+  const oc = sectionCounts(tpl.rows,"optional");
+  const suggested = tpl.rows.filter(r=>r.origin==="suggested");
+  const optional  = tpl.rows.filter(r=>r.origin==="optional");
+  const custom    = tpl.rows.filter(r=>r.origin==="custom");
+
+  const renderRow = (r: TemplateRowInstance) => {
+    const disabled = isCheckboxDisabled(r);
+    const grade = resolvedGrade(r);
+    return (
+      <div key={r.id} style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",padding:"6px 2px",
+        borderBottom:"1px solid #EEF1F5",opacity:rowState(r)==="removed"?0.5:1}}>
+        <input type="checkbox" checked={r.checked} disabled={disabled}
+          title={disabled?"Select a product first":""}
+          onChange={e=>{const c=e.target.checked;onUpdateRow(tpl.instanceId,r.id,x=>rowSetChecked(x,c));}}
+          style={{width:16,height:16,cursor:disabled?"not-allowed":"pointer"}}/>
+        {r.origin==="custom"
+          ? <input placeholder="Fitting type" value={r.fittingType}
+              onChange={e=>{const v=e.target.value;onUpdateRow(tpl.instanceId,r.id,x=>({...x,fittingType:v}));}}
+              style={{width:120,padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12}}/>
+          : <span title={r.productRole ?? undefined} style={{fontSize:11,color:C.slate,minWidth:120,fontWeight:600}}>{r.fittingType}{r.nominalSize?` · ${r.nominalSize}`:""}</span>}
+        <TemplateProductSelect row={r}
+          onSelect={m=>onUpdateRow(tpl.instanceId,r.id,x=>rowSelectMaterial(x,m))}
+          onManual={(d,p)=>onUpdateRow(tpl.instanceId,r.id,x=>rowSetManual(x,d,p))}
+          onResolveDefault={(p,d)=>onUpdateRow(tpl.instanceId,r.id,x=>({...x,unitPrice:p,description:x.description||d}))}/>
+        <input type="number" min={0} step={1} value={r.defaultQty} title="Qty per unit"
+          onChange={e=>{const q=Math.max(0,parseFloat(e.target.value)||0);onUpdateRow(tpl.instanceId,r.id,x=>({...x,defaultQty:q}));}}
+          style={{width:48,padding:"6px 6px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center"}}/>
+        <span style={{fontSize:11,color:C.slateL,minWidth:66,textAlign:"right"}}>{isPriced(r)?fmt(resolvedTotal(r)):"—"}</span>
+        {grade ? <GradePill grade={grade}/> : <span style={{minWidth:52}}/>}
+        {r.origin==="custom"&&<button onClick={()=>onRemoveRow(tpl.instanceId,r.id)} title="Remove"
+          style={{padding:"3px 8px",borderRadius:6,border:"1px solid #E0B4B4",background:"#fff",color:C.red,cursor:"pointer",fontSize:12,fontWeight:700}}>✕</button>}
+      </div>
+    );
+  };
+
+  const subHead = (t: string) => <div style={{fontSize:11,fontWeight:700,color:C.slate,textTransform:"uppercase",letterSpacing:0.6,margin:"10px 0 4px"}}>{t}</div>;
+
+  return (
+    <div style={{border:`1px solid ${C.gold}55`,borderRadius:8,marginBottom:12,overflow:"hidden"}}>
+      <div style={{background:C.goldPale,padding:"8px 12px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+        <div style={{fontWeight:800,fontSize:13,color:C.navy}}>{tpl.templateName}<span style={{fontWeight:600,color:C.slateL,fontSize:11}}> · {tpl.scope}</span></div>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <label style={{fontSize:11,color:C.slateL,fontWeight:600}}>{quantityInputLabel(tpl.scope)}</label>
+          <input type="number" min={tpl.scope==="system"?0:1} step={tpl.scope==="system"?0.5:1} value={tpl.quantityBasis}
+            onChange={e=>onSetBasis(tpl.instanceId,Math.max(0,parseFloat(e.target.value)||0))}
+            style={{width:78,padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:13,textAlign:"center"}}/>
+          <button onClick={()=>onRemoveTemplate(tpl.instanceId)} title="Remove template"
+            style={{padding:"4px 9px",borderRadius:6,border:"1px solid #E0B4B4",background:"#fff",color:C.red,cursor:"pointer",fontSize:13,fontWeight:700}}>✕</button>
+        </div>
+      </div>
+      <div style={{padding:"4px 12px 10px"}}>
+        {suggested.length>0&&<>{subHead(`Suggested fittings (${sc.active} of ${sc.total} confirmed)`)}{suggested.map(renderRow)}</>}
+        {optional.length>0&&<>{subHead(`Optional fittings (${oc.active} of ${oc.total} selected)`)}{optional.map(renderRow)}</>}
+        {custom.length>0&&<>{subHead("Custom fittings")}{custom.map(renderRow)}</>}
+        <button onClick={()=>onAddCustomRow(tpl.instanceId)}
+          style={{marginTop:10,padding:"6px 12px",borderRadius:6,border:`1px dashed ${C.gold}`,background:C.goldPale,color:C.navy,cursor:"pointer",fontSize:12,fontWeight:700}}>+ Add custom fitting</button>
+      </div>
+    </div>
+  );
+}
+
+function FixtureTemplatesSection({ applied, onApply, onRemoveTemplate, onSetBasis, onUpdateRow, onAddCustomRow, onRemoveRow }: {
+  applied: AppliedTemplate[];
+  onApply: (t: FixtureTemplate) => void;
+  onRemoveTemplate: (instanceId: string) => void;
+  onSetBasis: (instanceId: string, basis: number) => void;
+  onUpdateRow: (instanceId: string, rowId: string, fn: (r: TemplateRowInstance) => TemplateRowInstance) => void;
+  onAddCustomRow: (instanceId: string) => void;
+  onRemoveRow: (instanceId: string, rowId: string) => void;
+}) {
+  const [templates, setTemplates] = useState<FixtureTemplate[]>([]);
+  const [picked, setPicked] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    fetchFixtureTemplates().then(ts => {
+      if (!alive) return;
+      setTemplates(ts); setLoading(false);
+      if (ts[0]) setPicked(ts[0].template_id);
+    });
+    return () => { alive = false; };
+  }, []);
+
+  const pick = templates.find(t=>t.template_id===picked);
+
+  return (
+    <div style={{background:"#fff",borderRadius:8,border:"1px solid #DDE3EA",marginBottom:14,overflow:"hidden"}}>
+      <SectionHeader>Fitting Templates — suggested fittings per fixture (confirm to price)</SectionHeader>
+      <div style={{padding:"12px 16px"}}>
+        <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:applied.length?12:8}}>
+          <select value={picked} onChange={e=>setPicked(e.target.value)} disabled={loading||templates.length===0}
+            style={{flex:1,minWidth:200,padding:"7px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12}}>
+            {loading&&<option>Loading templates…</option>}
+            {!loading&&templates.length===0&&<option>No templates found</option>}
+            {templates.map(t=><option key={t.template_id} value={t.template_id}>{t.template_name} ({t.scope})</option>)}
+          </select>
+          <button onClick={()=>pick&&onApply(pick)} disabled={!pick}
+            style={{padding:"7px 14px",borderRadius:6,border:`1px dashed ${C.gold}`,background:C.goldPale,color:C.navy,cursor:pick?"pointer":"not-allowed",fontSize:12,fontWeight:700,opacity:pick?1:0.5}}>+ Add template</button>
+        </div>
+        {applied.length===0
+          ? <div style={{fontSize:12,color:C.slateL,padding:"2px 2px 4px"}}>No templates added. A template <em>suggests</em> scope; you confirm what gets priced — nothing is priced from a suggestion alone.</div>
+          : applied.map(tpl=><AppliedTemplateBlock key={tpl.instanceId} tpl={tpl}
+              onRemoveTemplate={onRemoveTemplate} onSetBasis={onSetBasis} onUpdateRow={onUpdateRow}
+              onAddCustomRow={onAddCustomRow} onRemoveRow={onRemoveRow}/>)}
+      </div>
+    </div>
+  );
 }
 
 const TABS = [
@@ -1153,7 +1417,7 @@ export default function EstimatePage() {
           : buildElementRepair(geyser.size, geyser.solar))
       : null, [jobMode, geyser]);
 
-  const scope  = useMemo(()=> geyserAsm ? geyserToScope(geyserAsm)  : buildScope(inputs),  [geyserAsm, inputs]);
+  const scope  = useMemo(()=> geyserAsm ? geyserToScope(geyserAsm)  : buildScope(inputs, { invoiceStrict: documentType==="invoice" }),  [geyserAsm, inputs, documentType]);
   const labour = useMemo(()=> geyserAsm ? geyserToLabour(geyserAsm, crewRateHr) : buildLabour(inputs, crewRateHr), [geyserAsm, inputs, crewRateHr]);
   // Flags: geyser flags, or warnings for any user-entered (custom) lines.
   const flags  = geyserAsm
@@ -1197,6 +1461,35 @@ export default function EstimatePage() {
   const updateFittingLine = useCallback((id: string, patch: Partial<FittingLine>) =>
     setInputs(p=>({...p, fittingLines:(p.fittingLines ?? []).map(l=>l.id===id?{...l,...patch}:l)})),[]);
 
+  // Fixture-template management. Applying fetches the template's rows and builds
+  // live TemplateRowInstances; the basis input scales every row's pricing
+  // (fixture count, or pipe run metres for system templates).
+  const applyTemplate = useCallback(async (template: FixtureTemplate) => {
+    const rows = await fetchTemplateRows(template.template_id);
+    if (rows.length === 0) return;
+    const basis = template.scope === "system" ? 6 : 1;
+    const applied: AppliedTemplate = {
+      instanceId: _uid(), templateId: template.template_id, fixtureType: template.fixture_type,
+      templateName: template.template_name, scope: template.scope,
+      quantityBasis: basis, rows: rows.map(r => initialRowInstance(r, basis)),
+    };
+    setInputs(p => ({ ...p, fittingTemplates: [...(p.fittingTemplates ?? []), applied] }));
+  }, []);
+  const removeTemplate = useCallback((instanceId: string) =>
+    setInputs(p => ({ ...p, fittingTemplates: (p.fittingTemplates ?? []).filter(t => t.instanceId !== instanceId) })), []);
+  const setTemplateBasis = useCallback((instanceId: string, basis: number) =>
+    setInputs(p => ({ ...p, fittingTemplates: (p.fittingTemplates ?? []).map(t =>
+      t.instanceId !== instanceId ? t : { ...t, quantityBasis: basis, rows: t.rows.map(r => ({ ...r, quantityBasis: basis })) }) })), []);
+  const updateTemplateRow = useCallback((instanceId: string, rowId: string, fn: (r: TemplateRowInstance) => TemplateRowInstance) =>
+    setInputs(p => ({ ...p, fittingTemplates: (p.fittingTemplates ?? []).map(t =>
+      t.instanceId !== instanceId ? t : { ...t, rows: t.rows.map(r => r.id === rowId ? fn(r) : r) }) })), []);
+  const addCustomTemplateRow = useCallback((instanceId: string) =>
+    setInputs(p => ({ ...p, fittingTemplates: (p.fittingTemplates ?? []).map(t =>
+      t.instanceId !== instanceId ? t : { ...t, rows: [...t.rows, createCustomRowInstance(t.quantityBasis)] }) })), []);
+  const removeTemplateRow = useCallback((instanceId: string, rowId: string) =>
+    setInputs(p => ({ ...p, fittingTemplates: (p.fittingTemplates ?? []).map(t =>
+      t.instanceId !== instanceId ? t : { ...t, rows: t.rows.filter(r => r.id !== rowId) }) })), []);
+
   // Pipe-line builder management (supply + drainage share these via the `key`)
   const addPipeLine = useCallback((use: 'supply'|'drainage') => {
     const key = use==='supply' ? 'supplyLines' : 'drainLines';
@@ -1236,6 +1529,7 @@ export default function EstimatePage() {
         drainLines: effInputs.drainLines,
         fixtureLines: effInputs.fixtureLines,
         fittingLines: effInputs.fittingLines,
+        fittingTemplates: effInputs.fittingTemplates,
         points: effInputs.points,
         totals: {
           material: matTotal,
@@ -1627,6 +1921,16 @@ export default function EstimatePage() {
             </div>
           </div>
         </div>
+
+        <FixtureTemplatesSection
+          applied={inputs.fittingTemplates ?? []}
+          onApply={applyTemplate}
+          onRemoveTemplate={removeTemplate}
+          onSetBasis={setTemplateBasis}
+          onUpdateRow={updateTemplateRow}
+          onAddCustomRow={addCustomTemplateRow}
+          onRemoveRow={removeTemplateRow}
+        />
         </>)}
 
         {jobMode==="geyser"&&(
