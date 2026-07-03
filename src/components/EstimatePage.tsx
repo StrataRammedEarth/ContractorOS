@@ -263,6 +263,21 @@ const FIXTURE_TYPES: { t: FixtureType; label: string }[] = [
   { t:'shower_door', label:'Shower door' }, { t:'shower_rose', label:'Shower rose' },
   { t:'kitchen_mixer', label:'Kitchen mixer' },
 ];
+// Category placeholder thumbnails — one icon per fixture TYPE (not per product),
+// reused across every preset/custom line of that type. fixtureIcon() always
+// returns a valid path (falls back to the generic icon) so an unmapped/future
+// type never renders a broken image.
+const FIXTURE_ICONS: Record<FixtureType, string> = {
+  toilet: "/icons/fixtures/toilet.png",
+  basin: "/icons/fixtures/basin.png",
+  basin_mixer: "/icons/fixtures/basin-mixer.png",
+  shower_mixer: "/icons/fixtures/shower-mixer.png",
+  shower_door: "/icons/fixtures/shower-door.png",
+  shower_rose: "/icons/fixtures/shower-rose.png",
+  kitchen_mixer: "/icons/fixtures/kitchen-mixer.png",
+};
+const FIXTURE_ICON_GENERIC = "/icons/fixtures/fixture-generic.png";
+const fixtureIcon = (type: FixtureType): string => FIXTURE_ICONS[type] ?? FIXTURE_ICON_GENERIC;
 // Preset products per type. These are the app's existing real prices (CTM/Plumbit/
 // Gelmar/AfriCamps), kept until the Supabase pipe/fixture SKUs load — at which point
 // these dropdowns read from the cost library. basin_mixer has no preset yet → custom only.
@@ -2227,6 +2242,7 @@ export default function EstimatePage() {
               <div style={{fontSize:12,color:C.slateL,padding:"6px 2px 10px"}}>No fixtures yet — add a line below.</div>}
             {(inputs.fixtureLines ?? []).length>0&&(
               <div className="cos-line cos-line--fixture cos-line-head">
+                <span/>
                 <span style={T.colHead}>Fixture</span>
                 <span style={T.colHead}>Product</span>
                 <span style={{...T.colHead,textAlign:"center"}}>Qty</span>
@@ -2240,6 +2256,10 @@ export default function EstimatePage() {
               <div key={fl.id} className="cos-toggle" style={{borderRadius:8,padding:"7px 10px",marginBottom:6,
                 background:isCustom?UI.customBg:C.offWhite,border:`1px solid ${isCustom?C.amber+"55":UI.borderRow}`}}>
                 <div className="cos-line cos-line--fixture">
+                  <span className="cos-fixture-thumb">
+                    <img src={fixtureIcon(fl.type)} alt={FIXTURE_TYPES.find(ft=>ft.t===fl.type)?.label ?? fl.type}
+                      width={28} height={28} loading="lazy"/>
+                  </span>
                   <select value={fl.type} onChange={e=>{const t=e.target.value as FixtureType;const b=makeFixtureLine(t);updateFixtureLine(fl.id,{type:t,source:b.source,materialCode:b.materialCode,description:b.description,unitPrice:b.unitPrice,grade:b.grade,supplier:b.supplier});}}
                     style={{...rowSelect,minWidth:0}}>
                     {FIXTURE_TYPES.map(ft=><option key={ft.t} value={ft.t}>{ft.label}</option>)}

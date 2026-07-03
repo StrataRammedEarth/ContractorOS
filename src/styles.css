@@ -223,7 +223,24 @@
   grid-template-columns: minmax(0, 1.5fr) 92px 90px 74px 90px 58px 30px;
 }
 .cos-app .cos-line--fixture {
-  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.6fr) 70px 90px 58px 30px;
+  grid-template-columns: 40px minmax(0, 0.9fr) minmax(0, 1.6fr) 70px 90px 58px 30px;
+}
+/* Fixture-type thumbnail tile — decorative/identifying only, Fixtures rows only. */
+.cos-app .cos-fixture-thumb {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  background: #f5f3ef;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  overflow: hidden;
+}
+.cos-app .cos-fixture-thumb img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
 }
 .cos-app .cos-line-head {
   padding: 0 10px 6px;
