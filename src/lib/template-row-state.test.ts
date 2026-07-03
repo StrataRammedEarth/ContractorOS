@@ -3,6 +3,7 @@ import type { FixtureTemplateRow } from './fixture-templates';
 import {
   createCatalogRowInstance,
   createCustomRowInstance,
+  createStandaloneRowInstance,
   hasProductSelected,
   initialRowInstance,
   isCheckboxDisabled,
@@ -21,6 +22,8 @@ import {
   setFittingType,
   setManualProduct,
   setSize,
+  setStandaloneFittingType,
+  setStandaloneSize,
   shouldShowGradeChip,
   usesManualEntry,
   type TemplateRowInstance,
@@ -320,31 +323,71 @@ describe('cascade field setters — each resets everything downstream', () => {
     expect(reapplied.touched).toBe(true);
   });
 
-  it('setSize clears fittingType, materialCode, description, unitPrice', () => {
+  it('setFittingType (fixture cascade) clears the downstream Size and product', () => {
     const resolved = selectMaterial(
-      setFittingType(createCatalogRowInstance(1), 'Bend'),
+      setSize(setFittingType(createCatalogRowInstance(1), 'Bend'), '110mm'),
       { materialCode: 'PLB-1', description: 'Bend', unitPrice: 40 },
     );
-    const resized = setSize(resolved, '15mm');
-    expect(resized.nominalSize).toBe('15mm');
-    expect(resized.fittingType).toBe('');
+    const retyped = setFittingType(resolved, 'Coupler');
+    expect(retyped.fittingType).toBe('Coupler');
+    expect(retyped.nominalSize).toBeNull();
+    expect(retyped.materialCode).toBeNull();
+    expect(retyped.description).toBe('');
+    expect(retyped.unitPrice).toBe(0);
+  });
+
+  it('setSize (fixture cascade) is the last step — clears only the product, never the upstream Fitting Type', () => {
+    const resolved = selectMaterial(
+      setSize(setFittingType(createCatalogRowInstance(1), 'Bend'), '110mm'),
+      { materialCode: 'PLB-1', description: 'Bend', unitPrice: 40 },
+    );
+    const resized = setSize(resolved, '40mm');
+    expect(resized.nominalSize).toBe('40mm');
+    expect(resized.fittingType).toBe('Bend'); // upstream selection survives
     expect(resized.materialCode).toBeNull();
     expect(resized.description).toBe('');
     expect(resized.unitPrice).toBe(0);
   });
 
-  it('setSize accepts null (the "—" option) as a valid size', () => {
+  it('setSize accepts null (a genuinely no-dimension row) as a valid size', () => {
     const withNullSize = setSize(createCatalogRowInstance(1), null);
     expect(withNullSize.nominalSize).toBeNull();
     expect(withNullSize.touched).toBe(true);
   });
+});
 
-  it('setFittingType clears materialCode, description, unitPrice', () => {
-    const resolved = selectMaterial(createCatalogRowInstance(1), { materialCode: 'PLB-1', description: 'Bend', unitPrice: 40 });
-    const retyped = setFittingType(resolved, 'Coupler');
-    expect(retyped.fittingType).toBe('Coupler');
+describe('standalone-section cascade setters (Size -> Fitting Type -> Product)', () => {
+  it('createStandaloneRowInstance fixes the application and is otherwise a fresh catalog row', () => {
+    const row = createStandaloneRowInstance('Supply');
+    expect(row.application).toBe('Supply');
+    expect(row.origin).toBe('catalog');
+    expect(row.nominalSize).toBeNull();
+    expect(row.fittingType).toBe('');
+    expect(row.defaultQty).toBe(1);
+    expect(row.quantityBasis).toBe(1);
+  });
+
+  it('setStandaloneSize is upstream of Fitting Type here — changing it clears both', () => {
+    const resolved = selectMaterial(
+      setStandaloneFittingType(setStandaloneSize(createStandaloneRowInstance('Supply'), '22mm'), 'Coupler'),
+      { materialCode: 'CF-1', description: 'Coupler', unitPrice: 20 },
+    );
+    const resized = setStandaloneSize(resolved, '15mm');
+    expect(resized.nominalSize).toBe('15mm');
+    expect(resized.fittingType).toBe('');
+    expect(resized.materialCode).toBeNull();
+    expect(resized.unitPrice).toBe(0);
+  });
+
+  it('setStandaloneFittingType is the last step — clears only the product', () => {
+    const resolved = selectMaterial(
+      setStandaloneFittingType(setStandaloneSize(createStandaloneRowInstance('Drainage'), '110mm'), 'Bend'),
+      { materialCode: 'PLB-1', description: 'Bend', unitPrice: 40 },
+    );
+    const retyped = setStandaloneFittingType(resolved, 'Junction');
+    expect(retyped.fittingType).toBe('Junction');
+    expect(retyped.nominalSize).toBe('110mm'); // upstream Size survives
     expect(retyped.materialCode).toBeNull();
-    expect(retyped.description).toBe('');
     expect(retyped.unitPrice).toBe(0);
   });
 });

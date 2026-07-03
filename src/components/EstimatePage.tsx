@@ -5,10 +5,6 @@ import {
   type GeyserAssembly, type GeyserSize, type GeyserBrand, type GeyserJobType,
 } from "@/lib/geyser-assembly";
 import {
-  COMPRESSION_FITTINGS, FITTING_SIZE_GROUPS, fittingsForSizeGroup,
-  type FittingPreset,
-} from "@/lib/plumblink-fittings";
-import {
   printInvoiceDocument, isoDate, addDays, DEFAULT_BANKING_DETAILS,
   type InvoiceMeta, type DocumentType,
 } from "@/lib/invoice-document";
@@ -19,11 +15,13 @@ import {
   type FixtureTemplate,
 } from "@/lib/fixture-templates";
 import {
-  initialRowInstance, createCustomRowInstance, createCatalogRowInstance, rowState, isPriced,
+  initialRowInstance, createCustomRowInstance, createCatalogRowInstance, createStandaloneRowInstance,
+  rowState, isPriced,
   resolvedGrade, pricingGrade, resolvedQty, resolvedTotal,
   isCheckboxDisabled, usesManualEntry, setChecked as rowSetChecked,
   selectMaterial as rowSelectMaterial, setManualProduct as rowSetManual,
   setApplication as rowSetApplication, setSize as rowSetSize, setFittingType as rowSetFittingType,
+  setStandaloneSize as rowSetStandaloneSize, setStandaloneFittingType as rowSetStandaloneFittingType,
   sectionCounts, quantityInputLabel,
   type TemplateRowInstance,
 } from "@/lib/template-row-state";
@@ -152,24 +150,6 @@ interface PipeLine {
 // Repeatable fitting lines (Compression Fittings, and future families): each line
 // is a catalogue product (size group + product) + its own quantity. Pricing,
 // confidence, supplier and Plumblink code all populate from the fittings catalogue.
-// Mirrors the fixture builder. Source is the COMPRESSION_FITTINGS module, which is
-// generated from the Plumblink materials CSV — add a row there and it appears here.
-interface FittingLine {
-  id: string;
-  family: string;        // 'Compression Fittings' (only family enabled today)
-  sizeGroup: string;     // '15mm' | '22mm' | 'Reducing / 22→15 / ¾"' (data-driven)
-  materialCode: string;
-  plumblinkCode: string;
-  label: string;         // e.g. 'Female Elbow'
-  description: string;
-  size: string;
-  unit: string;
-  unitPrice: number;     // excl VAT
-  quantity: number;
-  grade: string;         // Sourced (catalogue price)
-  supplier?: string;
-}
-
 // A fixture/system template applied to the estimate — its rows carry live
 // TemplateRowInstance state (checkbox, resolved product, grade). Only priced
 // rows (isPriced) become scope lines; see buildScope. quantityBasis is the
@@ -193,7 +173,8 @@ interface Inputs {
   supplyMetres: number; drainMetres: number; points: number; trenching: boolean;
   fixtures: Fixtures;           // legacy (scan extraction still populates this)
   fixtureLines?: FixtureLine[]; // canonical fixtures for manual-entry pricing
-  fittingLines?: FittingLine[]; // compression fittings (catalogue-priced, optional)
+  supplyFittings?: TemplateRowInstance[];   // standalone Supply Fittings section (catalogue cascade)
+  drainageFittings?: TemplateRowInstance[]; // standalone Drainage Fittings section (catalogue cascade)
   fittingTemplates?: AppliedTemplate[]; // fixture-linked fitting templates
   supplyLines?: PipeLine[];     // canonical supply pipe (replaces pipeType+supplyMetres)
   drainLines?: PipeLine[];      // canonical drainage pipe (replaces drainMetres)
@@ -246,23 +227,6 @@ function makeFixtureLine(type: FixtureType): FixtureLine {
 }
 const fxCount = (ls: FixtureLine[] | undefined, t: FixtureType) =>
   (ls ?? []).filter(l => l.type === t).reduce((s, l) => s + (l.quantity || 0), 0);
-
-// ─── FITTINGS CATALOGUE (compression-fittings line builder) ───────────────────
-// Data-driven from COMPRESSION_FITTINGS (generated from the Plumblink CSV). Size
-// groups and products are derived from the catalogue, so adding a row there adds
-// it here with no code change. Only the 'Compression Fittings' family is enabled.
-const lineFromFitting = (id: string, f: FittingPreset, quantity: number): FittingLine => ({
-  id, family: f.family, sizeGroup: f.sizeGroup, materialCode: f.materialCode,
-  plumblinkCode: f.plumblinkCode, label: f.label, description: f.description,
-  size: f.size, unit: f.unit, unitPrice: f.unitPrice, quantity, grade: f.grade,
-  supplier: f.supplier,
-});
-function makeFittingLine(sizeGroup?: string, materialCode?: string): FittingLine {
-  const group = sizeGroup ?? FITTING_SIZE_GROUPS[0];
-  const inGroup = fittingsForSizeGroup(group);
-  const f = (materialCode && inGroup.find(x => x.materialCode === materialCode)) || inGroup[0];
-  return lineFromFitting(_uid(), f, 1);
-}
 
 // ─── PIPE LOOKUP (supply + drainage line builders) ────────────────────────────
 // type + diameter is the lookup key. PerMetre = PackPrice / PackLength (pre-calc).
@@ -440,20 +404,30 @@ function buildScope(inp: Inputs, opts: { invoiceStrict?: boolean } = {}): ScopeL
     });
   });
 
-  // Fitting lines — one scope line per catalogue product (compression fittings).
-  // Material-only: installation effort is already carried by the pipework/point
-  // labour, so fittings do not add a separate labour line (avoids double-count).
-  (inp.fittingLines ?? []).forEach((ft, i) => {
-    if (ft.quantity <= 0) return;
-    lines.push({
-      id:`G${String(i+1).padStart(2,"0")}`,
-      code: ft.materialCode,
-      description: `${ft.label} ${ft.size} — ${ft.family}`,
-      qty: ft.quantity, unit: ft.unit, unitPrice: ft.unitPrice, conf: ft.grade,
-      total: ft.quantity*ft.unitPrice,
-      supplier: ft.supplier ?? "Plumblink",
-      derivation: `${ft.quantity} × R${ft.unitPrice.toFixed(2)} (${ft.grade} catalogue price${ft.plumblinkCode?`, PL ${ft.plumblinkCode}`:""})`,
-      mode:"Supply",
+  // Standalone Supply/Drainage fitting rows — one scope line per priced catalogue
+  // row. Material-only (like the old compression-fitting lines): installation
+  // effort is already carried by the pipework/point labour, so fittings do not
+  // add a separate labour line (avoids double-count). isPriced() gates exactly as
+  // the template rows do — a row prices only once checked AND resolved to a
+  // product; grade is computed from the live resolution, never assumed.
+  ([
+    ['SF', 'Supply',   inp.supplyFittings   ?? []],
+    ['DF', 'Drainage', inp.drainageFittings ?? []],
+  ] as const).forEach(([prefix, sectionLabel, rows]) => {
+    rows.forEach((r, ri) => {
+      if (!isPriced(r)) return;
+      const qty = resolvedQty(r);
+      const grade = pricingGrade(r);
+      lines.push({
+        id:`${prefix}${String(ri+1).padStart(2,"0")}`,
+        code: r.materialCode ?? "CUSTOM",
+        description: r.description || r.fittingType || "(fitting)",
+        qty, unit:"ea", unitPrice: r.unitPrice, conf: grade,
+        total: resolvedTotal(r),
+        supplier: r.materialCode ? "Plumblink" : "Custom",
+        derivation: `${qty} × R${r.unitPrice.toFixed(2)} (${sectionLabel} fitting · ${grade})`,
+        mode:"Supply",
+      });
     });
   });
 
@@ -592,9 +566,9 @@ function printQuotePDF(inp: Inputs, scope: ScopeLine[], labour: LabourLine[], qu
   const fixtureLines = g ? [] : (inp.fixtureLines ?? [])
     .filter(l=>l.quantity>0)
     .map(l=>`${l.description || l.type}: ${l.quantity}${l.source==="custom"?" (custom)":""}`);
-  const fittingLines = g ? [] : (inp.fittingLines ?? [])
-    .filter(l=>l.quantity>0)
-    .map(l=>`${l.label} ${l.size}: ${l.quantity}`);
+  const fittingLines = g ? [] : [...(inp.supplyFittings ?? []), ...(inp.drainageFittings ?? [])]
+    .filter(r=>isPriced(r))
+    .map(r=>`${r.description || r.fittingType}${r.nominalSize?` ${r.nominalSize}`:""}: ${resolvedQty(r)}`);
   // Scope-of-work grid: geyser assembly vs plumbing run
   const scopeGrid = g
     ? [
@@ -877,8 +851,8 @@ function ScopeModal({ scope, labour, inputs, onConfirm, onBack }: { scope: Scope
         inputs.trenching?"Trench excavation included":"No trenching",
         ...((inputs.fixtureLines ?? []).filter(l=>l.quantity>0)
           .map(l=>`${l.quantity}× ${l.description || l.type}${l.source==="custom"?" (custom)":""}`)),
-        ...((inputs.fittingLines ?? []).filter(l=>l.quantity>0)
-          .map(l=>`${l.quantity}× ${l.label} ${l.size} (${l.family})`)),
+        ...([...(inputs.supplyFittings ?? []), ...(inputs.drainageFittings ?? [])].filter(r=>isPriced(r))
+          .map(r=>`${resolvedQty(r)}× ${r.description || r.fittingType}${r.nominalSize?` ${r.nominalSize}`:""}`)),
       ].filter(Boolean);
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(13,27,42,0.88)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999,padding:20}}>
@@ -1170,7 +1144,8 @@ const DEFAULT: Inputs = {
   pipeType:"PEX 15mm (Cobra)", supplyMetres:20, drainMetres:15, points:3, trenching:true,
   fixtures:{toilet:1,basin:1,shower:1,showerDoor:1,showerRose:1,showerArm:1,kitchenMixer:0},
   fixtureLines:(["toilet","basin","shower_mixer","shower_door","shower_rose"] as FixtureType[]).map(t=>makeFixtureLine(t)),
-  fittingLines:[],
+  supplyFittings:[],
+  drainageFittings:[],
   fittingTemplates:[],
   supplyLines:[pipeLineFrom("supply","Copper",15,20)],
   drainLines:[pipeLineFrom("drainage","PVC",110,15)],
@@ -1268,11 +1243,11 @@ const templateHeaderCellStyle: React.CSSProperties = {fontSize:10,fontWeight:700
 const templateSmallInputStyle: React.CSSProperties = {padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12,width:"100%",minWidth:0,boxSizing:"border-box"};
 const templateLockedTextStyle: React.CSSProperties = {fontSize:11,color:C.slate,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"};
 
-// A catalogue-cascade row's Application/Size/Fitting Type/Product cells — four
-// dependent dropdowns, each disabled until the one before it is resolved. Size
-// gating uses local `sizeChosen` state rather than `row.nominalSize !== null`
-// because null is also the valid "—" selection (a real no-size row); only a
-// per-mount flag can tell "untouched" apart from "explicitly chose no size".
+// A fixture-template catalogue-cascade row's Application/Fitting Type/Size/Product
+// cells — four dependent dropdowns, each disabled until the one before it is
+// resolved. Sizes never include a null bucket now (a no-dimension row is simply
+// unreachable via the cascade), so gating reads straight off the row fields with
+// no per-mount "chosen" flag.
 function CatalogFittingRow({ row, catalogue, catalogueLoading, onUpdate, onRemove }: {
   row: TemplateRowInstance;
   catalogue: PlumblinkMaterial[];
@@ -1280,15 +1255,12 @@ function CatalogFittingRow({ row, catalogue, catalogueLoading, onUpdate, onRemov
   onUpdate: (fn: (r: TemplateRowInstance) => TemplateRowInstance) => void;
   onRemove: () => void;
 }) {
-  const [sizeChosen, setSizeChosen] = useState(false);
-  useEffect(() => { setSizeChosen(false); }, [row.application]);
-
   const disabled = isCheckboxDisabled(row);
   const grade = resolvedGrade(row);
   const applications = distinctApplications(catalogue);
-  const sizes = row.application ? distinctSizes(catalogue, row.application) : [];
-  const fittingTypes = sizeChosen ? distinctFittingTypes(catalogue, row.application, row.nominalSize) : [];
-  const products = row.fittingType ? matchingProducts(catalogue, row.application, row.nominalSize, row.fittingType) : [];
+  const fittingTypes = row.application ? distinctFittingTypes(catalogue, row.application) : [];
+  const sizes = row.fittingType ? distinctSizes(catalogue, row.application, row.fittingType) : [];
+  const products = (row.fittingType && row.nominalSize) ? matchingProducts(catalogue, row.application, row.fittingType, row.nominalSize) : [];
 
   return (
     <div style={{display:"contents"}}>
@@ -1302,19 +1274,19 @@ function CatalogFittingRow({ row, catalogue, catalogueLoading, onUpdate, onRemov
         <option value="__select__" disabled>{catalogueLoading?"Loading catalogue…":"Select…"}</option>
         {applications.map(a=><option key={a} value={a}>{a}</option>)}
       </select>
-      <select value={!sizeChosen?"__select__":(row.nominalSize===null?"__null__":row.nominalSize)} disabled={!row.application}
-        onChange={e=>{const v=e.target.value;if(v==="__select__")return;setSizeChosen(true);onUpdate(x=>rowSetSize(x,v==="__null__"?null:v));}}
-        style={templateSmallInputStyle}>
-        <option value="__select__" disabled>Select…</option>
-        {sizes.map(s=><option key={s===null?"__null__":s} value={s===null?"__null__":s}>{s===null?"—":s}</option>)}
-      </select>
-      <select value={row.fittingType||"__select__"} disabled={!sizeChosen}
+      <select value={row.fittingType||"__select__"} disabled={!row.application}
         onChange={e=>{const v=e.target.value;if(v==="__select__")return;onUpdate(x=>rowSetFittingType(x,v));}}
         style={templateSmallInputStyle}>
         <option value="__select__" disabled>Select…</option>
         {fittingTypes.map(ft=><option key={ft} value={ft}>{ft}</option>)}
       </select>
-      <select value={row.materialCode??"__select__"} disabled={!row.fittingType}
+      <select value={row.nominalSize??"__select__"} disabled={!row.fittingType}
+        onChange={e=>{const v=e.target.value;if(v==="__select__")return;onUpdate(x=>rowSetSize(x,v));}}
+        style={templateSmallInputStyle}>
+        <option value="__select__" disabled>Select…</option>
+        {sizes.map(s=><option key={s} value={s}>{s}</option>)}
+      </select>
+      <select value={row.materialCode??"__select__"} disabled={!row.nominalSize}
         onChange={e=>{
           const v=e.target.value; if(v==="__select__")return;
           const m=products.find(p=>p.material_code===v);
@@ -1330,6 +1302,145 @@ function CatalogFittingRow({ row, catalogue, catalogueLoading, onUpdate, onRemov
       {grade ? <GradePill grade={grade}/> : <span/>}
       <button onClick={onRemove} title="Remove"
         style={{padding:"3px 8px",borderRadius:6,border:"1px solid #E0B4B4",background:"#fff",color:C.red,cursor:"pointer",fontSize:12,fontWeight:700}}>✕</button>
+    </div>
+  );
+}
+
+// A standalone-section row (Supply Fittings / Drainage Fittings) — application is
+// fixed by the section, so the cascade is just Fitting Type⇄Size⇄Product... but
+// the section runs it Size → Fitting Type → Product (Size upstream). Three
+// dependent dropdowns using the standalone reset setters, plus checkbox/qty.
+function StandaloneCatalogRow({ row, catalogue, catalogueLoading, onUpdate, onRemove }: {
+  row: TemplateRowInstance;
+  catalogue: PlumblinkMaterial[];
+  catalogueLoading: boolean;
+  onUpdate: (fn: (r: TemplateRowInstance) => TemplateRowInstance) => void;
+  onRemove: () => void;
+}) {
+  const disabled = isCheckboxDisabled(row);
+  const grade = resolvedGrade(row);
+  const sizes = distinctSizes(catalogue, row.application);
+  const fittingTypes = row.nominalSize ? distinctFittingTypes(catalogue, row.application, row.nominalSize) : [];
+  const products = (row.nominalSize && row.fittingType) ? matchingProducts(catalogue, row.application, row.fittingType, row.nominalSize) : [];
+
+  return (
+    <div style={{display:"contents"}}>
+      <input type="checkbox" checked={row.checked} disabled={disabled}
+        title={disabled?"Select a product first":""}
+        onChange={e=>onUpdate(x=>rowSetChecked(x,e.target.checked))}
+        style={{width:16,height:16,cursor:disabled?"not-allowed":"pointer"}}/>
+      <select value={row.nominalSize??"__select__"} disabled={catalogueLoading}
+        onChange={e=>{const v=e.target.value;if(v==="__select__")return;onUpdate(x=>rowSetStandaloneSize(x,v));}}
+        style={templateSmallInputStyle}>
+        <option value="__select__" disabled>{catalogueLoading?"Loading catalogue…":"Select…"}</option>
+        {sizes.map(s=><option key={s} value={s}>{s}</option>)}
+      </select>
+      <select value={row.fittingType||"__select__"} disabled={!row.nominalSize}
+        onChange={e=>{const v=e.target.value;if(v==="__select__")return;onUpdate(x=>rowSetStandaloneFittingType(x,v));}}
+        style={templateSmallInputStyle}>
+        <option value="__select__" disabled>Select…</option>
+        {fittingTypes.map(ft=><option key={ft} value={ft}>{ft}</option>)}
+      </select>
+      <select value={row.materialCode??"__select__"} disabled={!row.fittingType}
+        onChange={e=>{
+          const v=e.target.value; if(v==="__select__")return;
+          const m=products.find(p=>p.material_code===v);
+          if(m) onUpdate(x=>rowSelectMaterial(x,{materialCode:m.material_code,description:m.description??"",unitPrice:m.unit_price_excl_vat??0}));
+        }}
+        style={templateSmallInputStyle}>
+        <option value="__select__" disabled>{products.length?"Select product…":"No matching products"}</option>
+        {products.map(p=><option key={p.material_code} value={p.material_code}>{(p.description??p.material_code)} — R{(p.unit_price_excl_vat??0).toFixed(2)}</option>)}
+      </select>
+      <input type="number" min={0} step={1} value={row.defaultQty} title="Qty"
+        onChange={e=>{const q=Math.max(0,parseFloat(e.target.value)||0);onUpdate(x=>({...x,defaultQty:q}));}}
+        style={{width:48,padding:"6px 6px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center"}}/>
+      {grade ? <GradePill grade={grade}/> : <span/>}
+      <button onClick={onRemove} title="Remove"
+        style={{padding:"3px 8px",borderRadius:6,border:"1px solid #E0B4B4",background:"#fff",color:C.red,cursor:"pointer",fontSize:12,fontWeight:700}}>✕</button>
+    </div>
+  );
+}
+
+// One standalone fittings table — Supply or Drainage, application fixed. No
+// fixture header, no fixture-count basis: it's a plain list of catalogue-cascade
+// rows (Size → Fitting Type → Product) with a manual "+ Add custom fitting"
+// fallback for anything off-catalogue.
+const STANDALONE_ROW_GRID = "22px 110px 150px 1fr 52px 58px 26px";
+function StandaloneFittingSection({ title, use, rows, catalogue, catalogueLoading, onAdd, onAddCustom, onUpdate, onRemove }: {
+  title: string;
+  use: 'supply'|'drainage';
+  rows: TemplateRowInstance[];
+  catalogue: PlumblinkMaterial[];
+  catalogueLoading: boolean;
+  onAdd: (use: 'supply'|'drainage') => void;
+  onAddCustom: (use: 'supply'|'drainage') => void;
+  onUpdate: (use: 'supply'|'drainage', rowId: string, fn: (r: TemplateRowInstance) => TemplateRowInstance) => void;
+  onRemove: (use: 'supply'|'drainage', rowId: string) => void;
+}) {
+  const priced = rows.filter(r=>isPriced(r)).length;
+  const catalog = rows.filter(r=>r.origin==="catalog");
+  const custom  = rows.filter(r=>r.origin==="custom");
+
+  const customRow = (r: TemplateRowInstance) => {
+    const disabled = isCheckboxDisabled(r);
+    const grade = resolvedGrade(r);
+    return (
+      <div key={r.id} style={{display:"contents"}}>
+        <input type="checkbox" checked={r.checked} disabled={disabled}
+          title={disabled?"Enter a product first":""}
+          onChange={e=>{const c=e.target.checked;onUpdate(use,r.id,x=>rowSetChecked(x,c));}}
+          style={{width:16,height:16,cursor:disabled?"not-allowed":"pointer"}}/>
+        <input placeholder="Size" value={r.nominalSize ?? ""}
+          onChange={e=>{const v=e.target.value;onUpdate(use,r.id,x=>({...x,nominalSize:v||null}));}}
+          style={templateSmallInputStyle}/>
+        <input placeholder="Fitting type" value={r.fittingType}
+          onChange={e=>{const v=e.target.value;onUpdate(use,r.id,x=>({...x,fittingType:v}));}}
+          style={templateSmallInputStyle}/>
+        <div style={{minWidth:0,overflow:"hidden"}}>
+          <TemplateProductSelect row={r}
+            onSelect={m=>onUpdate(use,r.id,x=>rowSelectMaterial(x,m))}
+            onManual={(d,p)=>onUpdate(use,r.id,x=>rowSetManual(x,d,p))}
+            onResolveDefault={(p,d)=>onUpdate(use,r.id,x=>({...x,unitPrice:p,description:x.description||d}))}/>
+        </div>
+        <input type="number" min={0} step={1} value={r.defaultQty} title="Qty"
+          onChange={e=>{const q=Math.max(0,parseFloat(e.target.value)||0);onUpdate(use,r.id,x=>({...x,defaultQty:q}));}}
+          style={{width:48,padding:"6px 6px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center"}}/>
+        {grade ? <GradePill grade={grade}/> : <span/>}
+        <button onClick={()=>onRemove(use,r.id)} title="Remove"
+          style={{padding:"3px 8px",borderRadius:6,border:"1px solid #E0B4B4",background:"#fff",color:C.red,cursor:"pointer",fontSize:12,fontWeight:700}}>✕</button>
+      </div>
+    );
+  };
+
+  return (
+    <div style={{background:"#fff",borderRadius:8,border:"1px solid #DDE3EA",marginBottom:14,overflow:"hidden"}}>
+      <SectionHeader>{title}</SectionHeader>
+      <div style={{padding:"12px 16px"}}>
+        {rows.length===0
+          ? <div style={{fontSize:12,color:C.slateL,padding:"2px 2px 8px"}}>No {use} fittings yet — add one below.</div>
+          : <div style={{display:"grid",gridTemplateColumns:STANDALONE_ROW_GRID,columnGap:8,rowGap:4,alignItems:"center"}}>
+              <span/>
+              <span style={templateHeaderCellStyle}>Size</span>
+              <span style={templateHeaderCellStyle}>Fitting Type</span>
+              <span style={templateHeaderCellStyle}>Product</span>
+              <span style={{...templateHeaderCellStyle,textAlign:"center"}}>Qty</span>
+              <span/>
+              <span/>
+              {catalog.map(r=>(
+                <StandaloneCatalogRow key={r.id} row={r} catalogue={catalogue} catalogueLoading={catalogueLoading}
+                  onUpdate={fn=>onUpdate(use,r.id,fn)} onRemove={()=>onRemove(use,r.id)}/>
+              ))}
+              {custom.length>0&&<div style={{gridColumn:"1 / -1",fontSize:11,fontWeight:700,color:C.slate,textTransform:"uppercase",letterSpacing:0.6,margin:"10px 0 4px"}}>Custom fittings</div>}
+              {custom.map(customRow)}
+            </div>}
+        <div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}>
+          <button onClick={()=>onAdd(use)}
+            style={{padding:"6px 12px",borderRadius:6,border:`1px dashed ${C.gold}`,background:C.goldPale,color:C.navy,cursor:"pointer",fontSize:12,fontWeight:700}}>+ Add fitting</button>
+          <button onClick={()=>onAddCustom(use)}
+            style={{padding:"6px 12px",borderRadius:6,border:`1px dashed ${C.gold}`,background:C.goldPale,color:C.navy,cursor:"pointer",fontSize:12,fontWeight:700}}>+ Add custom fitting</button>
+        </div>
+        <div style={{fontSize:10,color:C.muted,marginTop:6}}>ⓘ {priced} priced · only confirmed rows are priced and added to the buy list.</div>
+      </div>
     </div>
   );
 }
@@ -1376,15 +1487,15 @@ function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, 
               style={{...templateSmallInputStyle,opacity:rowOpacity}}/>
           : <span style={{...templateLockedTextStyle,fontWeight:600,opacity:rowOpacity}}>{r.application}</span>}
         {editable
-          ? <input placeholder="Size" value={r.nominalSize ?? ""}
-              onChange={e=>{const v=e.target.value;onUpdateRow(tpl.instanceId,r.id,x=>({...x,nominalSize:v}));}}
-              style={{...templateSmallInputStyle,opacity:rowOpacity}}/>
-          : <span style={{...templateLockedTextStyle,opacity:rowOpacity}}>{r.nominalSize ?? "—"}</span>}
-        {editable
           ? <input placeholder="Fitting type" value={r.fittingType}
               onChange={e=>{const v=e.target.value;onUpdateRow(tpl.instanceId,r.id,x=>({...x,fittingType:v}));}}
               style={{...templateSmallInputStyle,opacity:rowOpacity}}/>
           : <span title={r.productRole ?? undefined} style={{...templateLockedTextStyle,fontWeight:600,opacity:rowOpacity}}>{r.fittingType}</span>}
+        {editable
+          ? <input placeholder="Size" value={r.nominalSize ?? ""}
+              onChange={e=>{const v=e.target.value;onUpdateRow(tpl.instanceId,r.id,x=>({...x,nominalSize:v}));}}
+              style={{...templateSmallInputStyle,opacity:rowOpacity}}/>
+          : <span style={{...templateLockedTextStyle,opacity:rowOpacity}}>{r.nominalSize ?? "—"}</span>}
         <div style={{opacity:rowOpacity,minWidth:0,overflow:"hidden"}}>
           <TemplateProductSelect row={r}
             onSelect={m=>onUpdateRow(tpl.instanceId,r.id,x=>rowSelectMaterial(x,m))}
@@ -1435,8 +1546,8 @@ function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, 
         <div style={{display:"grid",gridTemplateColumns:TEMPLATE_ROW_GRID,columnGap:8,rowGap:4,alignItems:"center"}}>
           <span/>
           <span style={templateHeaderCellStyle}>Application</span>
-          <span style={templateHeaderCellStyle}>Size</span>
           <span style={templateHeaderCellStyle}>Fitting Type</span>
+          <span style={templateHeaderCellStyle}>Size</span>
           <span style={templateHeaderCellStyle}>Product</span>
           <span style={{...templateHeaderCellStyle,textAlign:"center"}}>Qty</span>
           <span/>
@@ -1466,8 +1577,10 @@ function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, 
   );
 }
 
-function FixtureTemplatesSection({ applied, onApply, onRemoveTemplate, onSetBasis, onUpdateRow, onAddCustomRow, onAddCatalogRow, onRemoveRow }: {
+function FixtureTemplatesSection({ applied, catalogue, catalogueLoading, onApply, onRemoveTemplate, onSetBasis, onUpdateRow, onAddCustomRow, onAddCatalogRow, onRemoveRow }: {
   applied: AppliedTemplate[];
+  catalogue: PlumblinkMaterial[];
+  catalogueLoading: boolean;
   onApply: (t: FixtureTemplate) => void;
   onRemoveTemplate: (instanceId: string) => void;
   onSetBasis: (instanceId: string, basis: number) => void;
@@ -1479,8 +1592,6 @@ function FixtureTemplatesSection({ applied, onApply, onRemoveTemplate, onSetBasi
   const [templates, setTemplates] = useState<FixtureTemplate[]>([]);
   const [picked, setPicked] = useState("");
   const [loading, setLoading] = useState(true);
-  const [catalogue, setCatalogue] = useState<PlumblinkMaterial[]>([]);
-  const [catalogueLoading, setCatalogueLoading] = useState(true);
 
   useEffect(() => {
     let alive = true;
@@ -1488,17 +1599,6 @@ function FixtureTemplatesSection({ applied, onApply, onRemoveTemplate, onSetBasi
       if (!alive) return;
       setTemplates(ts); setLoading(false);
       if (ts[0]) setPicked(ts[0].template_id);
-    });
-    return () => { alive = false; };
-  }, []);
-
-  // Loaded once per section, not per row or per keystroke — shared by every
-  // catalog row's cascade dropdowns.
-  useEffect(() => {
-    let alive = true;
-    fetchCascadeCatalogue().then(rows => {
-      if (!alive) return;
-      setCatalogue(rows); setCatalogueLoading(false);
     });
     return () => { alive = false; };
   }, []);
@@ -1556,6 +1656,18 @@ export default function EstimatePage() {
   const [tab,    setTab]    = useState("estimate");
   const [inputs, setInputs] = useState<Inputs>(DEFAULT);
   const [jobMode, setJobMode] = useState<"plumbing"|"geyser">("plumbing");
+  // Cascade catalogue lifted here (fetched once) and shared by the fixture
+  // templates section and both standalone Supply/Drainage fitting sections.
+  const [catalogue, setCatalogue] = useState<PlumblinkMaterial[]>([]);
+  const [catalogueLoading, setCatalogueLoading] = useState(true);
+  useEffect(() => {
+    let alive = true;
+    fetchCascadeCatalogue().then(rows => {
+      if (!alive) return;
+      setCatalogue(rows); setCatalogueLoading(false);
+    });
+    return () => { alive = false; };
+  }, []);
   const [geyser, setGeyser]   = useState<GeyserMeta>(GEYSER_DEFAULT);
   const [documentType] = useState<DocumentType>(doc);
   const [docRef, setDocRef] = useState<string | null>(null);
@@ -1609,13 +1721,27 @@ export default function EstimatePage() {
   const updateFixtureLine = useCallback((id: string, patch: Partial<FixtureLine>) =>
     setInputs(p=>({...p, fixtureLines:(p.fixtureLines ?? []).map(l=>l.id===id?{...l,...patch}:l)})),[]);
 
-  // Fitting-line builder management (compression fittings)
-  const addFittingLine = useCallback(() =>
-    setInputs(p=>({...p, fittingLines:[...(p.fittingLines ?? []), makeFittingLine()]})),[]);
-  const removeFittingLine = useCallback((id: string) =>
-    setInputs(p=>({...p, fittingLines:(p.fittingLines ?? []).filter(l=>l.id!==id)})),[]);
-  const updateFittingLine = useCallback((id: string, patch: Partial<FittingLine>) =>
-    setInputs(p=>({...p, fittingLines:(p.fittingLines ?? []).map(l=>l.id===id?{...l,...patch}:l)})),[]);
+  // Standalone Supply/Drainage fitting section management. Each section owns a
+  // list of catalog rows whose application is fixed by the section; the `use` key
+  // routes to the right Inputs list, mirroring the pipe-line builder pattern.
+  const addStandaloneFitting = useCallback((use: 'supply'|'drainage') => {
+    const key = use==='supply' ? 'supplyFittings' : 'drainageFittings';
+    const application = use==='supply' ? 'Supply' : 'Drainage';
+    setInputs(p=>({...p, [key]:[...(p[key] ?? []), createStandaloneRowInstance(application)]}));
+  },[]);
+  const addStandaloneCustomFitting = useCallback((use: 'supply'|'drainage') => {
+    const key = use==='supply' ? 'supplyFittings' : 'drainageFittings';
+    const application = use==='supply' ? 'Supply' : 'Drainage';
+    setInputs(p=>({...p, [key]:[...(p[key] ?? []), { ...createCustomRowInstance(1), application }]}));
+  },[]);
+  const removeStandaloneFitting = useCallback((use: 'supply'|'drainage', id: string) => {
+    const key = use==='supply' ? 'supplyFittings' : 'drainageFittings';
+    setInputs(p=>({...p, [key]:(p[key] ?? []).filter(r=>r.id!==id)}));
+  },[]);
+  const updateStandaloneFitting = useCallback((use: 'supply'|'drainage', id: string, fn: (r: TemplateRowInstance) => TemplateRowInstance) => {
+    const key = use==='supply' ? 'supplyFittings' : 'drainageFittings';
+    setInputs(p=>({...p, [key]:(p[key] ?? []).map(r=>r.id===id?fn(r):r)}));
+  },[]);
 
   // Fixture-template management. Applying fetches the template's rows and builds
   // live TemplateRowInstances; the basis input scales every row's pricing
@@ -1687,7 +1813,8 @@ export default function EstimatePage() {
         supplyLines: effInputs.supplyLines,
         drainLines: effInputs.drainLines,
         fixtureLines: effInputs.fixtureLines,
-        fittingLines: effInputs.fittingLines,
+        supplyFittings: effInputs.supplyFittings,
+        drainageFittings: effInputs.drainageFittings,
         fittingTemplates: effInputs.fittingTemplates,
         points: effInputs.points,
         totals: {
@@ -2043,46 +2170,22 @@ export default function EstimatePage() {
           </div>
         </div>
 
-        {/* Fittings — compression fittings line builder (catalogue-priced).
-            Size groups + products are data-driven from COMPRESSION_FITTINGS. */}
-        <div style={{background:"#fff",borderRadius:8,border:"1px solid #DDE3EA",marginBottom:14,overflow:"hidden"}}>
-          <SectionHeader>General fittings (not linked to a fixture)</SectionHeader>
-          <div style={{padding:"12px 16px"}}>
-            {(inputs.fittingLines ?? []).length===0&&
-              <div style={{fontSize:12,color:C.slateL,padding:"6px 2px 10px"}}>No general fittings yet — add a line below.</div>}
-            {(inputs.fittingLines ?? []).map(ft=>{
-              const products=fittingsForSizeGroup(ft.sizeGroup);
-              return (
-              <div key={ft.id} style={{border:"1px solid #E0E5EC",borderRadius:8,padding:"8px 10px",marginBottom:8,background:C.offWhite}}>
-                <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-                  <select value={ft.sizeGroup} onChange={e=>{const sg=e.target.value;const b=makeFittingLine(sg);updateFittingLine(ft.id,{sizeGroup:sg,materialCode:b.materialCode,plumblinkCode:b.plumblinkCode,label:b.label,description:b.description,size:b.size,unit:b.unit,unitPrice:b.unitPrice,grade:b.grade,supplier:b.supplier});}}
-                    style={{padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12,minWidth:90}}>
-                    {FITTING_SIZE_GROUPS.map(sg=><option key={sg} value={sg}>{sg}</option>)}
-                  </select>
-                  <select value={ft.materialCode} onChange={e=>{const b=makeFittingLine(ft.sizeGroup,e.target.value);updateFittingLine(ft.id,{materialCode:b.materialCode,plumblinkCode:b.plumblinkCode,label:b.label,description:b.description,size:b.size,unit:b.unit,unitPrice:b.unitPrice,grade:b.grade,supplier:b.supplier});}}
-                    style={{padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12,flex:1,minWidth:200}}>
-                    {products.map(p=><option key={p.materialCode} value={p.materialCode}>{p.label} — R{p.unitPrice} ({p.grade})</option>)}
-                  </select>
-                  <input type="number" min={0} max={99} value={ft.quantity}
-                    onChange={e=>updateFittingLine(ft.id,{quantity:Math.max(0,parseInt(e.target.value)||0)})}
-                    style={{width:60,padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:14,fontWeight:700,textAlign:"center"}}/>
-                  <span style={{fontSize:11,color:C.slateL,minWidth:70,textAlign:"right"}}>{fmt(ft.quantity*ft.unitPrice)}</span>
-                  <GradePill grade={ft.grade}/>
-                  <button onClick={()=>removeFittingLine(ft.id)} title="Remove" style={{padding:"4px 9px",borderRadius:6,border:"1px solid #E0B4B4",background:"#fff",color:C.red,cursor:"pointer",fontSize:13,fontWeight:700}}>✕</button>
-                </div>
-                <div style={{fontSize:10,color:C.muted,marginTop:5}}>{ft.description}{ft.plumblinkCode?` · PL ${ft.plumblinkCode}`:""} · {ft.supplier ?? "Plumblink"}</div>
-              </div>);
-            })}
-            <div style={{display:"flex",gap:8,alignItems:"center",marginTop:4}}>
-              <button onClick={addFittingLine}
-                style={{padding:"7px 14px",borderRadius:6,border:`1px dashed ${C.gold}`,background:C.goldPale,color:C.navy,cursor:"pointer",fontSize:12,fontWeight:700}}>+ Add fitting</button>
-              <span style={{fontSize:10,color:C.muted}}>Price, confidence, supplier &amp; Plumblink code populate automatically from the materials library.</span>
-            </div>
-          </div>
-        </div>
+        {/* Standalone fittings — Supply and Drainage sections, each a plain
+            catalogue-cascade list (Size → Fitting Type → Product) with a fixed
+            application. Not linked to any fixture. */}
+        <StandaloneFittingSection title="Supply Fittings" use="supply"
+          rows={inputs.supplyFittings ?? []} catalogue={catalogue} catalogueLoading={catalogueLoading}
+          onAdd={addStandaloneFitting} onAddCustom={addStandaloneCustomFitting}
+          onUpdate={updateStandaloneFitting} onRemove={removeStandaloneFitting}/>
+        <StandaloneFittingSection title="Drainage Fittings" use="drainage"
+          rows={inputs.drainageFittings ?? []} catalogue={catalogue} catalogueLoading={catalogueLoading}
+          onAdd={addStandaloneFitting} onAddCustom={addStandaloneCustomFitting}
+          onUpdate={updateStandaloneFitting} onRemove={removeStandaloneFitting}/>
 
         <FixtureTemplatesSection
           applied={inputs.fittingTemplates ?? []}
+          catalogue={catalogue}
+          catalogueLoading={catalogueLoading}
           onApply={applyTemplate}
           onRemoveTemplate={removeTemplate}
           onSetBasis={setTemplateBasis}

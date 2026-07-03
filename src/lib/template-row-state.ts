@@ -84,8 +84,8 @@ export function createCustomRowInstance(quantityBasis: number): TemplateRowInsta
 }
 
 // A catalogue-cascade row ("+ Add fitting") — like Custom, auto-confirmed and
-// terminal, but its identity fields are resolved via the Application → Size →
-// Fitting Type → Product dropdown chain instead of free text.
+// terminal, but its identity fields are resolved via the Application → Fitting
+// Type → Size → Product dropdown chain instead of free text.
 export function createCatalogRowInstance(quantityBasis: number): TemplateRowInstance {
   return {
     id: _uid(),
@@ -106,6 +106,13 @@ export function createCatalogRowInstance(quantityBasis: number): TemplateRowInst
     allowAlternatives: true,
     productFilter: '',
   };
+}
+
+// A standalone-section fitting row (the "Supply Fittings" / "Drainage Fittings"
+// tables) — a catalog row whose application is fixed by its section, so the
+// cascade there is just Size → Fitting Type → Product with no Application step.
+export function createStandaloneRowInstance(application: string): TemplateRowInstance {
+  return { ...createCatalogRowInstance(1), application };
 }
 
 // A row takes free-text manual entry (no catalog dropdown) when it's a Custom
@@ -222,17 +229,32 @@ export function setManualProduct(row: TemplateRowInstance, description: string, 
 }
 
 // Cascade field setters for catalog rows — each clears every field downstream
-// of it in the Application → Size → Fitting Type → Product chain, so a stale
-// selection can never survive an upstream change.
+// of it in the fixture cascade's Application → Fitting Type → Size → Product
+// chain, so a stale selection can never survive an upstream change.
 export function setApplication(row: TemplateRowInstance, application: string): TemplateRowInstance {
-  return { ...row, application, nominalSize: null, fittingType: '', materialCode: null, description: '', unitPrice: 0, touched: true };
+  return { ...row, application, fittingType: '', nominalSize: null, materialCode: null, description: '', unitPrice: 0, touched: true };
 }
 
+// Fitting Type precedes Size in the fixture cascade, so changing it clears Size
+// (and the product) downstream.
+export function setFittingType(row: TemplateRowInstance, fittingType: string): TemplateRowInstance {
+  return { ...row, fittingType, nominalSize: null, materialCode: null, description: '', unitPrice: 0, touched: true };
+}
+
+// Size is the last step before Product in the fixture cascade — it clears only
+// the resolved product, never the upstream Fitting Type.
 export function setSize(row: TemplateRowInstance, size: string | null): TemplateRowInstance {
+  return { ...row, nominalSize: size, materialCode: null, description: '', unitPrice: 0, touched: true };
+}
+
+// Standalone-section setters — the Supply/Drainage tables run the cascade in the
+// opposite middle order (Size → Fitting Type → Product) with Application fixed,
+// so Size is upstream of Fitting Type here and clears it on change.
+export function setStandaloneSize(row: TemplateRowInstance, size: string | null): TemplateRowInstance {
   return { ...row, nominalSize: size, fittingType: '', materialCode: null, description: '', unitPrice: 0, touched: true };
 }
 
-export function setFittingType(row: TemplateRowInstance, fittingType: string): TemplateRowInstance {
+export function setStandaloneFittingType(row: TemplateRowInstance, fittingType: string): TemplateRowInstance {
   return { ...row, fittingType, materialCode: null, description: '', unitPrice: 0, touched: true };
 }
 

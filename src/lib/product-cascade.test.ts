@@ -6,6 +6,8 @@ import {
   fetchCascadeCatalogue,
   matchingProducts,
   nominalDiameter,
+  nominalSizeFor,
+  supplyNominalSize,
 } from './product-cascade';
 import type { PlumblinkMaterial } from './product-filter';
 import { supabase } from './supabase-client';
@@ -31,7 +33,7 @@ vi.mock('./supabase-client', () => {
         return Promise.resolve(response).then(resolve, reject);
       },
     };
-    for (const method of ['select', 'not', 'neq', 'returns']) {
+    for (const method of ['select', 'not', 'neq', 'in', 'returns']) {
       builder[method] = (...args: unknown[]) => {
         calls.push({ table, method, args });
         return builder;
@@ -92,7 +94,7 @@ function material(overrides: Partial<PlumblinkMaterial> = {}): PlumblinkMaterial
 }
 
 describe('fetchCascadeCatalogue', () => {
-  it('queries plumblink_materials filtered to the cascade-eligible set, excluding Pipe', async () => {
+  it('queries plumblink_materials filtered to the cascade-eligible set: no Pipe, only Drainage/Supply', async () => {
     const rows = [material()];
     setResponse('plumblink_materials', { data: rows, error: null });
 
@@ -106,6 +108,7 @@ describe('fetchCascadeCatalogue', () => {
       { table: 'plumblink_materials', method: 'not', args: ['fitting_type', 'is', null] },
       { table: 'plumblink_materials', method: 'not', args: ['unit_price_excl_vat', 'is', null] },
       { table: 'plumblink_materials', method: 'neq', args: ['fitting_type', 'Pipe'] },
+      { table: 'plumblink_materials', method: 'in', args: ['application', ['Drainage', 'Supply']] },
       { table: 'plumblink_materials', method: 'returns', args: [] },
     ]);
   });
@@ -127,10 +130,9 @@ describe('distinctApplications', () => {
     const rows = [
       material({ application: 'Supply' }),
       material({ application: 'Drainage' }),
-      material({ application: 'Sanware' }),
-      material({ application: 'Drainage' }),
+      material({ application: 'Supply' }),
     ];
-    expect(distinctApplications(rows)).toEqual(['Drainage', 'Sanware', 'Supply']);
+    expect(distinctApplications(rows)).toEqual(['Drainage', 'Supply']);
   });
 });
 
@@ -146,8 +148,39 @@ describe('nominalDiameter', () => {
   });
 });
 
+describe('supplyNominalSize', () => {
+  it.each([
+    ['22x15mm', '22mm'],
+    ['3/4x15mm', '15mm'],   // skips the leading inch component
+    ['15x1/2"', '15mm'],
+    ['22x22x1/2', '22mm'],
+    ['22x15x15', '22mm'],   // bare compound dimension, mm by convention
+    ['400kPa', null],       // pressure rating — not a dimension
+    [null, null],
+  ])('supplyNominalSize(%s) -> %s', (input, expected) => {
+    expect(supplyNominalSize(input)).toBe(expected);
+  });
+
+  it('returns null (not "400"/"400mm") for the pressure-rating row so it is unreachable via the cascade', () => {
+    expect(supplyNominalSize('400kPa')).toBeNull();
+  });
+});
+
+describe('nominalSizeFor', () => {
+  it('uses supplyNominalSize for the Supply application', () => {
+    expect(nominalSizeFor('3/4x15mm', 'Supply')).toBe('15mm');
+    expect(nominalSizeFor('400kPa', 'Supply')).toBeNull();
+  });
+  it('uses nominalDiameter for Drainage (and any non-Supply application)', () => {
+    expect(nominalSizeFor('110x87', 'Drainage')).toBe('110mm');
+    // The leading-integer rule would read "3" here — the fraction-skipping
+    // Supply rule is deliberately NOT applied outside Supply.
+    expect(nominalSizeFor('3/4x15mm', 'Drainage')).toBe('3mm');
+  });
+});
+
 describe('distinctSizes', () => {
-  it('returns distinct nominal diameters for the application, sorted numerically (not lexically)', () => {
+  it('Drainage: distinct nominal diameters, sorted numerically (not lexically)', () => {
     const rows = [
       material({ application: 'Drainage', size: '110x87' }),
       material({ application: 'Drainage', size: '110X45' }), // case-duplicate of the same diameter
@@ -159,6 +192,25 @@ describe('distinctSizes', () => {
     expect(distinctSizes(rows, 'Drainage')).toEqual(['40mm', '50mm', '110mm']);
   });
 
+  it('Supply: normalises via supplyNominalSize and drops the pressure-rating row (no "—")', () => {
+    const rows = [
+      material({ application: 'Supply', size: '15x1/2"' }),
+      material({ application: 'Supply', size: '22x15mm' }),
+      material({ application: 'Supply', size: '3/4x15mm' }), // -> 15mm, collapses with the first
+      material({ application: 'Supply', size: '400kPa' }),   // -> null, excluded
+    ];
+    expect(distinctSizes(rows, 'Supply')).toEqual(['15mm', '22mm']);
+  });
+
+  it('narrows to a single fitting type when one is given (App -> Fitting Type -> Size cascade)', () => {
+    const rows = [
+      material({ application: 'Drainage', size: '40mm', fitting_type: 'Bend' }),
+      material({ application: 'Drainage', size: '110x87', fitting_type: 'Bend' }),
+      material({ application: 'Drainage', size: '50mm', fitting_type: 'Gulley' }),
+    ];
+    expect(distinctSizes(rows, 'Drainage', 'Bend')).toEqual(['40mm', '110mm']);
+  });
+
   it('never surfaces a null/"—" entry — a null-size row is simply excluded', () => {
     const rows = [
       material({ application: 'Supply', size: '15mm' }),
@@ -166,19 +218,20 @@ describe('distinctSizes', () => {
     ];
     expect(distinctSizes(rows, 'Supply')).toEqual(['15mm']);
   });
-
-  it('collapses raw pipe-stock/typo variants into the same diameter bucket as production data does', () => {
-    const rows = [
-      material({ size: '110mm x6m' }),
-      material({ size: '110x50m' }), // typo variant, still leading "110"
-      material({ size: '110x87' }),
-    ];
-    expect(distinctSizes(rows, 'Drainage')).toEqual(['110mm']);
-  });
 });
 
 describe('distinctFittingTypes', () => {
-  it('returns distinct fitting types for the given application+diameter, sorted alphabetically', () => {
+  it('returns every fitting type for the application when no size is given (App -> Fitting Type cascade)', () => {
+    const rows = [
+      material({ application: 'Drainage', size: '110x90', fitting_type: 'Pan Connector' }),
+      material({ application: 'Drainage', size: '40mm', fitting_type: 'Bend' }),
+      material({ application: 'Drainage', size: '50mm', fitting_type: 'Coupler' }),
+      material({ application: 'Supply', size: '22mm', fitting_type: 'Tee' }),
+    ];
+    expect(distinctFittingTypes(rows, 'Drainage')).toEqual(['Bend', 'Coupler', 'Pan Connector']);
+  });
+
+  it('narrows to a single nominal size when one is given (Size -> Fitting Type standalone cascade)', () => {
     const rows = [
       material({ application: 'Drainage', size: '110x90', fitting_type: 'Pan Connector' }),
       material({ application: 'Drainage', size: '110x87', fitting_type: 'Bend' }),
@@ -187,7 +240,7 @@ describe('distinctFittingTypes', () => {
     expect(distinctFittingTypes(rows, 'Drainage', '110mm')).toEqual(['Bend', 'Pan Connector']);
   });
 
-  it('matches on nominalDiameter so raw case-duplicates (110x45/110X45) collapse into one bucket', () => {
+  it('matches on nominalSizeFor so raw case-duplicates (110x45/110X45) collapse into one bucket', () => {
     const rows = [
       material({ application: 'Drainage', size: '110x45', fitting_type: 'Bend' }),
       material({ application: 'Drainage', size: '110X45', fitting_type: 'Bend' }),
@@ -197,12 +250,19 @@ describe('distinctFittingTypes', () => {
 });
 
 describe('matchingProducts', () => {
-  it('returns rows matching application+diameter+fittingType, collapsing raw size variants', () => {
+  it('returns rows matching application + fittingType + size, collapsing raw size variants', () => {
     const target1 = material({ application: 'Drainage', size: '110x45', fitting_type: 'Bend', material_code: 'PLB-BEND-1' });
     const target2 = material({ application: 'Drainage', size: '110X45', fitting_type: 'Bend', material_code: 'PLB-BEND-2' });
     const other = material({ application: 'Drainage', size: '110x90', fitting_type: 'Pan Connector', material_code: 'PLB-PAN-1' });
     const smaller = material({ application: 'Drainage', size: '40x87', fitting_type: 'Bend', material_code: 'PLB-BEND-3' });
-    expect(matchingProducts([target1, target2, other, smaller], 'Drainage', '110mm', 'Bend')).toEqual([target1, target2]);
+    expect(matchingProducts([target1, target2, other, smaller], 'Drainage', 'Bend', '110mm')).toEqual([target1, target2]);
+  });
+
+  it('applies the Supply normaliser when the application is Supply', () => {
+    const t1 = material({ application: 'Supply', size: '3/4x15mm', fitting_type: 'Coupler', material_code: 'CF-1' });
+    const t2 = material({ application: 'Supply', size: '15x1/2"', fitting_type: 'Coupler', material_code: 'CF-2' });
+    const other = material({ application: 'Supply', size: '22x22mm', fitting_type: 'Coupler', material_code: 'CF-3' });
+    expect(matchingProducts([t1, t2, other], 'Supply', 'Coupler', '15mm')).toEqual([t1, t2]);
   });
 
   // Mirrors the brief's verified live fact: Drainage 110mm -> Bend returns all
@@ -217,6 +277,6 @@ describe('matchingProducts', () => {
       material({ application: 'Drainage', size: '40x87', fitting_type: 'Bend', material_code: 'NOISE-1' }),
       material({ application: 'Drainage', size: '110mm x6m', fitting_type: 'Pipe', material_code: 'NOISE-2' }),
     ];
-    expect(matchingProducts([...bends110, ...noise], 'Drainage', '110mm', 'Bend')).toHaveLength(11);
+    expect(matchingProducts([...bends110, ...noise], 'Drainage', 'Bend', '110mm')).toHaveLength(11);
   });
 });
