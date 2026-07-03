@@ -48,7 +48,7 @@ const C = {
 // Shared spacing / type / surface roles. Everything below reuses these instead
 // of ad-hoc pixel values so the navy-and-gold identity reads consistently across
 // all three job-type pages and the app shell.
-const S = { xs:4, sm:8, md:12, lg:16, xl:20, xxl:24 } as const;
+const S = { xs:4, sm:8, md:12, lg:20, xl:24, xxl:32 } as const;
 
 // Surface + border + control roles (the greys that were previously hardcoded
 // per-element get names here).
@@ -65,7 +65,7 @@ const T: Record<string, React.CSSProperties> = {
   colHead:    { fontSize:10, fontWeight:700, color:C.slateL, textTransform:"uppercase", letterSpacing:0.5 },
   value:      { fontSize:13, fontWeight:600, color:C.navy },
   rate:       { fontSize:11, fontWeight:500, color:C.slateL },
-  total:      { fontSize:13, fontWeight:700, color:C.navy },
+  total:      { fontSize:15, fontWeight:700, color:C.navy },
   secondary:  { fontSize:11, color:C.slateL },
   muted:      { fontSize:10, color:C.muted },
 };
@@ -629,8 +629,8 @@ function PriceCell({ row, style }: {
     : <span style={style}/>;
 }
 function SectionHeader({ children }: { children: React.ReactNode }) {
-  return <div style={{ background:C.navyMid,color:C.gold,fontWeight:700,fontSize:11,
-    letterSpacing:1.2,textTransform:"uppercase",padding:"6px 16px",
+  return <div style={{ background:C.navyMid,color:C.gold,fontWeight:600,fontSize:12,
+    letterSpacing:1,textTransform:"uppercase",padding:"10px 20px",
     borderBottom:`2px solid ${C.gold}40` }}>{children}</div>;
 }
 
@@ -887,7 +887,7 @@ function ScanDrawingPanel({ onExtracted }: { onExtracted: (data: Inputs) => void
       {extracted?.notes&&<div style={{background:"#FEF5E7",border:`1px solid ${C.amber}40`,borderRadius:6,padding:"10px 14px",marginBottom:12,fontSize:11,color:C.navy}}><strong>📋 What Claude read:</strong> {extracted.notes}</div>}
       <div style={{...cardStyle,marginBottom:S.md}}>
         <SectionHeader>Extracted Parameters — correct if needed</SectionHeader>
-        <div style={{padding:14}}>
+        <div style={{padding:S.xl}}>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
             <NF label="Floor area (m²)"    path="floorArea"    isFix={false}/>
             <NF label="Supply run (m)"     path="supplyMetres" isFix={false}/>
@@ -1512,7 +1512,7 @@ function StandaloneFittingSection({ title, use, rows, catalogue, catalogueLoadin
   return (
     <div style={cardStyle}>
       <SectionHeader>{title}</SectionHeader>
-      <div style={{padding:"12px 16px"}}>
+      <div style={{padding:S.xl}}>
         {rows.length===0
           ? <div style={{fontSize:12,color:C.slateL,padding:"2px 2px 8px"}}>No {use} fittings yet — add one below.</div>
           : <div style={{display:"grid",gridTemplateColumns:STANDALONE_ROW_GRID,columnGap:8,rowGap:4,alignItems:"center"}}>
@@ -1708,7 +1708,7 @@ function FixtureTemplatesSection({ applied, catalogue, catalogueLoading, onApply
   return (
     <div style={cardStyle}>
       <SectionHeader>Fitting Templates — suggested fittings per fixture (confirm to price)</SectionHeader>
-      <div style={{padding:"12px 16px"}}>
+      <div style={{padding:S.xl}}>
         <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:applied.length?12:8}}>
           <select value={picked} onChange={e=>setPicked(e.target.value)} disabled={loading||templates.length===0}
             style={{...selectStyle,flex:1,minWidth:200,height:34,fontSize:12}}>
@@ -2095,7 +2095,7 @@ export default function EstimatePage() {
             const dias = l.source==="custom" ? [] : pipeDiametersFor(use,l.type);
             const isCustom = l.source==="custom";
             return (
-            <div key={l.id} className="cos-toggle" style={{borderRadius:8,padding:"7px 10px",marginBottom:6,
+            <div key={l.id} className="cos-toggle" style={{borderRadius:8,padding:"12px 14px",marginBottom:6,
               background:isCustom?UI.customBg:C.offWhite,border:`1px solid ${isCustom?C.amber+"55":UI.borderRow}`}}>
               <div className="cos-line cos-line--pipe">
                 <select className="cos-grow" value={isCustom?"__custom__":l.type}
@@ -2157,7 +2157,7 @@ export default function EstimatePage() {
         {documentType==="invoice"&&(
         <div style={cardStyle}>
           <SectionHeader>🧾 Invoice details — issued for work completed</SectionHeader>
-          <div style={{padding:"14px 20px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          <div style={{padding:S.xl,display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
             <div>
               <label style={T.fieldLabel}>Issue date</label>
               <input type="date" value={invoiceMeta.issueDate}
@@ -2186,7 +2186,7 @@ export default function EstimatePage() {
             type (quote vs invoice) is NOT chosen here — it arrives from home. */}
         <div style={cardStyle}>
           <SectionHeader>Job type</SectionHeader>
-          <div style={{padding:"14px 20px"}}>
+          <div style={{padding:S.xl}}>
             <select
               value={jobMode==="geyser"?"geyser":"plumbing"}
               onChange={e=>{
@@ -2209,7 +2209,7 @@ export default function EstimatePage() {
 
         <div style={cardStyle}>
           <SectionHeader>Project Details</SectionHeader>
-          <div style={{padding:"14px 20px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          <div style={{padding:S.xl,display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
             {([{l:"Project / Job name",k:"projectName"},{l:"Client name (optional)",k:"clientName"}] as const).map(f=>(
               <div key={f.k}>
                 <label style={T.fieldLabel}>{f.l}</label>
@@ -2237,7 +2237,7 @@ export default function EstimatePage() {
 
         <div style={cardStyle}>
           <SectionHeader>Fixtures</SectionHeader>
-          <div style={{padding:"12px 16px"}}>
+          <div style={{padding:S.xl}}>
             {(inputs.fixtureLines ?? []).length===0&&
               <div style={{fontSize:12,color:C.slateL,padding:"6px 2px 10px"}}>No fixtures yet — add a line below.</div>}
             {(inputs.fixtureLines ?? []).length>0&&(
@@ -2253,7 +2253,7 @@ export default function EstimatePage() {
               const presets=FIXTURE_PRESETS[fl.type];
               const isCustom = fl.source==="custom";
               return (
-              <div key={fl.id} className="cos-toggle" style={{borderRadius:8,padding:"7px 10px",marginBottom:6,
+              <div key={fl.id} className="cos-toggle" style={{borderRadius:8,padding:"12px 14px",marginBottom:6,
                 background:isCustom?UI.customBg:C.offWhite,border:`1px solid ${isCustom?C.amber+"55":UI.borderRow}`}}>
                 <div className="cos-line cos-line--fixture">
                   <span className="cos-fixture-thumb">
@@ -2330,7 +2330,7 @@ export default function EstimatePage() {
         {jobMode==="geyser"&&(
         <div style={cardStyle}>
           <SectionHeader>Geyser Job Specs</SectionHeader>
-          <div style={{padding:"14px 20px"}}>
+          <div style={{padding:S.xl}}>
             <div style={{marginBottom:16}}>
               <label style={{...T.fieldLabel,marginBottom:6}}>Job type</label>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
