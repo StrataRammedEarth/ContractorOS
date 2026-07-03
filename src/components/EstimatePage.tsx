@@ -2080,7 +2080,7 @@ export default function EstimatePage() {
     return (
       <div style={cardStyle}>
         <SectionHeader>{title}</SectionHeader>
-        <div style={{padding:"12px 16px"}}>
+        <div style={{padding:S.xl}}>
           {lines.length===0&&<div style={{fontSize:12,color:C.slateL,padding:"6px 2px 10px"}}>No {use} lines — add one below.</div>}
           {lines.length>0&&(
             <div className="cos-line cos-line--pipe cos-line-head">
@@ -2091,12 +2091,13 @@ export default function EstimatePage() {
               <span style={{...T.colHead,textAlign:"right"}}>Line total</span>
               <span/><span/>
             </div>)}
-          {lines.map(l=>{
+          {lines.map((l,i)=>{
             const dias = l.source==="custom" ? [] : pipeDiametersFor(use,l.type);
             const isCustom = l.source==="custom";
             return (
-            <div key={l.id} className="cos-toggle" style={{borderRadius:8,padding:"12px 14px",marginBottom:6,
-              background:isCustom?UI.customBg:C.offWhite,border:`1px solid ${isCustom?C.amber+"55":UI.borderRow}`}}>
+            <div key={l.id} className="cos-toggle" style={{padding:"12px 14px 12px 0",
+              borderBottom:i===lines.length-1?"none":`1px solid ${UI.borderRow}`,
+              background:isCustom?UI.customBg:"transparent"}}>
               <div className="cos-line cos-line--pipe">
                 <select className="cos-grow" value={isCustom?"__custom__":l.type}
                   onChange={e=>{const v=e.target.value;
@@ -2249,12 +2250,13 @@ export default function EstimatePage() {
                 <span style={{...T.colHead,textAlign:"right"}}>Line total</span>
                 <span/><span/>
               </div>)}
-            {(inputs.fixtureLines ?? []).map(fl=>{
+            {(inputs.fixtureLines ?? []).map((fl,i,arr)=>{
               const presets=FIXTURE_PRESETS[fl.type];
               const isCustom = fl.source==="custom";
               return (
-              <div key={fl.id} className="cos-toggle" style={{borderRadius:8,padding:"12px 14px",marginBottom:6,
-                background:isCustom?UI.customBg:C.offWhite,border:`1px solid ${isCustom?C.amber+"55":UI.borderRow}`}}>
+              <div key={fl.id} className="cos-toggle" style={{padding:"12px 14px 12px 0",
+                borderBottom:i===arr.length-1?"none":`1px solid ${UI.borderRow}`,
+                background:isCustom?UI.customBg:"transparent"}}>
                 <div className="cos-line cos-line--fixture">
                   <span className="cos-fixture-thumb">
                     <img src={fixtureIcon(fl.type)} alt={FIXTURE_TYPES.find(ft=>ft.t===fl.type)?.label ?? fl.type}
