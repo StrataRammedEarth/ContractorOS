@@ -44,6 +44,63 @@ const C = {
   green:"#27AE60", amber:"#E67E22", red:"#E74C3C", muted:"#8FA3B8",
 };
 
+// ─── DESIGN TOKENS ────────────────────────────────────────────────────────────
+// Shared spacing / type / surface roles. Everything below reuses these instead
+// of ad-hoc pixel values so the navy-and-gold identity reads consistently across
+// all three job-type pages and the app shell.
+const S = { xs:4, sm:8, md:12, lg:16, xl:20, xxl:24 } as const;
+
+// Surface + border + control roles (the greys that were previously hardcoded
+// per-element get names here).
+const UI = {
+  border:"#DDE3EA", borderStrong:"#C8D0DB", borderRow:"#E0E5EC",
+  pageBg:"#F1F4F8", customBg:"#FEF5E7",
+  cardShadow:"0 1px 2px rgba(13,27,42,0.04), 0 2px 10px rgba(13,27,42,0.06)",
+};
+
+// Type scale — fixed size/weight/colour per role so hierarchy is predictable.
+// (Section-header banners keep their own styling in SectionHeader.)
+const T: Record<string, React.CSSProperties> = {
+  fieldLabel: { display:"block", fontSize:11, fontWeight:600, color:C.slateL, marginBottom:4 },
+  colHead:    { fontSize:10, fontWeight:700, color:C.slateL, textTransform:"uppercase", letterSpacing:0.5 },
+  value:      { fontSize:13, fontWeight:600, color:C.navy },
+  rate:       { fontSize:11, fontWeight:500, color:C.slateL },
+  total:      { fontSize:13, fontWeight:700, color:C.navy },
+  secondary:  { fontSize:11, color:C.slateL },
+  muted:      { fontSize:10, color:C.muted },
+};
+
+// White section card: consistent radius, hairline border, subtle elevation and
+// vertical rhythm so cards read as distinct surfaces, not flush against the page.
+const cardStyle: React.CSSProperties = {
+  background:C.white, borderRadius:10, border:`1px solid ${UI.border}`,
+  boxShadow:UI.cardShadow, marginBottom:S.lg, overflow:"hidden",
+};
+
+// One control height for every editable input/select so line-item rows align.
+const CONTROL_H = 36;
+const inputStyle: React.CSSProperties = {
+  height:CONTROL_H, padding:"0 10px", border:`1px solid ${UI.borderStrong}`,
+  borderRadius:6, fontSize:13, color:C.navy, background:C.white, boxSizing:"border-box",
+};
+// The single dropdown look used app-wide: gold chevron, native appearance stripped.
+const CHEVRON = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23${C.gold.slice(1)}' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>")`;
+const selectStyle: React.CSSProperties = {
+  ...inputStyle, appearance:"none", cursor:"pointer", paddingRight:28,
+  backgroundImage:CHEVRON, backgroundRepeat:"no-repeat", backgroundPosition:"right 9px center",
+};
+// Compact control variant for dense line-item rows (same look, shorter).
+const rowCtl: React.CSSProperties = { ...inputStyle, height:34, fontSize:12 };
+const rowSelect: React.CSSProperties = { ...selectStyle, height:34, fontSize:12 };
+// Square delete/remove action used at the end of every line-item row.
+const rowDeleteBtn: React.CSSProperties = {
+  width:30, height:30, padding:0, borderRadius:6, border:"1px solid #E0B4B4",
+  background:C.white, color:C.red, cursor:"pointer", fontSize:13, fontWeight:700, lineHeight:1,
+};
+// Line-item table column layouts live in styles.css (.cos-line--pipe /
+// .cos-line--fixture) so a media query can restructure them on narrow screens;
+// header + data rows share the same class so their columns line up.
+
 // ─── CONFIDENCE GRADES ────────────────────────────────────────────────────────
 const GRADES: Record<string, { rank: number; color: string; bg: string }> = {
   Locked:      { rank:6, color:"#0D1B2A", bg:"#E8EDF2" },
@@ -744,8 +801,9 @@ function ScanDrawingPanel({ onExtracted }: { onExtracted: (data: Inputs) => void
         <input type="number" min={0} value={val??""} placeholder="—"
           onChange={ev=>{const v=parseFloat(ev.target.value)||0;
             setEdited((p: any)=>isFix?{...p,fixtures:{...p.fixtures,[path]:v}}:{...p,[path]:v});}}
-          style={{padding:"6px 8px",border:`1px solid ${(val===null||val===undefined)?"#E67E22":"#C8D0DB"}`,
-            borderRadius:6,fontSize:13,background:(val===null||val===undefined)?"#FEF5E7":"#fff",width:"100%",boxSizing:"border-box"}}/>
+          style={{...inputStyle,width:"100%",height:34,textAlign:"center",fontWeight:700,
+            border:`1px solid ${(val===null||val===undefined)?C.amber:UI.borderStrong}`,
+            background:(val===null||val===undefined)?UI.customBg:C.white}}/>
       </div>
     );
   };
@@ -812,7 +870,7 @@ function ScanDrawingPanel({ onExtracted }: { onExtracted: (data: Inputs) => void
         <div style={{color:C.slateL,fontSize:11,marginTop:2}}>Confidence: <strong style={{color:"#fff"}}>{extracted?.confidence||"—"}</strong> · Correct any errors then confirm.</div>
       </div>
       {extracted?.notes&&<div style={{background:"#FEF5E7",border:`1px solid ${C.amber}40`,borderRadius:6,padding:"10px 14px",marginBottom:12,fontSize:11,color:C.navy}}><strong>📋 What Claude read:</strong> {extracted.notes}</div>}
-      <div style={{background:"#fff",borderRadius:8,border:"1px solid #DDE3EA",overflow:"hidden",marginBottom:12}}>
+      <div style={{...cardStyle,marginBottom:S.md}}>
         <SectionHeader>Extracted Parameters — correct if needed</SectionHeader>
         <div style={{padding:14}}>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
@@ -1216,7 +1274,8 @@ function TemplateProductSelect({ row, onSelect, onManual, onResolveDefault }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [row.id]);
 
-  const inputStyle: React.CSSProperties = { flex:1,minWidth:200,padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12 };
+  const inputStyle: React.CSSProperties = { flex:1,minWidth:200,padding:"6px 8px",border:`1px solid ${UI.borderStrong}`,borderRadius:6,fontSize:12,color:C.navy,background:C.white,height:32,boxSizing:"border-box" };
+  const selStyle: React.CSSProperties = { ...inputStyle, appearance:"none", cursor:"pointer", paddingRight:26, backgroundImage:CHEVRON, backgroundRepeat:"no-repeat", backgroundPosition:"right 8px center" };
 
   if (manualOnly || manual) {
     return (
@@ -1241,7 +1300,7 @@ function TemplateProductSelect({ row, onSelect, onManual, onResolveDefault }: {
       if (v==="__manual__"){ setManual(true); return; }
       const m=materials.find(x=>x.material_code===v);
       if (m) onSelect({ materialCode:m.material_code, description:m.description ?? "", unitPrice:m.unit_price_excl_vat ?? 0 });
-    }} style={inputStyle}>
+    }} style={selStyle}>
       <option value="__select__" disabled>{materials.length? "Select product…" : "No matching products"}</option>
       {materials.map(m=><option key={m.material_code} value={m.material_code}>{productOptionLabel(m)}</option>)}
       <option value="__manual__">Enter manually…</option>
@@ -1257,7 +1316,10 @@ const templateHeaderCellStyle: React.CSSProperties = {fontSize:10,fontWeight:700
 // minWidth:0 overrides the grid item's default min-width:auto (which otherwise
 // sizes to the element's intrinsic content — e.g. a <select>'s longest option
 // text — and forces the whole row to overflow its container).
-const templateSmallInputStyle: React.CSSProperties = {padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12,width:"100%",minWidth:0,boxSizing:"border-box"};
+const templateSmallInputStyle: React.CSSProperties = {padding:"6px 8px",border:`1px solid ${UI.borderStrong}`,borderRadius:6,fontSize:12,width:"100%",minWidth:0,boxSizing:"border-box",color:C.navy,background:C.white,height:32};
+// Same look as templateSmallInputStyle but with the shared gold chevron — used by
+// the cascade/product <select>s so every dropdown in the app matches.
+const templateSmallSelectStyle: React.CSSProperties = {...templateSmallInputStyle, appearance:"none", cursor:"pointer", paddingRight:24, backgroundImage:CHEVRON, backgroundRepeat:"no-repeat", backgroundPosition:"right 7px center"};
 const templateLockedTextStyle: React.CSSProperties = {fontSize:11,color:C.slate,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"};
 
 // A fixture-template catalogue-cascade row's Application/Fitting Type/Size/Product
@@ -1287,19 +1349,19 @@ function CatalogFittingRow({ row, catalogue, catalogueLoading, onUpdate, onRemov
         style={{width:16,height:16,cursor:disabled?"not-allowed":"pointer"}}/>
       <select value={row.application||"__select__"} disabled={catalogueLoading}
         onChange={e=>{const v=e.target.value;if(v==="__select__")return;onUpdate(x=>rowSetApplication(x,v));}}
-        style={templateSmallInputStyle}>
+        style={templateSmallSelectStyle}>
         <option value="__select__" disabled>{catalogueLoading?"Loading catalogue…":"Select…"}</option>
         {applications.map(a=><option key={a} value={a}>{a}</option>)}
       </select>
       <select value={row.fittingType||"__select__"} disabled={!row.application}
         onChange={e=>{const v=e.target.value;if(v==="__select__")return;onUpdate(x=>rowSetFittingType(x,v));}}
-        style={templateSmallInputStyle}>
+        style={templateSmallSelectStyle}>
         <option value="__select__" disabled>Select…</option>
         {fittingTypes.map(ft=><option key={ft} value={ft}>{ft}</option>)}
       </select>
       <select value={row.nominalSize??"__select__"} disabled={!row.fittingType}
         onChange={e=>{const v=e.target.value;if(v==="__select__")return;onUpdate(x=>rowSetSize(x,v));}}
-        style={templateSmallInputStyle}>
+        style={templateSmallSelectStyle}>
         <option value="__select__" disabled>Select…</option>
         {sizes.map(s=><option key={s} value={s}>{s}</option>)}
       </select>
@@ -1309,7 +1371,7 @@ function CatalogFittingRow({ row, catalogue, catalogueLoading, onUpdate, onRemov
           const m=products.find(p=>p.material_code===v);
           if(m) onUpdate(x=>rowSelectMaterial(x,{materialCode:m.material_code,description:m.description??"",unitPrice:m.unit_price_excl_vat??0}));
         }}
-        style={templateSmallInputStyle}>
+        style={templateSmallSelectStyle}>
         <option value="__select__" disabled>{products.length?"Select product…":"No matching products"}</option>
         {products.map(p=><option key={p.material_code} value={p.material_code}>{productOptionLabel(p)}</option>)}
       </select>
@@ -1349,13 +1411,13 @@ function StandaloneCatalogRow({ row, catalogue, catalogueLoading, onUpdate, onRe
         style={{width:16,height:16,cursor:disabled?"not-allowed":"pointer"}}/>
       <select value={row.nominalSize??"__select__"} disabled={catalogueLoading}
         onChange={e=>{const v=e.target.value;if(v==="__select__")return;onUpdate(x=>rowSetStandaloneSize(x,v));}}
-        style={templateSmallInputStyle}>
+        style={templateSmallSelectStyle}>
         <option value="__select__" disabled>{catalogueLoading?"Loading catalogue…":"Select…"}</option>
         {sizes.map(s=><option key={s} value={s}>{s}</option>)}
       </select>
       <select value={row.fittingType||"__select__"} disabled={!row.nominalSize}
         onChange={e=>{const v=e.target.value;if(v==="__select__")return;onUpdate(x=>rowSetStandaloneFittingType(x,v));}}
-        style={templateSmallInputStyle}>
+        style={templateSmallSelectStyle}>
         <option value="__select__" disabled>Select…</option>
         {fittingTypes.map(ft=><option key={ft} value={ft}>{ft}</option>)}
       </select>
@@ -1365,7 +1427,7 @@ function StandaloneCatalogRow({ row, catalogue, catalogueLoading, onUpdate, onRe
           const m=products.find(p=>p.material_code===v);
           if(m) onUpdate(x=>rowSelectMaterial(x,{materialCode:m.material_code,description:m.description??"",unitPrice:m.unit_price_excl_vat??0}));
         }}
-        style={templateSmallInputStyle}>
+        style={templateSmallSelectStyle}>
         <option value="__select__" disabled>{products.length?"Select product…":"No matching products"}</option>
         {products.map(p=><option key={p.material_code} value={p.material_code}>{productOptionLabel(p)}</option>)}
       </select>
@@ -1433,7 +1495,7 @@ function StandaloneFittingSection({ title, use, rows, catalogue, catalogueLoadin
   };
 
   return (
-    <div style={{background:"#fff",borderRadius:8,border:"1px solid #DDE3EA",marginBottom:14,overflow:"hidden"}}>
+    <div style={cardStyle}>
       <SectionHeader>{title}</SectionHeader>
       <div style={{padding:"12px 16px"}}>
         {rows.length===0
@@ -1629,12 +1691,12 @@ function FixtureTemplatesSection({ applied, catalogue, catalogueLoading, onApply
   const pick = templates.find(t=>t.template_id===picked);
 
   return (
-    <div style={{background:"#fff",borderRadius:8,border:"1px solid #DDE3EA",marginBottom:14,overflow:"hidden"}}>
+    <div style={cardStyle}>
       <SectionHeader>Fitting Templates — suggested fittings per fixture (confirm to price)</SectionHeader>
       <div style={{padding:"12px 16px"}}>
         <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:applied.length?12:8}}>
           <select value={picked} onChange={e=>setPicked(e.target.value)} disabled={loading||templates.length===0}
-            style={{flex:1,minWidth:200,padding:"7px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12}}>
+            style={{...selectStyle,flex:1,minWidth:200,height:34,fontSize:12}}>
             {loading&&<option>Loading templates…</option>}
             {!loading&&templates.length===0&&<option>No templates found</option>}
             {templates.map(t=><option key={t.template_id} value={t.template_id}>{t.template_name} ({t.scope})</option>)}
@@ -1907,9 +1969,9 @@ export default function EstimatePage() {
 
   const AppHeader = ({ showTabs }: { showTabs: boolean }) => (
     <div style={{background:C.navy,borderBottom:`3px solid ${C.gold}`,position:"sticky",top:0,zIndex:100}}>
-      <div style={{maxWidth:960,margin:"0 auto",padding:"12px 20px",display:"flex",alignItems:"center",gap:14}}>
+      <div style={{maxWidth:960,margin:"0 auto",padding:"12px 20px",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
         <Link to="/" style={{textDecoration:"none"}}><Logo/></Link>
-        <div style={{flex:1,marginLeft:4}}>
+        <div style={{flex:1,marginLeft:4,minWidth:0}}>
           {showTabs&&<div style={{color:C.slateL,fontSize:12}}>{effInputs.projectName}</div>}
         </div>
         <Link to="/profile" title="Profile & Settings" style={{color:C.gold,fontSize:12,fontWeight:600,textDecoration:"none",border:`1px solid ${C.gold}50`,borderRadius:6,padding:"5px 10px",whiteSpace:"nowrap"}}>⚙ Settings</Link>
@@ -1924,7 +1986,7 @@ export default function EstimatePage() {
               <button onClick={()=>{setScreen("entry");setTab("estimate");}}
                 style={{padding:"5px 12px",borderRadius:6,border:`1px solid ${C.gold}50`,background:"transparent",color:C.gold,cursor:"pointer",fontSize:11,fontWeight:600}}>← Edit</button>
             </div>
-          : <div style={{display:"flex",gap:6}}>
+          : <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
               {["Estimate","Buy","Build","Learn"].map(t=>(
                 <span key={t} style={{background:`${C.gold}22`,color:C.gold,fontSize:10,padding:"2px 7px",borderRadius:4,fontWeight:700}}>{t}</span>))}
             </div>
@@ -1932,15 +1994,22 @@ export default function EstimatePage() {
       </div>
       {showTabs&&(
         <div style={{maxWidth:960,margin:"0 auto",padding:"0 20px"}}>
-          <div style={{display:"flex",gap:2}}>
-            {TABS.map(t=>(
-              <button key={t.id} onClick={()=>setTab(t.id)} style={{
-                padding:"7px 18px",borderRadius:"6px 6px 0 0",cursor:"pointer",fontSize:13,
-                border:`1px solid ${t.id===tab?C.gold+"60":"transparent"}`,borderBottom:"none",
-                background:t.id===tab?"#fff":"transparent",
-                color:t.id===tab?C.navy:C.muted,fontWeight:t.id===tab?700:400}}>
+          <div style={{display:"flex",gap:4}}>
+            {TABS.map(t=>{
+              const active = t.id===tab;
+              return (
+              <button key={t.id} onClick={()=>setTab(t.id)} className="cos-tab"
+                aria-current={active?"page":undefined} style={{
+                padding:"9px 18px 8px",borderRadius:"8px 8px 0 0",cursor:"pointer",fontSize:13,marginBottom:-1,
+                borderTop:`3px solid ${active?C.gold:"transparent"}`,
+                borderLeft:`1px solid ${active?UI.border:"transparent"}`,
+                borderRight:`1px solid ${active?UI.border:"transparent"}`,
+                borderBottom:active?"1px solid #fff":"1px solid transparent",
+                background:active?"#fff":"transparent",
+                color:active?C.navy:C.slateL,fontWeight:active?800:500,letterSpacing:0.2}}>
                 {t.icon} {t.label}
-              </button>))}
+              </button>);
+            })}
           </div>
         </div>
       )}
@@ -1948,14 +2017,14 @@ export default function EstimatePage() {
   );
 
   if (screen==="scan") return (
-    <div style={{fontFamily:"'Inter',system-ui,sans-serif",background:"#F1F4F8",minHeight:"100vh"}}>
+    <div className="cos-app" style={{fontFamily:"'Inter',system-ui,sans-serif",background:UI.pageBg,minHeight:"100vh"}}>
       <AppHeader showTabs={false}/>
       <div style={{maxWidth:680,margin:"0 auto",padding:"24px 20px"}}>
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
           <button onClick={()=>setScreen("entry")} style={{padding:"6px 14px",borderRadius:6,border:"1px solid #C8D0DB",background:"#fff",color:C.slate,cursor:"pointer",fontSize:12,fontWeight:600}}>← Manual entry</button>
           <span style={{color:C.slateL,fontSize:12}}>or upload a floor plan to auto-populate inputs</span>
         </div>
-        <div style={{background:"#fff",borderRadius:8,border:"1px solid #DDE3EA",overflow:"hidden"}}>
+        <div style={{...cardStyle,marginBottom:0}}>
           <SectionHeader>📐 Scan Architectural Drawing</SectionHeader>
           <ScanDrawingPanel onExtracted={onScanDone}/>
         </div>
@@ -1964,7 +2033,7 @@ export default function EstimatePage() {
   );
 
   if (screen==="review") return (
-    <div style={{fontFamily:"'Inter',system-ui,sans-serif",background:"#F1F4F8",minHeight:"100vh"}}>
+    <div className="cos-app" style={{fontFamily:"'Inter',system-ui,sans-serif",background:UI.pageBg,minHeight:"100vh"}}>
       <AppHeader showTabs={false}/>
       <ScopeModal scope={scope} labour={labour} inputs={effInputs}
         onConfirm={()=>{setTab("estimate");setScreen("output");}}
@@ -1973,12 +2042,12 @@ export default function EstimatePage() {
   );
 
   if (screen==="output") return (
-    <div style={{fontFamily:"'Inter',system-ui,sans-serif",background:"#F1F4F8",minHeight:"100vh"}}>
+    <div className="cos-app" style={{fontFamily:"'Inter',system-ui,sans-serif",background:UI.pageBg,minHeight:"100vh"}}>
       <AppHeader showTabs={true}/>
       <div style={{maxWidth:960,margin:"0 auto",padding:"0 20px 32px"}}>
         {inputs._scanNotes&&!geyserAsm&&<div style={{background:"#FEF5E7",border:`1px solid ${C.amber}40`,borderRadius:"0 0 6px 6px",padding:"6px 16px",fontSize:11,color:C.navy,marginBottom:4}}>📐 <strong>Scan-derived scope:</strong> {inputs._scanNotes}</div>}
         {geyserAsm&&<div style={{background:"#FEF5E7",border:`1px solid ${C.amber}40`,borderRadius:"0 0 6px 6px",padding:"6px 16px",fontSize:11,color:C.navy,marginBottom:4}}>♨ <strong>Geyser assembly · {finalGrade} grade:</strong> fixed-composition quote — {flags.length} note{flags.length===1?"":"s"} in the Learn tab{GRADES[finalGrade]?.rank>=GRADES["Derived"].rank?" · client-issuable through the normal gate.":" · not client-issuable until grade lifts."}</div>}
-        <div style={{background:"#fff",borderRadius:"0 8px 8px 8px",border:"1px solid #DDE3EA",borderTop:"none",overflow:"hidden"}}>
+        <div style={{background:C.white,borderRadius:"0 10px 10px 10px",borderLeft:`1px solid ${UI.border}`,borderRight:`1px solid ${UI.border}`,borderBottom:`1px solid ${UI.border}`,overflow:"hidden",boxShadow:UI.cardShadow}}>
           {tab==="estimate"&&<EstimateTab scope={scope} labour={labour} inputs={effInputs} finalGrade={finalGrade} docRef={docRef} documentType={documentType} onPrintDocument={printDocument} ladder={ladder} vatRate={vatRate} isGeneratingRef={isGeneratingRef}/>}
           {tab==="buy"    &&<BuyTab scope={scope} inputs={effInputs} quoteRef={docRef} onPrintBuy={printBuy}/>}
           {tab==="build"  &&<BuildTab labour={labour}/>}
@@ -1994,51 +2063,63 @@ export default function EstimatePage() {
     const lines = ((use==='supply' ? inputs.supplyLines : inputs.drainLines) ?? []);
     const types = pipeTypesFor(use);
     return (
-      <div style={{background:"#fff",borderRadius:8,border:"1px solid #DDE3EA",marginBottom:14,overflow:"hidden"}}>
+      <div style={cardStyle}>
         <SectionHeader>{title}</SectionHeader>
         <div style={{padding:"12px 16px"}}>
           {lines.length===0&&<div style={{fontSize:12,color:C.slateL,padding:"6px 2px 10px"}}>No {use} lines — add one below.</div>}
+          {lines.length>0&&(
+            <div className="cos-line cos-line--pipe cos-line-head">
+              <span style={T.colHead}>Material</span>
+              <span style={T.colHead}>Size</span>
+              <span style={{...T.colHead,textAlign:"center"}}>Run (m)</span>
+              <span style={{...T.colHead,textAlign:"right"}}>Rate</span>
+              <span style={{...T.colHead,textAlign:"right"}}>Line total</span>
+              <span/><span/>
+            </div>)}
           {lines.map(l=>{
             const dias = l.source==="custom" ? [] : pipeDiametersFor(use,l.type);
+            const isCustom = l.source==="custom";
             return (
-            <div key={l.id} style={{border:"1px solid #E0E5EC",borderRadius:8,padding:"8px 10px",marginBottom:8,background:l.source==="custom"?"#FEF5E7":C.offWhite}}>
-              <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-                <select value={l.source==="custom"?"__custom__":l.type}
+            <div key={l.id} className="cos-toggle" style={{borderRadius:8,padding:"7px 10px",marginBottom:6,
+              background:isCustom?UI.customBg:C.offWhite,border:`1px solid ${isCustom?C.amber+"55":UI.borderRow}`}}>
+              <div className="cos-line cos-line--pipe">
+                <select className="cos-grow" value={isCustom?"__custom__":l.type}
                   onChange={e=>{const v=e.target.value;
                     if(v==="__custom__"){updatePipeLine(use,l.id,{source:"custom",pipeCode:undefined,type:"Custom",diameter:0,description:"",perMetre:0,grade:"Assumption",supplier:undefined});}
                     else{const dia=pipeDiametersFor(use,v)[0];const r=pipeRow(use,v,dia);if(r)updatePipeLine(use,l.id,{source:"library",pipeCode:r.code,type:r.type,diameter:r.diameter,description:r.description,perMetre:r.perMetre,grade:r.grade,supplier:r.source});}}}
-                  style={{padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12,minWidth:90}}>
+                  style={{...rowSelect,minWidth:0}}>
                   {types.map(t=><option key={t} value={t}>{t}</option>)}
                   <option value="__custom__">Custom…</option>
                 </select>
-                {l.source!=="custom"&&(
-                  <select value={l.diameter}
+                {isCustom
+                  ? <span style={{...T.secondary,textAlign:"center"}}>—</span>
+                  : <select value={l.diameter}
                     onChange={e=>{const d=parseInt(e.target.value);const r=pipeRow(use,l.type,d);if(r)updatePipeLine(use,l.id,{pipeCode:r.code,diameter:r.diameter,description:r.description,perMetre:r.perMetre,grade:r.grade});}}
-                    style={{padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12,minWidth:80}}>
+                    style={{...rowSelect,minWidth:0}}>
                     {dias.map(d=><option key={d} value={d}>{d}mm</option>)}
-                  </select>)}
-                <div style={{display:"flex",alignItems:"center",gap:4}}>
+                  </select>}
+                <div className="cos-num" style={{display:"flex",alignItems:"center",gap:4,minWidth:0}}>
                   <input type="number" min={0} value={l.metres}
                     onChange={e=>updatePipeLine(use,l.id,{metres:Math.max(0,parseFloat(e.target.value)||0)})}
-                    style={{width:64,padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:14,fontWeight:700,textAlign:"center"}}/>
-                  <span style={{fontSize:11,color:C.slateL}}>m</span>
+                    style={{...rowCtl,width:"100%",minWidth:0,fontWeight:700,textAlign:"center",padding:"0 6px"}}/>
+                  <span style={T.secondary}>m</span>
                 </div>
-                <span style={{fontSize:10,color:C.slateL}}>R{l.perMetre.toFixed(2)}/m</span>
-                <span style={{fontSize:11,color:C.navy,fontWeight:600,minWidth:64,textAlign:"right"}}>{fmt(l.metres*l.perMetre)}</span>
+                <span style={{...T.rate,textAlign:"right"}}>R{l.perMetre.toFixed(2)}/m</span>
+                <span style={{...T.total,textAlign:"right"}}>{fmt(l.metres*l.perMetre)}</span>
                 <GradePill grade={l.grade}/>
-                <button onClick={()=>removePipeLine(use,l.id)} title="Remove" style={{padding:"4px 9px",borderRadius:6,border:"1px solid #E0B4B4",background:"#fff",color:C.red,cursor:"pointer",fontSize:13,fontWeight:700}}>✕</button>
+                <button onClick={()=>removePipeLine(use,l.id)} title="Remove line" aria-label="Remove line" style={rowDeleteBtn}>✕</button>
               </div>
-              {l.source==="custom"&&(
-                <div style={{display:"flex",gap:8,marginTop:8}}>
+              {isCustom&&(
+                <div style={{display:"flex",gap:8,marginTop:8,alignItems:"center"}}>
                   <input placeholder={`Custom ${use} pipe description`} value={l.description}
                     onChange={e=>updatePipeLine(use,l.id,{description:e.target.value})}
-                    style={{flex:1,padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12}}/>
+                    style={{...rowCtl,flex:1,minWidth:0}}/>
                   <div style={{display:"flex",alignItems:"center",gap:4}}>
-                    <span style={{fontSize:11,color:C.slateL}}>R</span>
+                    <span style={T.secondary}>R</span>
                     <input type="number" min={0} step="0.01" placeholder="/m" value={l.perMetre||""}
                       onChange={e=>updatePipeLine(use,l.id,{perMetre:Math.max(0,parseFloat(e.target.value)||0)})}
-                      style={{width:90,padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12}}/>
-                    <span style={{fontSize:11,color:C.slateL}}>/m</span>
+                      style={{...rowCtl,width:90}}/>
+                    <span style={T.secondary}>/m</span>
                   </div>
                 </div>)}
             </div>);
@@ -2053,33 +2134,33 @@ export default function EstimatePage() {
 
   // ENTRY FORM
   return (
-    <div style={{fontFamily:"'Inter',system-ui,sans-serif",background:"#F1F4F8",minHeight:"100vh"}}>
+    <div className="cos-app" style={{fontFamily:"'Inter',system-ui,sans-serif",background:UI.pageBg,minHeight:"100vh"}}>
       <AppHeader showTabs={false}/>
       <div style={{maxWidth:780,margin:"0 auto",padding:"24px 20px"}}>
         {/* Document type (quote vs invoice) is set on the home page and arrives
             via the ?doc search param — no on-page toggle here. */}
         {documentType==="invoice"&&(
-        <div style={{background:"#fff",borderRadius:8,border:"1px solid #DDE3EA",marginBottom:16,overflow:"hidden"}}>
+        <div style={cardStyle}>
           <SectionHeader>🧾 Invoice details — issued for work completed</SectionHeader>
           <div style={{padding:"14px 20px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
             <div>
-              <label style={{display:"block",fontSize:11,color:C.slateL,marginBottom:3,fontWeight:600}}>Issue date</label>
+              <label style={T.fieldLabel}>Issue date</label>
               <input type="date" value={invoiceMeta.issueDate}
                 onChange={e=>setInvoiceMeta(m=>({...m,issueDate:e.target.value,dueDate:addDays(e.target.value,7)}))}
-                style={{width:"100%",padding:"7px 10px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:13,color:C.navy,boxSizing:"border-box"}}/>
+                style={{...inputStyle,width:"100%"}}/>
             </div>
             <div>
-              <label style={{display:"block",fontSize:11,color:C.slateL,marginBottom:3,fontWeight:600}}>Due date <span style={{color:C.muted,fontWeight:400}}>(default issue + 7 days)</span></label>
+              <label style={T.fieldLabel}>Due date <span style={{color:C.muted,fontWeight:400}}>(default issue + 7 days)</span></label>
               <input type="date" value={invoiceMeta.dueDate}
                 onChange={e=>setInvoiceMeta(m=>({...m,dueDate:e.target.value}))}
-                style={{width:"100%",padding:"7px 10px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:13,color:C.navy,boxSizing:"border-box"}}/>
+                style={{...inputStyle,width:"100%"}}/>
             </div>
             <div style={{gridColumn:"1 / -1"}}>
-              <label style={{display:"block",fontSize:11,color:C.slateL,marginBottom:3,fontWeight:600}}>Banking details</label>
+              <label style={T.fieldLabel}>Banking details</label>
               <textarea value={invoiceMeta.bankingDetails} rows={2}
                 placeholder={DEFAULT_BANKING_DETAILS}
                 onChange={e=>setInvoiceMeta(m=>({...m,bankingDetails:e.target.value}))}
-                style={{width:"100%",padding:"7px 10px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12,color:C.navy,boxSizing:"border-box",fontFamily:"inherit",resize:"vertical"}}/>
+                style={{width:"100%",padding:"8px 10px",border:`1px solid ${UI.borderStrong}`,borderRadius:6,fontSize:12,color:C.navy,background:C.white,boxSizing:"border-box",fontFamily:"inherit",resize:"vertical"}}/>
               <div style={{fontSize:10,color:C.muted,marginTop:3}}>Invoice ref: <strong>{docRef || (isGeneratingRef ? "Generating…" : "generated on download")}</strong> · totals include 15% VAT · payment due {invoiceMeta.dueDate||"—"}</div>
             </div>
           </div>
@@ -2088,7 +2169,7 @@ export default function EstimatePage() {
         {/* Job-type selector — a single dropdown replacing the old button rows.
             Plumbing Estimate / Geyser Replacement / Scan Drawing. The document
             type (quote vs invoice) is NOT chosen here — it arrives from home. */}
-        <div style={{background:"#fff",borderRadius:8,border:"1px solid #DDE3EA",marginBottom:14,overflow:"hidden"}}>
+        <div style={cardStyle}>
           <SectionHeader>Job type</SectionHeader>
           <div style={{padding:"14px 20px"}}>
             <select
@@ -2099,11 +2180,8 @@ export default function EstimatePage() {
                 else if(v==="scan"){setJobMode("plumbing");setScreen("scan");}
                 else{setJobMode("plumbing");setScreen("entry");}
               }}
-              style={{width:"100%",padding:"11px 14px",border:`1px solid #C8D0DB`,borderRadius:8,
-                fontSize:14,fontWeight:700,color:C.navy,background:C.white,cursor:"pointer",
-                appearance:"none",
-                backgroundImage:`url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23${C.gold.slice(1)}' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>")`,
-                backgroundRepeat:"no-repeat",backgroundPosition:"right 14px center"}}>
+              style={{...selectStyle,width:"100%",height:46,borderRadius:8,fontSize:14,fontWeight:700,
+                paddingLeft:14,paddingRight:34,backgroundPosition:"right 14px center"}}>
               <option value="plumbing">Plumbing Estimate</option>
               <option value="geyser">Geyser Replacement</option>
               <option value="scan">Scan Drawing</option>
@@ -2114,14 +2192,14 @@ export default function EstimatePage() {
           </div>
         </div>
 
-        <div style={{background:"#fff",borderRadius:8,border:"1px solid #DDE3EA",marginBottom:14,overflow:"hidden"}}>
+        <div style={cardStyle}>
           <SectionHeader>Project Details</SectionHeader>
           <div style={{padding:"14px 20px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
             {([{l:"Project / Job name",k:"projectName"},{l:"Client name (optional)",k:"clientName"}] as const).map(f=>(
               <div key={f.k}>
-                <label style={{display:"block",fontSize:11,color:C.slateL,marginBottom:3,fontWeight:600}}>{f.l}</label>
+                <label style={T.fieldLabel}>{f.l}</label>
                 <input value={inputs[f.k] as string} onChange={e=>setInp(f.k,e.target.value)}
-                  style={{width:"100%",padding:"7px 10px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:13,color:C.navy,boxSizing:"border-box"}}/>
+                  style={{...inputStyle,width:"100%"}}/>
               </div>))}
           </div>
         </div>
@@ -2132,7 +2210,7 @@ export default function EstimatePage() {
             <label style={{fontSize:11,color:C.slateL,fontWeight:600}}>Points (make-offs)</label>
             <input type="number" min={0} value={inputs.points}
               onChange={e=>setInp("points",Math.max(0,parseInt(e.target.value)||0))}
-              style={{width:70,padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:13,textAlign:"center"}}/>
+              style={{...rowCtl,width:76,textAlign:"center",fontWeight:700}}/>
             <span style={{fontSize:10,color:C.muted}}>drives fittings & stop taps — set to 0 for maintenance callouts or repairs</span>
           </div>)}
 
@@ -2142,45 +2220,55 @@ export default function EstimatePage() {
             <span style={{fontSize:13,color:C.navy}}>Include trench excavation labour (across drainage lines)</span>
           </label>)}
 
-        <div style={{background:"#fff",borderRadius:8,border:"1px solid #DDE3EA",marginBottom:14,overflow:"hidden"}}>
+        <div style={cardStyle}>
           <SectionHeader>Fixtures</SectionHeader>
           <div style={{padding:"12px 16px"}}>
             {(inputs.fixtureLines ?? []).length===0&&
               <div style={{fontSize:12,color:C.slateL,padding:"6px 2px 10px"}}>No fixtures yet — add a line below.</div>}
+            {(inputs.fixtureLines ?? []).length>0&&(
+              <div className="cos-line cos-line--fixture cos-line-head">
+                <span style={T.colHead}>Fixture</span>
+                <span style={T.colHead}>Product</span>
+                <span style={{...T.colHead,textAlign:"center"}}>Qty</span>
+                <span style={{...T.colHead,textAlign:"right"}}>Line total</span>
+                <span/><span/>
+              </div>)}
             {(inputs.fixtureLines ?? []).map(fl=>{
               const presets=FIXTURE_PRESETS[fl.type];
+              const isCustom = fl.source==="custom";
               return (
-              <div key={fl.id} style={{border:"1px solid #E0E5EC",borderRadius:8,padding:"8px 10px",marginBottom:8,background:fl.source==="custom"?"#FEF5E7":C.offWhite}}>
-                <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+              <div key={fl.id} className="cos-toggle" style={{borderRadius:8,padding:"7px 10px",marginBottom:6,
+                background:isCustom?UI.customBg:C.offWhite,border:`1px solid ${isCustom?C.amber+"55":UI.borderRow}`}}>
+                <div className="cos-line cos-line--fixture">
                   <select value={fl.type} onChange={e=>{const t=e.target.value as FixtureType;const b=makeFixtureLine(t);updateFixtureLine(fl.id,{type:t,source:b.source,materialCode:b.materialCode,description:b.description,unitPrice:b.unitPrice,grade:b.grade,supplier:b.supplier});}}
-                    style={{padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12,minWidth:120}}>
+                    style={{...rowSelect,minWidth:0}}>
                     {FIXTURE_TYPES.map(ft=><option key={ft.t} value={ft.t}>{ft.label}</option>)}
                   </select>
-                  <select value={fl.source==="custom"?"__custom__":(fl.materialCode??"__custom__")}
+                  <select className="cos-grow" value={isCustom?"__custom__":(fl.materialCode??"__custom__")}
                     onChange={e=>{const v=e.target.value;
                       if(v==="__custom__"){updateFixtureLine(fl.id,{source:"custom",materialCode:undefined,description:"",unitPrice:0,grade:"Assumption",supplier:undefined});}
                       else{const p=presets.find(x=>x.materialCode===v);if(p)updateFixtureLine(fl.id,{source:"library",materialCode:p.materialCode,description:p.description,unitPrice:p.unitPrice,grade:p.grade,supplier:p.supplier});}}}
-                    style={{padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12,flex:1,minWidth:180}}>
+                    style={{...rowSelect,minWidth:0}}>
                     {presets.map(p=><option key={p.materialCode} value={p.materialCode}>{p.description}</option>)}
                     <option value="__custom__">Custom / enter your own…</option>
                   </select>
-                  <input type="number" min={0} max={50} value={fl.quantity}
+                  <input className="cos-num" type="number" min={0} max={50} value={fl.quantity}
                     onChange={e=>updateFixtureLine(fl.id,{quantity:Math.max(0,parseInt(e.target.value)||0)})}
-                    style={{width:60,padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:14,fontWeight:700,textAlign:"center"}}/>
-                  <span style={{fontSize:11,color:C.slateL,minWidth:70,textAlign:"right"}}>{fmt(fl.quantity*fl.unitPrice)}</span>
+                    style={{...rowCtl,minWidth:0,fontWeight:700,textAlign:"center",padding:"0 6px"}}/>
+                  <span style={{...T.total,textAlign:"right"}}>{fmt(fl.quantity*fl.unitPrice)}</span>
                   <GradePill grade={fl.grade}/>
-                  <button onClick={()=>removeFixtureLine(fl.id)} title="Remove" style={{padding:"4px 9px",borderRadius:6,border:"1px solid #E0B4B4",background:"#fff",color:C.red,cursor:"pointer",fontSize:13,fontWeight:700}}>✕</button>
+                  <button onClick={()=>removeFixtureLine(fl.id)} title="Remove line" aria-label="Remove line" style={rowDeleteBtn}>✕</button>
                 </div>
-                {fl.source==="custom"&&(
-                  <div style={{display:"flex",gap:8,marginTop:8}}>
+                {isCustom&&(
+                  <div style={{display:"flex",gap:8,marginTop:8,alignItems:"center"}}>
                     <input placeholder="Custom product description" value={fl.description}
                       onChange={e=>updateFixtureLine(fl.id,{description:e.target.value})}
-                      style={{flex:1,padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12}}/>
+                      style={{...rowCtl,flex:1,minWidth:0}}/>
                     <div style={{display:"flex",alignItems:"center",gap:4}}>
-                      <span style={{fontSize:11,color:C.slateL}}>R</span>
+                      <span style={T.secondary}>R</span>
                       <input type="number" min={0} step="0.01" placeholder="unit price" value={fl.unitPrice||""}
                         onChange={e=>updateFixtureLine(fl.id,{unitPrice:Math.max(0,parseFloat(e.target.value)||0)})}
-                        style={{width:100,padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12}}/>
+                        style={{...rowCtl,width:100}}/>
                     </div>
                   </div>)}
               </div>);
@@ -2220,45 +2308,76 @@ export default function EstimatePage() {
         </>)}
 
         {jobMode==="geyser"&&(
-        <div style={{background:"#fff",borderRadius:8,border:"1px solid #DDE3EA",marginBottom:14,overflow:"hidden"}}>
+        <div style={cardStyle}>
           <SectionHeader>Geyser Job Specs</SectionHeader>
           <div style={{padding:"14px 20px"}}>
-            <div style={{marginBottom:14}}>
-              <label style={{display:"block",fontSize:11,color:C.slateL,marginBottom:6,fontWeight:600}}>Job type</label>
-              <div style={{display:"flex",gap:8}}>
-                {([{v:"burst_replacement" as const,l:"Burst replacement"},{v:"element_repair" as const,l:"Element / thermostat repair"}]).map(j=>(
-                  <button key={j.v} onClick={()=>setGey({jobType:j.v})} style={{
-                    flex:1,padding:"9px 12px",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:700,
-                    border:`1px solid ${geyser.jobType===j.v?C.gold:"#C8D0DB"}`,
-                    background:geyser.jobType===j.v?C.goldPale:"#fff",color:C.navy}}>{j.l}</button>))}
+            <div style={{marginBottom:16}}>
+              <label style={{...T.fieldLabel,marginBottom:6}}>Job type</label>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                {([{v:"burst_replacement" as const,l:"Burst replacement"},{v:"element_repair" as const,l:"Element / thermostat repair"}]).map(j=>{
+                  const on = geyser.jobType===j.v;
+                  return (
+                  <button key={j.v} onClick={()=>setGey({jobType:j.v})} className="cos-toggle" aria-pressed={on} style={{
+                    display:"flex",alignItems:"center",justifyContent:"center",gap:7,
+                    padding:"11px 12px",borderRadius:8,cursor:"pointer",fontSize:12.5,fontWeight:800,
+                    border:`2px solid ${on?C.gold:UI.borderStrong}`,
+                    background:on?C.gold:C.white,color:on?C.navy:C.slate,
+                    boxShadow:on?"0 2px 8px rgba(245,166,35,0.35)":"none"}}>
+                    <span aria-hidden style={{display:"inline-flex",alignItems:"center",justifyContent:"center",
+                      width:16,height:16,borderRadius:"50%",flexShrink:0,fontSize:10,fontWeight:900,
+                      background:on?C.navy:"transparent",color:on?C.gold:"transparent",
+                      border:on?"none":`2px solid ${UI.borderStrong}`}}>{on?"✓":""}</span>
+                    {j.l}
+                  </button>);
+                })}
               </div>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
               <div>
-                <label style={{display:"block",fontSize:11,color:C.slateL,marginBottom:3,fontWeight:600}}>Geyser size</label>
+                <label style={T.fieldLabel}>Geyser size</label>
                 <select value={geyser.size} onChange={e=>setGey({size:parseInt(e.target.value) as GeyserSize})}
-                  style={{width:"100%",padding:"7px 10px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:13}}>
+                  style={{...selectStyle,width:"100%"}}>
                   {[50,100,150,200,250].map(s=><option key={s} value={s}>{s} L</option>)}
                 </select>
-                <div style={{fontSize:10,color:C.slateL,marginTop:3}}>Unit price Sourced (Plumblink 2026)</div>
+                <div style={{fontSize:10,color:C.slateL,marginTop:4}}>Unit price Sourced (Plumblink 2026)</div>
                 {geyser.size===150&&<div style={{fontSize:10,color:C.amber,marginTop:3}}>⚠ 150L ~15% under 2024 market — VR-11</div>}
               </div>
               {geyser.jobType==="burst_replacement"
                 ? <div>
-                    <label style={{display:"block",fontSize:11,color:C.slateL,marginBottom:3,fontWeight:600}}>Brand</label>
+                    <label style={T.fieldLabel}>Brand</label>
                     <select value={geyser.brand} onChange={e=>setGey({brand:e.target.value as GeyserBrand})}
-                      style={{width:"100%",padding:"7px 10px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:13}}>
+                      style={{...selectStyle,width:"100%"}}>
                       {["Kwikot","Ariston"].map(b=><option key={b}>{b}</option>)}
                     </select>
-                    <div style={{fontSize:10,color:C.slateL,marginTop:3}}>B-rated · 5yr warranty</div>
+                    <div style={{fontSize:10,color:C.slateL,marginTop:4}}>B-rated · 5yr warranty</div>
                   </div>
-                : <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",paddingTop:18}}>
+                : <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",paddingTop:22}}>
                     <input type="checkbox" checked={geyser.solar} onChange={e=>setGey({solar:e.target.checked})} style={{width:16,height:16}}/>
                     <span style={{fontSize:13,color:C.navy}}>Solar geyser (skip thermostat)</span>
                   </label>}
             </div>
-            <div style={{background:C.goldPale,border:`1px solid ${C.gold}40`,borderRadius:6,padding:"10px 14px",marginTop:14,fontSize:11,color:C.navy}}>
-              ♨ Fixed-composition assembly · <strong>{finalGrade} grade</strong> · material {fmt(matTotal)} + labour {fmt(labTotal)} → ladder → <strong>{fmt(sell)}</strong> sell excl. VAT. {GRADES[finalGrade]?.rank>=GRADES["Derived"].rank?"Client-issuable through the normal gate (see Learn tab).":"Not client-issuable until grade lifts (see Learn tab)."}
+            {/* Pricing breakdown — scannable labeled line items, not a run-on sentence. */}
+            <div style={{background:C.goldPale,border:`1px solid ${C.gold}40`,borderRadius:8,padding:"12px 14px",marginTop:16}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                <span style={{fontSize:12,fontWeight:800,color:C.navy}}>♨ Fixed-composition assembly</span>
+                <GradePill grade={finalGrade}/>
+              </div>
+              {[
+                {l:"Parts",v:matTotal},
+                {l:"Labour",v:labTotal},
+                {l:"Markup (commercial ladder)",v:sell-matTotal-labTotal},
+              ].map(r=>(
+                <div key={r.l} style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:"3px 0"}}>
+                  <span style={{fontSize:11.5,color:C.slate}}>{r.l}</span>
+                  <span style={{fontSize:12,fontWeight:600,color:C.navy,fontVariantNumeric:"tabular-nums"}}>{fmt(r.v)}</span>
+                </div>))}
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:"7px 0 1px",marginTop:4,borderTop:`1px solid ${C.gold}55`}}>
+                <span style={{fontSize:12,fontWeight:800,color:C.navy}}>Sell price excl. VAT</span>
+                <span style={{fontSize:16,fontWeight:900,color:C.goldDim,fontVariantNumeric:"tabular-nums"}}>{fmt(sell)}</span>
+              </div>
+              <div style={{fontSize:10,color:C.slateL,marginTop:6}}>
+                {GRADES[finalGrade]?.rank>=GRADES["Derived"].rank?"Client-issuable through the normal gate (see Learn tab).":"Not client-issuable until grade lifts (see Learn tab)."}
+              </div>
             </div>
           </div>
         </div>)}

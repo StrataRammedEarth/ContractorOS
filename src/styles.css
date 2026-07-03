@@ -174,3 +174,80 @@
   outline: 2px solid #f5a623;
   outline-offset: 2px;
 }
+
+/*
+ * Estimator shell (.cos-app) — the three job-type pages use inline styles for
+ * their base look; these rules add the things inline styles can't express:
+ * a single visible keyboard-focus ring on every control, and a hover cue on
+ * dropdowns/inputs. Scoped to .cos-app so nothing leaks to the rest of the app.
+ */
+.cos-app :is(select, input, textarea, button) {
+  transition:
+    border-color 0.12s ease,
+    box-shadow 0.12s ease,
+    background-color 0.12s ease;
+}
+.cos-app :is(select, input, textarea):hover:not(:disabled) {
+  border-color: #9fb0c4;
+}
+.cos-app :is(select, input, textarea, button, a, [tabindex]):focus-visible {
+  outline: 2px solid #f5a623;
+  outline-offset: 1px;
+  border-color: #f5a623;
+}
+/* Selected line-item rows / toggles animate their surface change. */
+.cos-app .cos-toggle {
+  transition:
+    border-color 0.12s ease,
+    box-shadow 0.12s ease,
+    background-color 0.12s ease;
+}
+/* Inactive nav tabs brighten toward gold on hover. */
+.cos-app .cos-tab:hover[aria-current="false"],
+.cos-app .cos-tab:not([aria-current]):hover {
+  color: #f5a623;
+}
+
+/*
+ * Line-item tables (Water Supply / Drainage / Fixtures). Grid templates live
+ * here (not inline) so a media query can restructure them: on wide screens the
+ * columns align across every row; on narrow screens the row wraps to a compact
+ * stack instead of clipping its trailing cells.
+ */
+.cos-app .cos-line {
+  display: grid;
+  column-gap: 8px;
+  align-items: center;
+}
+.cos-app .cos-line--pipe {
+  grid-template-columns: minmax(0, 1.5fr) 92px 90px 74px 90px 58px 30px;
+}
+.cos-app .cos-line--fixture {
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.6fr) 70px 90px 58px 30px;
+}
+.cos-app .cos-line-head {
+  padding: 0 10px 6px;
+}
+@media (max-width: 720px) {
+  .cos-app .cos-line--pipe,
+  .cos-app .cos-line--fixture {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 8px;
+  }
+  /* Column headers are meaningless once rows stack — hide them. Higher
+     specificity than the flex rule above so it wins for the header element. */
+  .cos-app .cos-line.cos-line-head {
+    display: none;
+  }
+  /* Material / product selector takes the full width; the rest wrap below it. */
+  .cos-app .cos-line--pipe > .cos-grow,
+  .cos-app .cos-line--fixture > .cos-grow {
+    flex: 1 1 100%;
+  }
+  .cos-app .cos-line--pipe > .cos-num,
+  .cos-app .cos-line--fixture > .cos-num {
+    flex: 0 0 auto;
+    width: 96px;
+  }
+}
