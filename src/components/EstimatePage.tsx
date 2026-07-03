@@ -625,7 +625,7 @@ function PriceCell({ row, style }: {
   style?: React.CSSProperties;
 }) {
   return isPriced(row)
-    ? <span style={{fontSize:11,color:C.slateL,textAlign:"right",...style}}>{fmt(resolvedTotal(row))}</span>
+    ? <span style={{...T.total,textAlign:"right",...style}}>{fmt(resolvedTotal(row))}</span>
     : <span style={style}/>;
 }
 function SectionHeader({ children }: { children: React.ReactNode }) {
@@ -1327,7 +1327,6 @@ function TemplateProductSelect({ row, onSelect, onManual, onResolveDefault }: {
 // gridColumn:"1 / -1"), and every data row (rendered as display:"contents"
 // wrappers so their cells land in the parent grid's columns).
 const TEMPLATE_ROW_GRID = "22px 100px 84px 140px 1fr 52px 70px 58px 26px";
-const templateHeaderCellStyle: React.CSSProperties = {fontSize:10,fontWeight:700,color:C.slateL,textTransform:"uppercase",letterSpacing:0.4};
 // minWidth:0 overrides the grid item's default min-width:auto (which otherwise
 // sizes to the element's intrinsic content — e.g. a <select>'s longest option
 // text — and forces the whole row to overflow its container).
@@ -1517,11 +1516,11 @@ function StandaloneFittingSection({ title, use, rows, catalogue, catalogueLoadin
           ? <div style={{fontSize:12,color:C.slateL,padding:"2px 2px 8px"}}>No {use} fittings yet — add one below.</div>
           : <div style={{display:"grid",gridTemplateColumns:STANDALONE_ROW_GRID,columnGap:8,rowGap:4,alignItems:"center"}}>
               <span/>
-              <span style={templateHeaderCellStyle}>Size</span>
-              <span style={templateHeaderCellStyle}>Fitting Type</span>
-              <span style={templateHeaderCellStyle}>Product</span>
-              <span style={{...templateHeaderCellStyle,textAlign:"center"}}>Qty</span>
-              <span style={{...templateHeaderCellStyle,textAlign:"right"}}>Price</span>
+              <span style={T.colHead}>Size</span>
+              <span style={T.colHead}>Fitting Type</span>
+              <span style={T.colHead}>Product</span>
+              <span style={{...T.colHead,textAlign:"center"}}>Qty</span>
+              <span style={{...T.colHead,textAlign:"right"}}>Price</span>
               <span/>
               <span/>
               {catalog.map(r=>(
@@ -1644,12 +1643,12 @@ function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, 
       <div style={{padding:"6px 12px 10px"}}>
         <div style={{display:"grid",gridTemplateColumns:TEMPLATE_ROW_GRID,columnGap:8,rowGap:4,alignItems:"center"}}>
           <span/>
-          <span style={templateHeaderCellStyle}>Application</span>
-          <span style={templateHeaderCellStyle}>Fitting Type</span>
-          <span style={templateHeaderCellStyle}>Size</span>
-          <span style={templateHeaderCellStyle}>Product</span>
-          <span style={{...templateHeaderCellStyle,textAlign:"center"}}>Qty</span>
-          <span style={{...templateHeaderCellStyle,textAlign:"right"}}>Price</span>
+          <span style={T.colHead}>Application</span>
+          <span style={T.colHead}>Fitting Type</span>
+          <span style={T.colHead}>Size</span>
+          <span style={T.colHead}>Product</span>
+          <span style={{...T.colHead,textAlign:"center"}}>Qty</span>
+          <span style={{...T.colHead,textAlign:"right"}}>Price</span>
           <span/>
           <span/>
 
