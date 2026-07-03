@@ -97,6 +97,12 @@ const rowDeleteBtn: React.CSSProperties = {
   width:30, height:30, padding:0, borderRadius:6, border:"1px solid #E0B4B4",
   background:C.white, color:C.red, cursor:"pointer", fontSize:13, fontWeight:700, lineHeight:1,
 };
+// Compact variant for denser fitting-cascade rows and inline remove actions
+// where a fixed 30px square would be disproportionate to the row height.
+const rowDeleteBtnCompact: React.CSSProperties = {
+  padding:"3px 8px", borderRadius:6, border:"1px solid #E0B4B4",
+  background:C.white, color:C.red, cursor:"pointer", fontSize:12, fontWeight:700,
+};
 // Line-item table column layouts live in styles.css (.cos-line--pipe /
 // .cos-line--fixture) so a media query can restructure them on narrow screens;
 // header + data rows share the same class so their columns line up.
@@ -614,8 +620,8 @@ const productOptionLabel = (m: Pick<PlumblinkMaterial, 'brand' | 'description' |
 // ─── MICRO COMPONENTS ─────────────────────────────────────────────────────────
 function GradePill({ grade }: { grade: string }) {
   const g = GRADES[grade] ?? GRADES["Placeholder"];
-  return <span style={{ display:"inline-block",padding:"1px 8px",borderRadius:99,fontSize:10,
-    fontWeight:700,letterSpacing:0.4,background:g.bg,color:g.color,border:`1px solid ${g.color}30` }}>{grade}</span>;
+  return <span style={{ display:"inline-block",padding:"1px 6px",borderRadius:99,fontSize:9,
+    fontWeight:700,letterSpacing:0.3,background:g.bg,color:g.color,border:`1px solid ${g.color}30` }}>{grade}</span>;
 }
 // Mirrors the Fixtures price span (fmt(qty*unitPrice)) for template/standalone
 // fitting rows. Blank — not "R 0.00" — until isPriced(row), so unresolved
@@ -1395,7 +1401,7 @@ function CatalogFittingRow({ row, catalogue, catalogueLoading, onUpdate, onRemov
       <PriceCell row={row}/>
       {grade ? <GradePill grade={grade}/> : <span/>}
       <button onClick={onRemove} title="Remove"
-        style={{padding:"3px 8px",borderRadius:6,border:"1px solid #E0B4B4",background:"#fff",color:C.red,cursor:"pointer",fontSize:12,fontWeight:700}}>✕</button>
+        style={rowDeleteBtnCompact}>✕</button>
     </div>
   );
 }
@@ -1451,7 +1457,7 @@ function StandaloneCatalogRow({ row, catalogue, catalogueLoading, onUpdate, onRe
       <PriceCell row={row}/>
       {grade ? <GradePill grade={grade}/> : <span/>}
       <button onClick={onRemove} title="Remove"
-        style={{padding:"3px 8px",borderRadius:6,border:"1px solid #E0B4B4",background:"#fff",color:C.red,cursor:"pointer",fontSize:12,fontWeight:700}}>✕</button>
+        style={rowDeleteBtnCompact}>✕</button>
     </div>
   );
 }
@@ -1503,7 +1509,7 @@ function StandaloneFittingSection({ title, use, rows, catalogue, catalogueLoadin
         <PriceCell row={r}/>
         {grade ? <GradePill grade={grade}/> : <span/>}
         <button onClick={()=>onRemove(use,r.id)} title="Remove"
-          style={{padding:"3px 8px",borderRadius:6,border:"1px solid #E0B4B4",background:"#fff",color:C.red,cursor:"pointer",fontSize:12,fontWeight:700}}>✕</button>
+          style={rowDeleteBtnCompact}>✕</button>
       </div>
     );
   };
@@ -1606,7 +1612,7 @@ function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, 
         {grade ? <GradePill grade={grade}/> : <span/>}
         {r.origin==="custom"
           ? <button onClick={()=>onRemoveRow(tpl.instanceId,r.id)} title="Remove"
-              style={{padding:"3px 8px",borderRadius:6,border:"1px solid #E0B4B4",background:"#fff",color:C.red,cursor:"pointer",fontSize:12,fontWeight:700,opacity:rowOpacity}}>✕</button>
+              style={{...rowDeleteBtnCompact,opacity:rowOpacity}}>✕</button>
           : <span/>}
       </div>
     );
@@ -1636,7 +1642,7 @@ function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, 
             onChange={e=>onSetBasis(tpl.instanceId,Math.max(0,parseFloat(e.target.value)||0))}
             style={{width:78,padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:13,textAlign:"center"}}/>
           <button onClick={()=>onRemoveTemplate(tpl.instanceId)} title="Remove template"
-            style={{padding:"4px 9px",borderRadius:6,border:"1px solid #E0B4B4",background:"#fff",color:C.red,cursor:"pointer",fontSize:13,fontWeight:700}}>✕</button>
+            style={{padding:"3px 8px",borderRadius:6,border:"1px solid #E0B4B4",background:"#fff",color:C.red,cursor:"pointer",fontSize:13,fontWeight:700}}>✕</button>
         </div>
       </div>
       <div style={{padding:"2px 12px 0",fontSize:10,color:C.slateL,fontStyle:"italic"}}>Suggested fittings for this fixture</div>
