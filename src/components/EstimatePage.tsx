@@ -531,12 +531,30 @@ function geyserToLabour(asm: GeyserAssembly, crewRateHr: number = CREW_RATE_HR):
 const fmt  = (n: number) => `R ${n.toLocaleString("en-ZA",{minimumFractionDigits:2,maximumFractionDigits:2})}`;
 const fmtN = (n: number) => n.toLocaleString("en-ZA",{minimumFractionDigits:2,maximumFractionDigits:2});
 const today = () => new Date().toLocaleDateString("en-ZA",{day:"numeric",month:"long",year:"numeric"});
+// Every product dropdown's visible option text: "[Brand] Product Name" only —
+// SKU/spec code, price and confidence tag stay on the record (still power the
+// price column and Sourced/Assumption badges) but are stripped from the label.
+const productOptionLabel = (m: Pick<PlumblinkMaterial, 'brand' | 'description' | 'material_code'>) => {
+  const name = m.description ?? m.material_code;
+  return m.brand ? `${m.brand} ${name}` : name;
+};
 
 // ─── MICRO COMPONENTS ─────────────────────────────────────────────────────────
 function GradePill({ grade }: { grade: string }) {
   const g = GRADES[grade] ?? GRADES["Placeholder"];
   return <span style={{ display:"inline-block",padding:"1px 8px",borderRadius:99,fontSize:10,
     fontWeight:700,letterSpacing:0.4,background:g.bg,color:g.color,border:`1px solid ${g.color}30` }}>{grade}</span>;
+}
+// Mirrors the Fixtures price span (fmt(qty*unitPrice)) for template/standalone
+// fitting rows. Blank — not "R 0.00" — until isPriced(row), so unresolved
+// custom/manual rows don't display a fake price ahead of their Assumption grade.
+function PriceCell({ row, style }: {
+  row: Pick<TemplateRowInstance, 'checked' | 'materialCode' | 'description' | 'unitPrice' | 'defaultQty' | 'quantityBasis'>;
+  style?: React.CSSProperties;
+}) {
+  return isPriced(row)
+    ? <span style={{fontSize:11,color:C.slateL,textAlign:"right",...style}}>{fmt(resolvedTotal(row))}</span>
+    : <span style={style}/>;
 }
 function SectionHeader({ children }: { children: React.ReactNode }) {
   return <div style={{ background:C.navyMid,color:C.gold,fontWeight:700,fontSize:11,
@@ -1225,8 +1243,7 @@ function TemplateProductSelect({ row, onSelect, onManual, onResolveDefault }: {
       if (m) onSelect({ materialCode:m.material_code, description:m.description ?? "", unitPrice:m.unit_price_excl_vat ?? 0 });
     }} style={inputStyle}>
       <option value="__select__" disabled>{materials.length? "Select product…" : "No matching products"}</option>
-      {materials.map(m=><option key={m.material_code} value={m.material_code}>
-        {(m.description ?? m.material_code)} — R{(m.unit_price_excl_vat ?? 0).toFixed(2)} ({m.confidence ?? "—"})</option>)}
+      {materials.map(m=><option key={m.material_code} value={m.material_code}>{productOptionLabel(m)}</option>)}
       <option value="__manual__">Enter manually…</option>
     </select>
   );
@@ -1235,7 +1252,7 @@ function TemplateProductSelect({ row, onSelect, onManual, onResolveDefault }: {
 // Column grid shared by the header row, group headers (which span it via
 // gridColumn:"1 / -1"), and every data row (rendered as display:"contents"
 // wrappers so their cells land in the parent grid's columns).
-const TEMPLATE_ROW_GRID = "22px 100px 84px 140px 1fr 52px 58px 26px";
+const TEMPLATE_ROW_GRID = "22px 100px 84px 140px 1fr 52px 70px 58px 26px";
 const templateHeaderCellStyle: React.CSSProperties = {fontSize:10,fontWeight:700,color:C.slateL,textTransform:"uppercase",letterSpacing:0.4};
 // minWidth:0 overrides the grid item's default min-width:auto (which otherwise
 // sizes to the element's intrinsic content — e.g. a <select>'s longest option
@@ -1294,11 +1311,12 @@ function CatalogFittingRow({ row, catalogue, catalogueLoading, onUpdate, onRemov
         }}
         style={templateSmallInputStyle}>
         <option value="__select__" disabled>{products.length?"Select product…":"No matching products"}</option>
-        {products.map(p=><option key={p.material_code} value={p.material_code}>{(p.description??p.material_code)} — R{(p.unit_price_excl_vat??0).toFixed(2)}</option>)}
+        {products.map(p=><option key={p.material_code} value={p.material_code}>{productOptionLabel(p)}</option>)}
       </select>
       <input type="number" min={0} step={1} value={row.defaultQty} title="Qty per unit"
         onChange={e=>{const q=Math.max(0,parseFloat(e.target.value)||0);onUpdate(x=>({...x,defaultQty:q}));}}
         style={{width:48,padding:"6px 6px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center"}}/>
+      <PriceCell row={row}/>
       {grade ? <GradePill grade={grade}/> : <span/>}
       <button onClick={onRemove} title="Remove"
         style={{padding:"3px 8px",borderRadius:6,border:"1px solid #E0B4B4",background:"#fff",color:C.red,cursor:"pointer",fontSize:12,fontWeight:700}}>✕</button>
@@ -1349,11 +1367,12 @@ function StandaloneCatalogRow({ row, catalogue, catalogueLoading, onUpdate, onRe
         }}
         style={templateSmallInputStyle}>
         <option value="__select__" disabled>{products.length?"Select product…":"No matching products"}</option>
-        {products.map(p=><option key={p.material_code} value={p.material_code}>{(p.description??p.material_code)} — R{(p.unit_price_excl_vat??0).toFixed(2)}</option>)}
+        {products.map(p=><option key={p.material_code} value={p.material_code}>{productOptionLabel(p)}</option>)}
       </select>
       <input type="number" min={0} step={1} value={row.defaultQty} title="Qty"
         onChange={e=>{const q=Math.max(0,parseFloat(e.target.value)||0);onUpdate(x=>({...x,defaultQty:q}));}}
         style={{width:48,padding:"6px 6px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center"}}/>
+      <PriceCell row={row}/>
       {grade ? <GradePill grade={grade}/> : <span/>}
       <button onClick={onRemove} title="Remove"
         style={{padding:"3px 8px",borderRadius:6,border:"1px solid #E0B4B4",background:"#fff",color:C.red,cursor:"pointer",fontSize:12,fontWeight:700}}>✕</button>
@@ -1365,7 +1384,7 @@ function StandaloneCatalogRow({ row, catalogue, catalogueLoading, onUpdate, onRe
 // fixture header, no fixture-count basis: it's a plain list of catalogue-cascade
 // rows (Size → Fitting Type → Product) with a manual "+ Add custom fitting"
 // fallback for anything off-catalogue.
-const STANDALONE_ROW_GRID = "22px 110px 150px 1fr 52px 58px 26px";
+const STANDALONE_ROW_GRID = "22px 110px 150px 1fr 52px 70px 58px 26px";
 function StandaloneFittingSection({ title, use, rows, catalogue, catalogueLoading, onAdd, onAddCustom, onUpdate, onRemove }: {
   title: string;
   use: 'supply'|'drainage';
@@ -1405,6 +1424,7 @@ function StandaloneFittingSection({ title, use, rows, catalogue, catalogueLoadin
         <input type="number" min={0} step={1} value={r.defaultQty} title="Qty"
           onChange={e=>{const q=Math.max(0,parseFloat(e.target.value)||0);onUpdate(use,r.id,x=>({...x,defaultQty:q}));}}
           style={{width:48,padding:"6px 6px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center"}}/>
+        <PriceCell row={r}/>
         {grade ? <GradePill grade={grade}/> : <span/>}
         <button onClick={()=>onRemove(use,r.id)} title="Remove"
           style={{padding:"3px 8px",borderRadius:6,border:"1px solid #E0B4B4",background:"#fff",color:C.red,cursor:"pointer",fontSize:12,fontWeight:700}}>✕</button>
@@ -1424,6 +1444,7 @@ function StandaloneFittingSection({ title, use, rows, catalogue, catalogueLoadin
               <span style={templateHeaderCellStyle}>Fitting Type</span>
               <span style={templateHeaderCellStyle}>Product</span>
               <span style={{...templateHeaderCellStyle,textAlign:"center"}}>Qty</span>
+              <span style={{...templateHeaderCellStyle,textAlign:"right"}}>Price</span>
               <span/>
               <span/>
               {catalog.map(r=>(
@@ -1505,6 +1526,7 @@ function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, 
         <input type="number" min={0} step={1} value={r.defaultQty} title="Qty per unit"
           onChange={e=>{const q=Math.max(0,parseFloat(e.target.value)||0);onUpdateRow(tpl.instanceId,r.id,x=>({...x,defaultQty:q}));}}
           style={{width:48,padding:"6px 6px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center",opacity:rowOpacity}}/>
+        <PriceCell row={r} style={{opacity:rowOpacity}}/>
         {grade ? <GradePill grade={grade}/> : <span/>}
         {r.origin==="custom"
           ? <button onClick={()=>onRemoveRow(tpl.instanceId,r.id)} title="Remove"
@@ -1550,6 +1572,7 @@ function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, 
           <span style={templateHeaderCellStyle}>Size</span>
           <span style={templateHeaderCellStyle}>Product</span>
           <span style={{...templateHeaderCellStyle,textAlign:"center"}}>Qty</span>
+          <span style={{...templateHeaderCellStyle,textAlign:"right"}}>Price</span>
           <span/>
           <span/>
 
@@ -2138,7 +2161,7 @@ export default function EstimatePage() {
                       if(v==="__custom__"){updateFixtureLine(fl.id,{source:"custom",materialCode:undefined,description:"",unitPrice:0,grade:"Assumption",supplier:undefined});}
                       else{const p=presets.find(x=>x.materialCode===v);if(p)updateFixtureLine(fl.id,{source:"library",materialCode:p.materialCode,description:p.description,unitPrice:p.unitPrice,grade:p.grade,supplier:p.supplier});}}}
                     style={{padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12,flex:1,minWidth:180}}>
-                    {presets.map(p=><option key={p.materialCode} value={p.materialCode}>{p.description} — R{p.unitPrice} ({p.grade})</option>)}
+                    {presets.map(p=><option key={p.materialCode} value={p.materialCode}>{p.description}</option>)}
                     <option value="__custom__">Custom / enter your own…</option>
                   </select>
                   <input type="number" min={0} max={50} value={fl.quantity}
