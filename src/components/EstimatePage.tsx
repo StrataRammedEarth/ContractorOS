@@ -2270,7 +2270,7 @@ export default function EstimatePage() {
                 <span style={T.colHead}>Product</span>
                 <span style={{...T.colHead,textAlign:"center"}}>Qty</span>
                 <span style={{...T.colHead,textAlign:"right"}}>Line total</span>
-                <span/><span/>
+                <span/>
               </div>)}
             {(inputs.fixtureLines ?? []).map((fl,i,arr)=>{
               const presets=FIXTURE_PRESETS[fl.type];
@@ -2300,8 +2300,10 @@ export default function EstimatePage() {
                     onChange={e=>updateFixtureLine(fl.id,{quantity:Math.max(0,parseInt(e.target.value)||0)})}
                     style={{...rowCtl,minWidth:0,fontWeight:700,textAlign:"center",padding:"0 6px"}}/>
                   <span style={{...T.total,textAlign:"right",height:34}}>{fmt(fl.quantity*fl.unitPrice)}</span>
-                  <GradePill grade={fl.grade}/>
-                  <button onClick={()=>removeFixtureLine(fl.id)} title="Remove line" aria-label="Remove line" style={rowDeleteBtn}>✕</button>
+                  <div style={{display:"flex",alignItems:"center",gap:4,justifySelf:"end"}}>
+                    <GradePill grade={fl.grade}/>
+                    <button onClick={()=>removeFixtureLine(fl.id)} title="Remove line" aria-label="Remove line" style={rowDeleteBtn}>✕</button>
+                  </div>
                 </div>
                 {isCustom&&(
                   <div style={{display:"flex",gap:8,marginTop:8,alignItems:"center"}}>
