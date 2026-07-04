@@ -1619,6 +1619,7 @@ function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, 
   catalogue: PlumblinkMaterial[];
   catalogueLoading: boolean;
 }) {
+  const [collapsed, setCollapsed] = useState(false);
   const sc = sectionCounts(tpl.rows,"suggested");
   const oc = sectionCounts(tpl.rows,"optional");
   const suggested = tpl.rows.filter(r=>r.origin==="suggested");
@@ -1690,9 +1691,15 @@ function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, 
   return (
     <div style={{border:`1px solid ${C.gold}55`,borderRadius:8,marginBottom:12,overflow:"hidden"}}>
       <div style={{background:C.goldPale,padding:"8px 12px",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-        <div style={{fontWeight:800,fontSize:13,color:C.navy}}>
-          {tpl.fixtureType} Template — {tpl.templateVariant} <span style={{fontSize:11}}>🔗</span>
-          <span style={{fontWeight:600,color:C.slateL,fontSize:11}}> · {tpl.scope}</span>
+        <div style={{display:"flex",alignItems:"center",gap:4}}>
+          <button onClick={()=>setCollapsed(c=>!c)} title={collapsed?"Expand":"Collapse"}
+            style={{background:"none",border:"none",cursor:"pointer",padding:4,color:C.navy,fontSize:12,display:"flex",alignItems:"center"}}>
+            {collapsed ? "▸" : "▾"}
+          </button>
+          <div style={{fontWeight:800,fontSize:13,color:C.navy}}>
+            {tpl.fixtureType} Template — {tpl.templateVariant} <span style={{fontSize:11}}>🔗</span>
+            <span style={{fontWeight:600,color:C.slateL,fontSize:11}}> · {tpl.scope}</span>
+          </div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
           <label style={{fontSize:11,color:C.slateL,fontWeight:600}}>{quantityInputLabel(tpl.scope)}</label>
@@ -1703,40 +1710,44 @@ function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, 
             style={{padding:"3px 8px",borderRadius:6,border:"1px solid #E0B4B4",background:"#fff",color:C.red,cursor:"pointer",fontSize:13,fontWeight:700}}>✕</button>
         </div>
       </div>
-      <div style={{padding:"2px 12px 0",fontSize:10,color:C.slateL,fontStyle:"italic"}}>Suggested fittings for this fixture</div>
-      <div style={{padding:"6px 12px 10px"}}>
-        <div style={{display:"grid",gridTemplateColumns:TEMPLATE_ROW_GRID,columnGap:8,rowGap:4,alignItems:"center"}}>
-          <span/>
-          <span style={T.colHead}>Application</span>
-          <span style={T.colHead}>Fitting Type</span>
-          <span style={T.colHead}>Size</span>
-          <span style={T.colHead}>Product</span>
-          <span style={{...T.colHead,textAlign:"center"}}>Qty</span>
-          <span style={{...T.colHead,textAlign:"right"}}>Price</span>
-          <span/>
-          <span/>
+      {!collapsed && (
+        <>
+          <div style={{padding:"2px 12px 0",fontSize:10,color:C.slateL,fontStyle:"italic"}}>Suggested fittings for this fixture</div>
+          <div style={{padding:"6px 12px 10px"}}>
+            <div style={{display:"grid",gridTemplateColumns:TEMPLATE_ROW_GRID,columnGap:8,rowGap:4,alignItems:"center"}}>
+              <span/>
+              <span style={T.colHead}>Application</span>
+              <span style={T.colHead}>Fitting Type</span>
+              <span style={T.colHead}>Size</span>
+              <span style={T.colHead}>Product</span>
+              <span style={{...T.colHead,textAlign:"center"}}>Qty</span>
+              <span style={{...T.colHead,textAlign:"right"}}>Price</span>
+              <span/>
+              <span/>
 
-          {suggested.length>0&&groupHead(filledCheck,`Suggested fittings (${sc.active} of ${sc.total} confirmed)`)}
-          {suggested.map((r,i)=>renderRow(r, i<suggested.length-1))}
-          {optional.length>0&&groupHead(emptyRadio,`Optional fittings (${oc.active} of ${oc.total} selected)`)}
-          {optional.map((r,i)=>renderRow(r, i<optional.length-1))}
-          {catalog.length>0&&plainHead("Catalogue fittings")}
-          {catalog.map((r,i)=>(
-            <CatalogFittingRow key={r.id} row={r} catalogue={catalogue} catalogueLoading={catalogueLoading}
-              showDivider={i<catalog.length-1}
-              onUpdate={fn=>onUpdateRow(tpl.instanceId,r.id,fn)} onRemove={()=>onRemoveRow(tpl.instanceId,r.id)}/>
-          ))}
-          {custom.length>0&&plainHead("Custom fittings")}
-          {custom.map((r,i)=>renderRow(r, i<custom.length-1))}
-        </div>
-        <div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}>
-          <button onClick={()=>onAddCatalogRow(tpl.instanceId)}
-            style={addLineBtn}>+ Add fitting</button>
-          <button onClick={()=>onAddCustomRow(tpl.instanceId)}
-            style={addLineBtn}>+ Add custom fitting</button>
-        </div>
-        <div style={{...T.muted,marginTop:6}}>ⓘ Only confirmed rows are priced and added to the buy list.</div>
-      </div>
+              {suggested.length>0&&groupHead(filledCheck,`Suggested fittings (${sc.active} of ${sc.total} confirmed)`)}
+              {suggested.map((r,i)=>renderRow(r, i<suggested.length-1))}
+              {optional.length>0&&groupHead(emptyRadio,`Optional fittings (${oc.active} of ${oc.total} selected)`)}
+              {optional.map((r,i)=>renderRow(r, i<optional.length-1))}
+              {catalog.length>0&&plainHead("Catalogue fittings")}
+              {catalog.map((r,i)=>(
+                <CatalogFittingRow key={r.id} row={r} catalogue={catalogue} catalogueLoading={catalogueLoading}
+                  showDivider={i<catalog.length-1}
+                  onUpdate={fn=>onUpdateRow(tpl.instanceId,r.id,fn)} onRemove={()=>onRemoveRow(tpl.instanceId,r.id)}/>
+              ))}
+              {custom.length>0&&plainHead("Custom fittings")}
+              {custom.map((r,i)=>renderRow(r, i<custom.length-1))}
+            </div>
+            <div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}>
+              <button onClick={()=>onAddCatalogRow(tpl.instanceId)}
+                style={addLineBtn}>+ Add fitting</button>
+              <button onClick={()=>onAddCustomRow(tpl.instanceId)}
+                style={addLineBtn}>+ Add custom fitting</button>
+            </div>
+            <div style={{...T.muted,marginTop:6}}>ⓘ Only confirmed rows are priced and added to the buy list.</div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
