@@ -11,7 +11,19 @@
  * Source evidence: Vissi Plumbing Solutions quotes (Hermanus, 2022–2026).
  *
  * Governance: never store sell-side lines as cost (would double-count margin).
+ *
+ * Pricing source: fetchGeyserPricing() reads live prices from Supabase
+ * (plumblink_materials, builders_materials, geyser_components) — the same
+ * tables that were the source of the *_FALLBACK constants below. The build
+ * functions stay synchronous and pure; they take pricing as a parameter
+ * instead of reading module-level constants, so callers fetch once (see
+ * EstimatePage's geyserPricing state) rather than each build call awaiting
+ * its own round trip. If the fetch fails or a table returns incomplete data
+ * for a size/brand the code needs, fetchGeyserPricing fills the gap from the
+ * *_FALLBACK constants — a geyser estimate must never silently show R0.
  */
+
+import { supabase } from './supabase-client';
 
 export type GeyserBrand = 'Kwikot' | 'Ariston';
 export type GeyserSize = 50 | 100 | 150 | 200 | 250;
@@ -56,7 +68,9 @@ export interface GeyserAssembly {
 // SKU already bundles TP valve + drain cock ("inc TP&DC"), so the kit covers only
 // the all-in installation kit (600kPa PCV + 2× vacuum breakers) plus the drip
 // tray = R867.83 Sourced (was ~R1,070 Assumption — the estimate ran ~19% high).
-const REPLACEMENT_KIT: Omit<CostLine, 'total'>[] = [
+// Fallback only — fetchGeyserPricing() reads the live price from
+// builders_materials (BLD-GK07 / BLD-GK08) and overrides unitCost below.
+const REPLACEMENT_KIT_FALLBACK: Omit<CostLine, 'total'>[] = [
   { code: 'BLD-GEY-KIT', description: 'Geyser installation kit (600kPa PCV + 2× vacuum breakers)', unit: 'ea', quantity: 1, unitCost: 668.70, grade: 'Sourced', writingMode: 'Install' },
   { code: 'BLD-GEY-DRT', description: 'Kwikot DRT1600 drip tray', unit: 'ea', quantity: 1, unitCost: 199.13, grade: 'Sourced', writingMode: 'Install' },
 ];
@@ -64,7 +78,9 @@ const REPLACEMENT_KIT: Omit<CostLine, 'total'>[] = [
 // ─── GEYSER UNIT COST BY SIZE × BRAND — Sourced (Plumblink 2026, excl VAT) ─────
 // VR-07 CLOSED: real screenshot-confirmed Plumblink prices, all sizes both brands.
 // Kwikot and Ariston are identical at 100/150L but diverge at 50/200/250L.
-const GEYSER_UNIT_COST: Record<GeyserSize, Record<GeyserBrand, number>> = {
+// Fallback only — fetchGeyserPricing() reads live prices from plumblink_materials
+// (section='Geysers') and overrides these per size/brand cell.
+const GEYSER_UNIT_COST_FALLBACK: Record<GeyserSize, Record<GeyserBrand, number>> = {
   50:  { Kwikot: 4694.78,  Ariston: 4520.87 },
   100: { Kwikot: 4173.04,  Ariston: 4173.04 },
   150: { Kwikot: 4173.04,  Ariston: 4173.04 },
@@ -74,6 +90,8 @@ const GEYSER_UNIT_COST: Record<GeyserSize, Record<GeyserBrand, number>> = {
 
 // ─── LABOUR BLOCK BY SIZE — Assumption grade (crew-derived) ───────────────────
 // VR-09: confirm against actual crew hours. 50L assumed same as 100L (small unit).
+// Not part of this pricing swap — no Supabase table holds crew-labour costs;
+// this stays hardcoded until VR-09 is resolved with real crew-hour data.
 const GEYSER_LABOUR_COST: Record<GeyserSize, number> = {
   50:  1400,
   100: 1400,
@@ -83,7 +101,9 @@ const GEYSER_LABOUR_COST: Record<GeyserSize, number> = {
 };
 
 // ─── ELEMENT REPAIR KITS — Sourced (contractor check-list, stale 2022) ────────
-const ELEMENT_KITS: Record<
+// Fallback only — fetchGeyserPricing() reads live prices from geyser_components
+// (PLB-GEY-006/007/008) and overrides cost below.
+const ELEMENT_KITS_FALLBACK: Record<
   GeyserSize,
   { description: string; cost: number } | null
 > = {
@@ -94,16 +114,109 @@ const ELEMENT_KITS: Record<
   250: null, // not in check-list — flag
 };
 
+// ─── ELEMENT-REPAIR FALLBACK COMPONENTS (used when ELEMENT_KITS has no kit for
+// the size, i.e. 50L/250L) — Sourced (geyser_components: PLB-GEY-003/001/005).
+const ELEMENT_COMPONENTS_FALLBACK = { element: 400, thermostat: 280, flange: 100 };
+
+const SUPPORTED_SIZES: GeyserSize[] = [50, 100, 150, 200, 250];
+const GEYSER_BRANDS: GeyserBrand[] = ['Kwikot', 'Ariston'];
+
+export interface GeyserPricingData {
+  unitCostBySize: Record<GeyserSize, Partial<Record<GeyserBrand, number>>>;
+  replacementKit: Omit<CostLine, 'total'>[];
+  elementKits: Record<GeyserSize, { description: string; cost: number } | null>;
+  elementComponents: { element: number; thermostat: number; flange: number };
+}
+
+/**
+ * Live Supabase prices for the Geyser fixed-composition engine, with a
+ * per-cell fallback to the hardcoded *_FALLBACK constants above whenever a
+ * query errors or a table is missing a size/brand/kit the code needs.
+ */
+export async function fetchGeyserPricing(): Promise<GeyserPricingData> {
+  const unitCostBySize: Record<GeyserSize, Partial<Record<GeyserBrand, number>>> =
+    { 50: {}, 100: {}, 150: {}, 200: {}, 250: {} };
+
+  const { data: unitRows, error: unitsError } = await supabase
+    .from('plumblink_materials')
+    .select('brand, size, unit_price_excl_vat')
+    .eq('section', 'Geysers')
+    .neq('size', '450L');
+  if (unitsError) {
+    console.error('❌ Error loading geyser unit prices, using fallback:', unitsError);
+  }
+  for (const row of unitRows ?? []) {
+    const size = Number(String(row.size).replace(/L$/i, '')) as GeyserSize;
+    const brand = row.brand as GeyserBrand;
+    if (!SUPPORTED_SIZES.includes(size) || !GEYSER_BRANDS.includes(brand)) continue;
+    if (row.unit_price_excl_vat != null) unitCostBySize[size][brand] = Number(row.unit_price_excl_vat);
+  }
+  for (const size of SUPPORTED_SIZES) {
+    for (const brand of GEYSER_BRANDS) {
+      if (unitCostBySize[size][brand] == null) unitCostBySize[size][brand] = GEYSER_UNIT_COST_FALLBACK[size][brand];
+    }
+  }
+
+  let replacementKit = REPLACEMENT_KIT_FALLBACK;
+  const { data: kitRows, error: kitError } = await supabase
+    .from('builders_materials')
+    .select('material_code, unit_price_excl_vat')
+    .in('material_code', ['BLD-GK07', 'BLD-GK08']);
+  if (kitError) {
+    console.error('❌ Error loading geyser kit prices, using fallback:', kitError);
+  } else {
+    const kit = kitRows?.find(r => r.material_code === 'BLD-GK07');
+    const drt = kitRows?.find(r => r.material_code === 'BLD-GK08');
+    if (kit?.unit_price_excl_vat != null && drt?.unit_price_excl_vat != null) {
+      const priceByCode: Record<string, number> = {
+        'BLD-GEY-KIT': Number(kit.unit_price_excl_vat),
+        'BLD-GEY-DRT': Number(drt.unit_price_excl_vat),
+      };
+      replacementKit = REPLACEMENT_KIT_FALLBACK.map(line => ({
+        ...line,
+        unitCost: priceByCode[line.code] ?? line.unitCost,
+      }));
+    }
+  }
+
+  const elementKits: Record<GeyserSize, { description: string; cost: number } | null> = { ...ELEMENT_KITS_FALLBACK };
+  const elementComponents = { ...ELEMENT_COMPONENTS_FALLBACK };
+  const { data: componentRows, error: componentsError } = await supabase
+    .from('geyser_components')
+    .select('material_code, unit_price_excl_vat')
+    .in('material_code', ['PLB-GEY-001', 'PLB-GEY-003', 'PLB-GEY-005', 'PLB-GEY-006', 'PLB-GEY-007', 'PLB-GEY-008']);
+  if (componentsError) {
+    console.error('❌ Error loading geyser component prices, using fallback:', componentsError);
+  } else {
+    const priceOf = (code: string) => componentRows?.find(r => r.material_code === code)?.unit_price_excl_vat;
+    const kitSizeByCode: Record<string, GeyserSize> = { 'PLB-GEY-006': 100, 'PLB-GEY-007': 150, 'PLB-GEY-008': 200 };
+    for (const [code, size] of Object.entries(kitSizeByCode)) {
+      const price = priceOf(code);
+      const existing = elementKits[size];
+      if (price != null && existing) elementKits[size] = { ...existing, cost: Number(price) };
+    }
+    const elementPrice = priceOf('PLB-GEY-003');
+    const thermostatPrice = priceOf('PLB-GEY-001');
+    const flangePrice = priceOf('PLB-GEY-005');
+    if (elementPrice != null) elementComponents.element = Number(elementPrice);
+    if (thermostatPrice != null) elementComponents.thermostat = Number(thermostatPrice);
+    if (flangePrice != null) elementComponents.flange = Number(flangePrice);
+  }
+
+  return { unitCostBySize, replacementKit, elementKits, elementComponents };
+}
+
 /**
  * Build a burst geyser replacement assembly (true-cost inputs).
  */
 export function buildGeyserReplacement(
   size: GeyserSize,
-  brand: GeyserBrand = 'Kwikot'
+  brand: GeyserBrand,
+  pricing: GeyserPricingData
 ): GeyserAssembly {
   const flags: string[] = [];
 
-  const unitCost = GEYSER_UNIT_COST[size][brand];
+  const unitCost = pricing.unitCostBySize[size][brand] ?? GEYSER_UNIT_COST_FALLBACK[size][brand];
   const geyserLine: CostLine = {
     code: `PLB-GEY-${size}`,
     description: `${size}L ${brand} B-rated geyser, inc TP&DC (5yr warranty)`,
@@ -115,7 +228,7 @@ export function buildGeyserReplacement(
     writingMode: 'Remove & Replace',
   };
 
-  const kitLines: CostLine[] = REPLACEMENT_KIT.map((l) => ({
+  const kitLines: CostLine[] = pricing.replacementKit.map((l) => ({
     ...l,
     total: l.unitCost * l.quantity,
   }));
@@ -150,12 +263,13 @@ export function buildGeyserReplacement(
  */
 export function buildElementRepair(
   size: GeyserSize,
-  solar: boolean = false
+  solar: boolean,
+  pricing: GeyserPricingData
 ): GeyserAssembly {
   const flags: string[] = [];
   const lines: CostLine[] = [];
 
-  const kit = ELEMENT_KITS[size];
+  const kit = pricing.elementKits[size];
   if (kit) {
     lines.push({
       code: `PLB-GEY-EK-${size}`,
@@ -170,15 +284,15 @@ export function buildElementRepair(
   } else {
     // fall back to component build
     lines.push(
-      { code: 'PLB-GEY-003', description: 'Geyser element (standard)', unit: 'ea', quantity: 1, unitCost: 400, total: 400, grade: 'Sourced', writingMode: 'Repair' },
-      { code: 'PLB-GEY-001', description: 'Thermostat (standard)', unit: 'ea', quantity: 1, unitCost: 280, total: 280, grade: 'Sourced', writingMode: 'Repair' }
+      { code: 'PLB-GEY-003', description: 'Geyser element (standard)', unit: 'ea', quantity: 1, unitCost: pricing.elementComponents.element, total: pricing.elementComponents.element, grade: 'Sourced', writingMode: 'Repair' },
+      { code: 'PLB-GEY-001', description: 'Thermostat (standard)', unit: 'ea', quantity: 1, unitCost: pricing.elementComponents.thermostat, total: pricing.elementComponents.thermostat, grade: 'Sourced', writingMode: 'Repair' }
     );
     flags.push(`No element kit listed for ${size}L — built from components`);
   }
 
   // Flange rubber — skipped for solar (contractor rule) and for kits that exclude it
   if (!solar && !kit) {
-    lines.push({ code: 'PLB-GEY-005', description: 'Flange rubber', unit: 'ea', quantity: 1, unitCost: 100, total: 100, grade: 'Sourced', writingMode: 'Repair' });
+    lines.push({ code: 'PLB-GEY-005', description: 'Flange rubber', unit: 'ea', quantity: 1, unitCost: pricing.elementComponents.flange, total: pricing.elementComponents.flange, grade: 'Sourced', writingMode: 'Repair' });
   }
   if (solar) flags.push('Solar geyser — thermostat not replaced (contractor rule)');
 
