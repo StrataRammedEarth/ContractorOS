@@ -116,6 +116,14 @@ const addLineBtn: React.CSSProperties = {
   padding:"7px 14px", borderRadius:6, border:`1px dashed ${C.gold}`,
   background:C.goldPale, color:C.navy, cursor:"pointer", fontSize:12, fontWeight:700,
 };
+// Secondary/back-navigation button — the "← [Label]" family used to step
+// back within a multi-phase flow (scan review, scope confirmation, manual
+// entry toggle). One shared look instead of each call site hand-picking
+// its own padding.
+const backNavBtn: React.CSSProperties = {
+  padding:"8px 16px", borderRadius:6, border:`1px solid ${UI.borderStrong}`,
+  background:"#fff", color:C.slate, cursor:"pointer", fontWeight:600, fontSize:12,
+};
 // Line-item table column layouts live in styles.css (.cos-line--pipe /
 // .cos-line--fixture) so a media query can restructure them on narrow screens;
 // header + data rows share the same class so their columns line up.
@@ -870,7 +878,7 @@ function ScanDrawingPanel({ onExtracted }: { onExtracted: (data: Inputs) => void
       </div>
       <div style={{padding:"12px 0",display:"flex",gap:10,justifyContent:"flex-end"}}>
         <button onClick={()=>{setImgB64(null);setPreview(null);setPhase("idle");}}
-          style={{padding:"8px 16px",borderRadius:6,border:`1px solid ${UI.borderStrong}`,background:"#fff",color:C.slate,cursor:"pointer",fontWeight:600,fontSize:12}}>← Different image</button>
+          style={backNavBtn}>← Different image</button>
         <button onClick={runScan}
           style={primaryBtn}>Analyse Drawing →</button>
       </div>
@@ -892,7 +900,7 @@ function ScanDrawingPanel({ onExtracted }: { onExtracted: (data: Inputs) => void
         <div style={{fontWeight:700,color:C.red,marginBottom:8}}>⚠ Scan failed</div>
         <div style={{fontSize:12,color:C.navy,marginBottom:12,lineHeight:1.6}}>{error}</div>
         <button onClick={()=>{setPhase("idle");setError("");}}
-          style={{padding:"7px 16px",borderRadius:6,border:`1px solid ${UI.borderStrong}`,background:"#fff",color:C.slate,cursor:"pointer",fontWeight:600,fontSize:12}}>← Try again</button>
+          style={backNavBtn}>← Try again</button>
       </div>
     </div>
   );
@@ -930,7 +938,7 @@ function ScanDrawingPanel({ onExtracted }: { onExtracted: (data: Inputs) => void
         </div>
       </div>
       <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
-        <button onClick={()=>setPhase("preview")} style={{padding:"8px 16px",borderRadius:6,border:`1px solid ${UI.borderStrong}`,background:"#fff",color:C.slate,cursor:"pointer",fontWeight:600,fontSize:12}}>← Back</button>
+        <button onClick={()=>setPhase("preview")} style={backNavBtn}>← Back</button>
         <button onClick={confirmExtraction} style={primaryBtn}>Confirm &amp; Build Scope →</button>
       </div>
     </div>
@@ -981,7 +989,7 @@ function ScopeModal({ scope, labour, inputs, onConfirm, onBack }: { scope: Scope
           <div style={{background:"#FEF5E7",border:`1px solid ${C.amber}50`,borderRadius:6,padding:"8px 12px",marginTop:10,fontSize:11,color:C.navy}}>⚠ This is a review aid. Verify scope before generating the estimate.</div>
         </div>
         <div style={{padding:"12px 24px",borderTop:"1px solid #E0E5EC",display:"flex",gap:10,justifyContent:"flex-end"}}>
-          <button onClick={onBack} style={{padding:"8px 18px",borderRadius:6,border:`1px solid ${UI.borderStrong}`,background:"#fff",color:C.slate,cursor:"pointer",fontWeight:600,fontSize:12}}>← Revise</button>
+          <button onClick={onBack} style={backNavBtn}>← Revise</button>
           <button onClick={onConfirm} style={primaryBtn}>Confirm &amp; Generate Estimate →</button>
         </div>
       </div>
@@ -1321,7 +1329,7 @@ function TemplateProductSelect({ row, onSelect, onManual, onResolveDefault }: {
           onChange={e=>onManual(row.description, Math.max(0,parseFloat(e.target.value)||0))}
           style={{width:88,padding:"6px 8px",border:`1px solid ${UI.borderStrong}`,borderRadius:6,fontSize:12}}/>
         {!manualOnly&&<button onClick={()=>setManual(false)} title="Back to catalogue"
-          style={{padding:"4px 8px",borderRadius:6,border:`1px solid ${UI.borderStrong}`,background:"#fff",color:C.slate,cursor:"pointer",fontSize:12}}>↺</button>}
+          style={{...backNavBtn,padding:"4px 8px"}}>↺</button>}
       </div>
     );
   }
@@ -2066,7 +2074,7 @@ export default function EstimatePage() {
       <AppHeader showTabs={false}/>
       <div style={{maxWidth:680,margin:"0 auto",padding:"24px 20px"}}>
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
-          <button onClick={()=>setScreen("entry")} style={{padding:"6px 14px",borderRadius:6,border:`1px solid ${UI.borderStrong}`,background:"#fff",color:C.slate,cursor:"pointer",fontSize:12,fontWeight:600}}>← Manual entry</button>
+          <button onClick={()=>setScreen("entry")} style={backNavBtn}>← Manual entry</button>
           <span style={{color:C.slateL,fontSize:12}}>or upload a floor plan to auto-populate inputs</span>
         </div>
         <div style={{...cardStyle,marginBottom:0}}>
