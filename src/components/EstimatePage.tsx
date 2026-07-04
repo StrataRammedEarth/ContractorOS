@@ -2064,7 +2064,7 @@ export default function EstimatePage() {
   if (screen==="output") return (
     <div className="cos-app" style={{fontFamily:"'Inter',system-ui,sans-serif",background:UI.pageBg,minHeight:"100vh"}}>
       <AppHeader showTabs={true}/>
-      <div style={{maxWidth:960,margin:"0 auto",padding:"0 20px 32px"}}>
+      <div style={{maxWidth:960,margin:"0 auto",padding:`0 ${S.xxl}px ${S.xxl}px`}}>
         {inputs._scanNotes&&!geyserAsm&&<div style={{background:"#FEF5E7",border:`1px solid ${C.amber}40`,borderRadius:"0 0 6px 6px",padding:"6px 16px",fontSize:11,color:C.navy,marginBottom:4}}>📐 <strong>Scan-derived scope:</strong> {inputs._scanNotes}</div>}
         {geyserAsm&&<div style={{background:"#FEF5E7",border:`1px solid ${C.amber}40`,borderRadius:"0 0 6px 6px",padding:"6px 16px",fontSize:11,color:C.navy,marginBottom:4}}>♨ <strong>Geyser assembly · {finalGrade} grade:</strong> fixed-composition quote — {flags.length} note{flags.length===1?"":"s"} in the Learn tab{GRADES[finalGrade]?.rank>=GRADES["Derived"].rank?" · client-issuable through the normal gate.":" · not client-issuable until grade lifts."}</div>}
         <div style={{background:C.white,borderRadius:"0 10px 10px 10px",borderLeft:`1px solid ${UI.border}`,borderRight:`1px solid ${UI.border}`,borderBottom:`1px solid ${UI.border}`,overflow:"hidden",boxShadow:UI.cardShadow}}>
