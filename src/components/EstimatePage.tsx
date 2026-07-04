@@ -1,8 +1,8 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { Link, getRouteApi } from "@tanstack/react-router";
 import {
-  buildGeyserReplacement, buildElementRepair,
-  type GeyserAssembly, type GeyserSize, type GeyserBrand, type GeyserJobType,
+  buildGeyserReplacement, buildElementRepair, fetchGeyserPricing,
+  type GeyserAssembly, type GeyserSize, type GeyserBrand, type GeyserJobType, type GeyserPricingData,
 } from "@/lib/geyser-assembly";
 import {
   printInvoiceDocument, isoDate, addDays, DEFAULT_BANKING_DETAILS,
@@ -1844,6 +1844,17 @@ export default function EstimatePage() {
     return () => { alive = false; };
   }, []);
   const [geyser, setGeyser]   = useState<GeyserMeta>(GEYSER_DEFAULT);
+  // Geyser pricing (fetched once, like `catalogue` above) — feeds the
+  // fixed-composition build functions, which stay synchronous/pure.
+  const [geyserPricing, setGeyserPricing] = useState<GeyserPricingData | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetchGeyserPricing().then(data => {
+      if (!alive) return;
+      setGeyserPricing(data);
+    });
+    return () => { alive = false; };
+  }, []);
   const [documentType] = useState<DocumentType>(doc);
   const [docRef, setDocRef] = useState<string | null>(null);
   const [isGeneratingRef, setIsGeneratingRef] = useState(false);
@@ -1854,11 +1865,11 @@ export default function EstimatePage() {
 
   // Geyser assembly (fixed-composition) vs plumbing engine (baseline-and-scale)
   const geyserAsm = useMemo<GeyserAssembly | null>(() =>
-    jobMode==="geyser"
+    jobMode==="geyser" && geyserPricing
       ? (geyser.jobType==="burst_replacement"
-          ? buildGeyserReplacement(geyser.size, geyser.brand)
-          : buildElementRepair(geyser.size, geyser.solar))
-      : null, [jobMode, geyser]);
+          ? buildGeyserReplacement(geyser.size, geyser.brand, geyserPricing)
+          : buildElementRepair(geyser.size, geyser.solar, geyserPricing))
+      : null, [jobMode, geyser, geyserPricing]);
 
   const scope  = useMemo(()=> geyserAsm ? geyserToScope(geyserAsm)  : buildScope(inputs, { invoiceStrict: documentType==="invoice" }),  [geyserAsm, inputs, documentType]);
   const labour = useMemo(()=> geyserAsm ? geyserToLabour(geyserAsm, crewRateHr) : buildLabour(inputs, crewRateHr), [geyserAsm, inputs, crewRateHr]);
