@@ -1345,7 +1345,7 @@ function TemplateProductSelect({ row, onSelect, onManual, onResolveDefault }: {
 // Column grid shared by the header row, group headers (which span it via
 // gridColumn:"1 / -1"), and every data row (rendered as display:"contents"
 // wrappers so their cells land in the parent grid's columns).
-const TEMPLATE_ROW_GRID = "22px 100px 84px 140px 1fr 52px 70px 58px 26px";
+const TEMPLATE_ROW_GRID = "22px 100px 130px 80px 1fr 52px 70px 58px 26px";
 // minWidth:0 overrides the grid item's default min-width:auto (which otherwise
 // sizes to the element's intrinsic content — e.g. a <select>'s longest option
 // text — and forces the whole row to overflow its container).
