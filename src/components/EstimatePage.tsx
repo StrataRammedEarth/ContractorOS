@@ -1353,7 +1353,11 @@ const templateSmallInputStyle: React.CSSProperties = {padding:"6px 8px",border:`
 // Same look as templateSmallInputStyle but with the shared gold chevron — used by
 // the cascade/product <select>s so every dropdown in the app matches.
 const templateSmallSelectStyle: React.CSSProperties = {...templateSmallInputStyle, appearance:"none", cursor:"pointer", paddingRight:24, backgroundImage:CHEVRON, backgroundRepeat:"no-repeat", backgroundPosition:"right 7px center"};
-const templateLockedTextStyle: React.CSSProperties = {fontSize:11,color:C.slate,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"};
+const templateLockedTextStyle: React.CSSProperties = {
+  fontSize:11, color:C.slate, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
+  padding:"6px 8px", border:`1px solid ${UI.border}`, borderRadius:6, background:UI.pageBg,
+  boxSizing:"border-box", height:32, display:"flex", alignItems:"center",
+};
 
 // A fixture-template catalogue-cascade row's Application/Fitting Type/Size/Product
 // cells — four dependent dropdowns, each disabled until the one before it is
