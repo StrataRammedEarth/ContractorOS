@@ -1345,7 +1345,7 @@ function TemplateProductSelect({ row, onSelect, onManual, onResolveDefault }: {
 // Column grid shared by the header row, group headers (which span it via
 // gridColumn:"1 / -1"), and every data row (rendered as display:"contents"
 // wrappers so their cells land in the parent grid's columns).
-const TEMPLATE_ROW_GRID = "22px 80px 110px 70px 1fr 52px 112px 58px 26px";
+const TEMPLATE_ROW_GRID = "22px 80px 110px 70px 1fr 52px 112px minmax(88px, auto)";
 // minWidth:0 overrides the grid item's default min-width:auto (which otherwise
 // sizes to the element's intrinsic content — e.g. a <select>'s longest option
 // text — and forces the whole row to overflow its container).
@@ -1416,9 +1416,11 @@ function CatalogFittingRow({ row, catalogue, catalogueLoading, onUpdate, onRemov
         onChange={e=>{const q=Math.max(0,parseFloat(e.target.value)||0);onUpdate(x=>({...x,defaultQty:q}));}}
         style={{width:48,padding:"6px 6px",border:`1px solid ${UI.borderStrong}`,borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center"}}/>
       <PriceCell row={row}/>
-      {grade ? <GradePill grade={grade}/> : <span/>}
-      <button onClick={onRemove} title="Remove"
-        style={rowDeleteBtnCompact}>✕</button>
+      <div style={{display:"flex",alignItems:"center",gap:4,justifySelf:"end"}}>
+        {grade ? <GradePill grade={grade}/> : <span/>}
+        <button onClick={onRemove} title="Remove"
+          style={rowDeleteBtnCompact}>✕</button>
+      </div>
     </div>
   );
 }
@@ -1472,9 +1474,11 @@ function StandaloneCatalogRow({ row, catalogue, catalogueLoading, onUpdate, onRe
         onChange={e=>{const q=Math.max(0,parseFloat(e.target.value)||0);onUpdate(x=>({...x,defaultQty:q}));}}
         style={{width:48,padding:"6px 6px",border:`1px solid ${UI.borderStrong}`,borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center"}}/>
       <PriceCell row={row}/>
-      {grade ? <GradePill grade={grade}/> : <span/>}
-      <button onClick={onRemove} title="Remove"
-        style={rowDeleteBtnCompact}>✕</button>
+      <div style={{display:"flex",alignItems:"center",gap:4,justifySelf:"end"}}>
+        {grade ? <GradePill grade={grade}/> : <span/>}
+        <button onClick={onRemove} title="Remove"
+          style={rowDeleteBtnCompact}>✕</button>
+      </div>
     </div>
   );
 }
@@ -1483,7 +1487,7 @@ function StandaloneCatalogRow({ row, catalogue, catalogueLoading, onUpdate, onRe
 // fixture header, no fixture-count basis: it's a plain list of catalogue-cascade
 // rows (Size → Fitting Type → Product) with a manual "+ Add custom fitting"
 // fallback for anything off-catalogue.
-const STANDALONE_ROW_GRID = "22px 80px 120px 1fr 52px 112px 58px 26px";
+const STANDALONE_ROW_GRID = "22px 80px 120px 1fr 52px 112px minmax(88px, auto)";
 function StandaloneFittingSection({ title, use, rows, catalogue, catalogueLoading, onAdd, onAddCustom, onUpdate, onRemove }: {
   title: string;
   use: 'supply'|'drainage';
@@ -1524,9 +1528,11 @@ function StandaloneFittingSection({ title, use, rows, catalogue, catalogueLoadin
           onChange={e=>{const q=Math.max(0,parseFloat(e.target.value)||0);onUpdate(use,r.id,x=>({...x,defaultQty:q}));}}
           style={{width:48,padding:"6px 6px",border:`1px solid ${UI.borderStrong}`,borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center"}}/>
         <PriceCell row={r}/>
-        {grade ? <GradePill grade={grade}/> : <span/>}
-        <button onClick={()=>onRemove(use,r.id)} title="Remove"
-          style={rowDeleteBtnCompact}>✕</button>
+        <div style={{display:"flex",alignItems:"center",gap:4,justifySelf:"end"}}>
+          {grade ? <GradePill grade={grade}/> : <span/>}
+          <button onClick={()=>onRemove(use,r.id)} title="Remove"
+            style={rowDeleteBtnCompact}>✕</button>
+        </div>
       </div>
     );
   };
@@ -1626,11 +1632,13 @@ function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, 
           onChange={e=>{const q=Math.max(0,parseFloat(e.target.value)||0);onUpdateRow(tpl.instanceId,r.id,x=>({...x,defaultQty:q}));}}
           style={{width:48,padding:"6px 6px",border:`1px solid ${UI.borderStrong}`,borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center",opacity:rowOpacity}}/>
         <PriceCell row={r} style={{opacity:rowOpacity}}/>
-        {grade ? <GradePill grade={grade}/> : <span/>}
-        {r.origin==="custom"
-          ? <button onClick={()=>onRemoveRow(tpl.instanceId,r.id)} title="Remove"
-              style={{...rowDeleteBtnCompact,opacity:rowOpacity}}>✕</button>
-          : <span/>}
+        <div style={{display:"flex",alignItems:"center",gap:4,justifySelf:"end"}}>
+          {grade ? <GradePill grade={grade}/> : <span/>}
+          {r.origin==="custom"
+            ? <button onClick={()=>onRemoveRow(tpl.instanceId,r.id)} title="Remove"
+                style={{...rowDeleteBtnCompact,opacity:rowOpacity}}>✕</button>
+            : <span/>}
+        </div>
       </div>
     );
   };
@@ -2144,8 +2152,10 @@ export default function EstimatePage() {
                 </div>
                 <span style={{...T.rate,textAlign:"right"}}>R{l.perMetre.toFixed(2)}/m</span>
                 <span style={{...T.total,textAlign:"right",height:34}}>{fmt(l.metres*l.perMetre)}</span>
-                <GradePill grade={l.grade}/>
-                <button onClick={()=>removePipeLine(use,l.id)} title="Remove line" aria-label="Remove line" style={rowDeleteBtn}>✕</button>
+                <div style={{display:"flex",alignItems:"center",gap:4,justifySelf:"end"}}>
+                  <GradePill grade={l.grade}/>
+                  <button onClick={()=>removePipeLine(use,l.id)} title="Remove line" aria-label="Remove line" style={rowDeleteBtn}>✕</button>
+                </div>
               </div>
               {isCustom&&(
                 <div style={{display:"flex",gap:8,marginTop:8,alignItems:"center"}}>
