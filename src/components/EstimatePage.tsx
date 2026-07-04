@@ -1345,7 +1345,7 @@ function TemplateProductSelect({ row, onSelect, onManual, onResolveDefault }: {
 // Column grid shared by the header row, group headers (which span it via
 // gridColumn:"1 / -1"), and every data row (rendered as display:"contents"
 // wrappers so their cells land in the parent grid's columns).
-const TEMPLATE_ROW_GRID = "22px 80px 110px 70px 1fr 52px 90px 58px 26px";
+const TEMPLATE_ROW_GRID = "22px 80px 110px 70px 1fr 52px 112px 58px 26px";
 // minWidth:0 overrides the grid item's default min-width:auto (which otherwise
 // sizes to the element's intrinsic content — e.g. a <select>'s longest option
 // text — and forces the whole row to overflow its container).
@@ -1483,7 +1483,7 @@ function StandaloneCatalogRow({ row, catalogue, catalogueLoading, onUpdate, onRe
 // fixture header, no fixture-count basis: it's a plain list of catalogue-cascade
 // rows (Size → Fitting Type → Product) with a manual "+ Add custom fitting"
 // fallback for anything off-catalogue.
-const STANDALONE_ROW_GRID = "22px 110px 150px 1fr 52px 70px 58px 26px";
+const STANDALONE_ROW_GRID = "22px 80px 120px 1fr 52px 112px 58px 26px";
 function StandaloneFittingSection({ title, use, rows, catalogue, catalogueLoading, onAdd, onAddCustom, onUpdate, onRemove }: {
   title: string;
   use: 'supply'|'drainage';
