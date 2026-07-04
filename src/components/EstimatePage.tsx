@@ -865,12 +865,12 @@ function ScanDrawingPanel({ onExtracted }: { onExtracted: (data: Inputs) => void
   if (phase==="preview") return (
     <div style={{padding:16}}>
       <SectionHeader>Drawing Preview — Ready to Analyse</SectionHeader>
-      <div style={{background:"#fff",padding:14,textAlign:"center",border:"1px solid #DDE3EA",borderTop:"none"}}>
+      <div style={{background:"#fff",padding:14,textAlign:"center",border:`1px solid ${UI.border}`,borderTop:"none"}}>
         <img src={preview!} alt="floor plan" style={{maxWidth:"100%",maxHeight:420,objectFit:"contain",borderRadius:6}}/>
       </div>
       <div style={{padding:"12px 0",display:"flex",gap:10,justifyContent:"flex-end"}}>
         <button onClick={()=>{setImgB64(null);setPreview(null);setPhase("idle");}}
-          style={{padding:"8px 16px",borderRadius:6,border:"1px solid #C8D0DB",background:"#fff",color:C.slate,cursor:"pointer",fontWeight:600,fontSize:12}}>← Different image</button>
+          style={{padding:"8px 16px",borderRadius:6,border:`1px solid ${UI.borderStrong}`,background:"#fff",color:C.slate,cursor:"pointer",fontWeight:600,fontSize:12}}>← Different image</button>
         <button onClick={runScan}
           style={primaryBtn}>Analyse Drawing →</button>
       </div>
@@ -892,7 +892,7 @@ function ScanDrawingPanel({ onExtracted }: { onExtracted: (data: Inputs) => void
         <div style={{fontWeight:700,color:C.red,marginBottom:8}}>⚠ Scan failed</div>
         <div style={{fontSize:12,color:C.navy,marginBottom:12,lineHeight:1.6}}>{error}</div>
         <button onClick={()=>{setPhase("idle");setError("");}}
-          style={{padding:"7px 16px",borderRadius:6,border:"1px solid #C8D0DB",background:"#fff",color:C.slate,cursor:"pointer",fontWeight:600,fontSize:12}}>← Try again</button>
+          style={{padding:"7px 16px",borderRadius:6,border:`1px solid ${UI.borderStrong}`,background:"#fff",color:C.slate,cursor:"pointer",fontWeight:600,fontSize:12}}>← Try again</button>
       </div>
     </div>
   );
@@ -930,7 +930,7 @@ function ScanDrawingPanel({ onExtracted }: { onExtracted: (data: Inputs) => void
         </div>
       </div>
       <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
-        <button onClick={()=>setPhase("preview")} style={{padding:"8px 16px",borderRadius:6,border:"1px solid #C8D0DB",background:"#fff",color:C.slate,cursor:"pointer",fontWeight:600,fontSize:12}}>← Back</button>
+        <button onClick={()=>setPhase("preview")} style={{padding:"8px 16px",borderRadius:6,border:`1px solid ${UI.borderStrong}`,background:"#fff",color:C.slate,cursor:"pointer",fontWeight:600,fontSize:12}}>← Back</button>
         <button onClick={confirmExtraction} style={primaryBtn}>Confirm &amp; Build Scope →</button>
       </div>
     </div>
@@ -981,7 +981,7 @@ function ScopeModal({ scope, labour, inputs, onConfirm, onBack }: { scope: Scope
           <div style={{background:"#FEF5E7",border:`1px solid ${C.amber}50`,borderRadius:6,padding:"8px 12px",marginTop:10,fontSize:11,color:C.navy}}>⚠ This is a review aid. Verify scope before generating the estimate.</div>
         </div>
         <div style={{padding:"12px 24px",borderTop:"1px solid #E0E5EC",display:"flex",gap:10,justifyContent:"flex-end"}}>
-          <button onClick={onBack} style={{padding:"8px 18px",borderRadius:6,border:"1px solid #C8D0DB",background:"#fff",color:C.slate,cursor:"pointer",fontWeight:600,fontSize:12}}>← Revise</button>
+          <button onClick={onBack} style={{padding:"8px 18px",borderRadius:6,border:`1px solid ${UI.borderStrong}`,background:"#fff",color:C.slate,cursor:"pointer",fontWeight:600,fontSize:12}}>← Revise</button>
           <button onClick={onConfirm} style={primaryBtn}>Confirm &amp; Generate Estimate →</button>
         </div>
       </div>
@@ -1319,9 +1319,9 @@ function TemplateProductSelect({ row, onSelect, onManual, onResolveDefault }: {
         <span style={{fontSize:11,color:C.slateL}}>R</span>
         <input type="number" min={0} step="0.01" placeholder="price" value={row.unitPrice||""}
           onChange={e=>onManual(row.description, Math.max(0,parseFloat(e.target.value)||0))}
-          style={{width:88,padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:12}}/>
+          style={{width:88,padding:"6px 8px",border:`1px solid ${UI.borderStrong}`,borderRadius:6,fontSize:12}}/>
         {!manualOnly&&<button onClick={()=>setManual(false)} title="Back to catalogue"
-          style={{padding:"4px 8px",borderRadius:6,border:"1px solid #C8D0DB",background:"#fff",color:C.slate,cursor:"pointer",fontSize:12}}>↺</button>}
+          style={{padding:"4px 8px",borderRadius:6,border:`1px solid ${UI.borderStrong}`,background:"#fff",color:C.slate,cursor:"pointer",fontSize:12}}>↺</button>}
       </div>
     );
   }
@@ -1414,7 +1414,7 @@ function CatalogFittingRow({ row, catalogue, catalogueLoading, onUpdate, onRemov
       </select>
       <input type="number" min={0} step={1} value={row.defaultQty} title="Qty per unit"
         onChange={e=>{const q=Math.max(0,parseFloat(e.target.value)||0);onUpdate(x=>({...x,defaultQty:q}));}}
-        style={{width:48,padding:"6px 6px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center"}}/>
+        style={{width:48,padding:"6px 6px",border:`1px solid ${UI.borderStrong}`,borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center"}}/>
       <PriceCell row={row}/>
       {grade ? <GradePill grade={grade}/> : <span/>}
       <button onClick={onRemove} title="Remove"
@@ -1470,7 +1470,7 @@ function StandaloneCatalogRow({ row, catalogue, catalogueLoading, onUpdate, onRe
       </select>
       <input type="number" min={0} step={1} value={row.defaultQty} title="Qty"
         onChange={e=>{const q=Math.max(0,parseFloat(e.target.value)||0);onUpdate(x=>({...x,defaultQty:q}));}}
-        style={{width:48,padding:"6px 6px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center"}}/>
+        style={{width:48,padding:"6px 6px",border:`1px solid ${UI.borderStrong}`,borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center"}}/>
       <PriceCell row={row}/>
       {grade ? <GradePill grade={grade}/> : <span/>}
       <button onClick={onRemove} title="Remove"
@@ -1522,7 +1522,7 @@ function StandaloneFittingSection({ title, use, rows, catalogue, catalogueLoadin
         </div>
         <input type="number" min={0} step={1} value={r.defaultQty} title="Qty"
           onChange={e=>{const q=Math.max(0,parseFloat(e.target.value)||0);onUpdate(use,r.id,x=>({...x,defaultQty:q}));}}
-          style={{width:48,padding:"6px 6px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center"}}/>
+          style={{width:48,padding:"6px 6px",border:`1px solid ${UI.borderStrong}`,borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center"}}/>
         <PriceCell row={r}/>
         {grade ? <GradePill grade={grade}/> : <span/>}
         <button onClick={()=>onRemove(use,r.id)} title="Remove"
@@ -1559,7 +1559,7 @@ function StandaloneFittingSection({ title, use, rows, catalogue, catalogueLoadin
           <button onClick={()=>onAddCustom(use)}
             style={addLineBtn}>+ Add custom fitting</button>
         </div>
-        <div style={{fontSize:10,color:C.muted,marginTop:6}}>ⓘ {priced} priced · only confirmed rows are priced and added to the buy list.</div>
+        <div style={{...T.muted,marginTop:6}}>ⓘ {priced} priced · only confirmed rows are priced and added to the buy list.</div>
       </div>
     </div>
   );
@@ -1624,7 +1624,7 @@ function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, 
         </div>
         <input type="number" min={0} step={1} value={r.defaultQty} title="Qty per unit"
           onChange={e=>{const q=Math.max(0,parseFloat(e.target.value)||0);onUpdateRow(tpl.instanceId,r.id,x=>({...x,defaultQty:q}));}}
-          style={{width:48,padding:"6px 6px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center",opacity:rowOpacity}}/>
+          style={{width:48,padding:"6px 6px",border:`1px solid ${UI.borderStrong}`,borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center",opacity:rowOpacity}}/>
         <PriceCell row={r} style={{opacity:rowOpacity}}/>
         {grade ? <GradePill grade={grade}/> : <span/>}
         {r.origin==="custom"
@@ -1657,7 +1657,7 @@ function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, 
           <label style={{fontSize:11,color:C.slateL,fontWeight:600}}>{quantityInputLabel(tpl.scope)}</label>
           <input type="number" min={tpl.scope==="system"?0:1} step={tpl.scope==="system"?0.5:1} value={tpl.quantityBasis}
             onChange={e=>onSetBasis(tpl.instanceId,Math.max(0,parseFloat(e.target.value)||0))}
-            style={{width:78,padding:"6px 8px",border:"1px solid #C8D0DB",borderRadius:6,fontSize:13,textAlign:"center"}}/>
+            style={{width:78,padding:"6px 8px",border:`1px solid ${UI.borderStrong}`,borderRadius:6,fontSize:13,textAlign:"center"}}/>
           <button onClick={()=>onRemoveTemplate(tpl.instanceId)} title="Remove template"
             style={{padding:"3px 8px",borderRadius:6,border:"1px solid #E0B4B4",background:"#fff",color:C.red,cursor:"pointer",fontSize:13,fontWeight:700}}>✕</button>
         </div>
@@ -1693,7 +1693,7 @@ function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, 
           <button onClick={()=>onAddCustomRow(tpl.instanceId)}
             style={addLineBtn}>+ Add custom fitting</button>
         </div>
-        <div style={{fontSize:10,color:C.muted,marginTop:6}}>ⓘ Only confirmed rows are priced and added to the buy list.</div>
+        <div style={{...T.muted,marginTop:6}}>ⓘ Only confirmed rows are priced and added to the buy list.</div>
       </div>
     </div>
   );
@@ -2058,7 +2058,7 @@ export default function EstimatePage() {
       <AppHeader showTabs={false}/>
       <div style={{maxWidth:680,margin:"0 auto",padding:"24px 20px"}}>
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
-          <button onClick={()=>setScreen("entry")} style={{padding:"6px 14px",borderRadius:6,border:"1px solid #C8D0DB",background:"#fff",color:C.slate,cursor:"pointer",fontSize:12,fontWeight:600}}>← Manual entry</button>
+          <button onClick={()=>setScreen("entry")} style={{padding:"6px 14px",borderRadius:6,border:`1px solid ${UI.borderStrong}`,background:"#fff",color:C.slate,cursor:"pointer",fontSize:12,fontWeight:600}}>← Manual entry</button>
           <span style={{color:C.slateL,fontSize:12}}>or upload a floor plan to auto-populate inputs</span>
         </div>
         <div style={{...cardStyle,marginBottom:0}}>
@@ -2090,7 +2090,7 @@ export default function EstimatePage() {
           {tab==="build"  &&<BuildTab labour={labour}/>}
           {tab==="learn"  &&<LearnTab scope={scope} labour={labour} flags={flags} documentType={documentType}/>}
         </div>
-        <div style={{marginTop:8,fontSize:10,color:C.muted,textAlign:"center"}}>{geyserAsm?"ContractorOS v2 · Geyser Assembly (Tier 2) · Vissi evidence 2022–26 · true-cost + ladder · excl. VAT":"ContractorOS v2 · Plumbing Tier 2 · Plumblink/CTM/Gelmar 2025–26 · Spon's seed SA-adjusted · excl. VAT"}</div>
+        <div style={{marginTop:8,...T.muted,textAlign:"center"}}>{geyserAsm?"ContractorOS v2 · Geyser Assembly (Tier 2) · Vissi evidence 2022–26 · true-cost + ladder · excl. VAT":"ContractorOS v2 · Plumbing Tier 2 · Plumblink/CTM/Gelmar 2025–26 · Spon's seed SA-adjusted · excl. VAT"}</div>
       </div>
     </div>
   );
@@ -2199,7 +2199,7 @@ export default function EstimatePage() {
                 placeholder={DEFAULT_BANKING_DETAILS}
                 onChange={e=>setInvoiceMeta(m=>({...m,bankingDetails:e.target.value}))}
                 style={{width:"100%",padding:"8px 10px",border:`1px solid ${UI.borderStrong}`,borderRadius:6,fontSize:12,color:C.navy,background:C.white,boxSizing:"border-box",fontFamily:"inherit",resize:"vertical"}}/>
-              <div style={{fontSize:10,color:C.muted,marginTop:3}}>Invoice ref: <strong>{docRef || (isGeneratingRef ? "Generating…" : "generated on download")}</strong> · totals include 15% VAT · payment due {invoiceMeta.dueDate||"—"}</div>
+              <div style={{...T.muted,marginTop:3}}>Invoice ref: <strong>{docRef || (isGeneratingRef ? "Generating…" : "generated on download")}</strong> · totals include 15% VAT · payment due {invoiceMeta.dueDate||"—"}</div>
             </div>
           </div>
         </div>)}
@@ -2249,7 +2249,7 @@ export default function EstimatePage() {
             <input type="number" min={0} value={inputs.points}
               onChange={e=>setInp("points",Math.max(0,parseInt(e.target.value)||0))}
               style={{...rowCtl,width:76,textAlign:"center",fontWeight:700}}/>
-            <span style={{fontSize:10,color:C.muted}}>drives fittings & stop taps — set to 0 for maintenance callouts or repairs</span>
+            <span style={{...T.muted}}>drives fittings & stop taps — set to 0 for maintenance callouts or repairs</span>
           </div>)}
 
         {pipeSection("drainage","Drainage",
@@ -2322,7 +2322,7 @@ export default function EstimatePage() {
             <div style={{display:"flex",gap:8,alignItems:"center",marginTop:4}}>
               <button onClick={()=>addFixtureLine("toilet")}
                 style={addLineBtn}>+ Add fixture line</button>
-              <span style={{fontSize:10,color:C.muted}}>Library prices are <GradePill grade="Sourced"/>; custom lines are <GradePill grade="Assumption"/> &amp; flagged.</span>
+              <span style={{...T.muted}}>Library prices are <GradePill grade="Sourced"/>; custom lines are <GradePill grade="Assumption"/> &amp; flagged.</span>
             </div>
           </div>
         </div>
@@ -2431,7 +2431,7 @@ export default function EstimatePage() {
         <div style={{background:"#fff",border:`1px solid ${C.gold}40`,borderRadius:8,padding:"14px 20px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
           <div>
             <div style={{fontSize:12,color:C.slateL}}><strong style={{color:C.navy}}>{scope.length}</strong> lines · <GradePill grade={finalGrade}/></div>
-            <div style={{fontSize:10,color:C.muted,marginTop:2}}>Scope review required before costings.</div>
+            <div style={{...T.muted,marginTop:2}}>Scope review required before costings.</div>
           </div>
           <button onClick={()=>setScreen("review")} style={{padding:"10px 28px",borderRadius:8,border:"none",background:C.gold,color:C.navy,cursor:"pointer",fontWeight:800,fontSize:14}}>Review Scope →</button>
         </div>
