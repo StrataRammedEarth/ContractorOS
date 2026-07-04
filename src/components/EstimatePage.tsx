@@ -103,6 +103,19 @@ const rowDeleteBtnCompact: React.CSSProperties = {
   padding:"3px 8px", borderRadius:6, border:"1px solid #E0B4B4",
   background:C.white, color:C.red, cursor:"pointer", fontSize:12, fontWeight:700,
 };
+// Solid-gold primary action button (main forward-progress actions:
+// analyse, confirm, generate, download). One shared look instead of each
+// call site hand-picking its own padding/size.
+const primaryBtn: React.CSSProperties = {
+  padding:"10px 24px", borderRadius:6, border:"none",
+  background:C.gold, color:C.navy, cursor:"pointer", fontWeight:800, fontSize:13,
+};
+// Dashed-gold "add a new row/line/template" button — the existing "+ Add..."
+// family, consolidated onto one token instead of 7 hand-duplicated copies.
+const addLineBtn: React.CSSProperties = {
+  padding:"7px 14px", borderRadius:6, border:`1px dashed ${C.gold}`,
+  background:C.goldPale, color:C.navy, cursor:"pointer", fontSize:12, fontWeight:700,
+};
 // Line-item table column layouts live in styles.css (.cos-line--pipe /
 // .cos-line--fixture) so a media query can restructure them on narrow screens;
 // header + data rows share the same class so their columns line up.
@@ -859,7 +872,7 @@ function ScanDrawingPanel({ onExtracted }: { onExtracted: (data: Inputs) => void
         <button onClick={()=>{setImgB64(null);setPreview(null);setPhase("idle");}}
           style={{padding:"8px 16px",borderRadius:6,border:"1px solid #C8D0DB",background:"#fff",color:C.slate,cursor:"pointer",fontWeight:600,fontSize:12}}>← Different image</button>
         <button onClick={runScan}
-          style={{padding:"8px 24px",borderRadius:6,border:"none",background:C.gold,color:C.navy,cursor:"pointer",fontWeight:800,fontSize:13}}>Analyse Drawing →</button>
+          style={primaryBtn}>Analyse Drawing →</button>
       </div>
     </div>
   );
@@ -918,7 +931,7 @@ function ScanDrawingPanel({ onExtracted }: { onExtracted: (data: Inputs) => void
       </div>
       <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
         <button onClick={()=>setPhase("preview")} style={{padding:"8px 16px",borderRadius:6,border:"1px solid #C8D0DB",background:"#fff",color:C.slate,cursor:"pointer",fontWeight:600,fontSize:12}}>← Back</button>
-        <button onClick={confirmExtraction} style={{padding:"8px 28px",borderRadius:6,border:"none",background:C.gold,color:C.navy,cursor:"pointer",fontWeight:800,fontSize:13}}>Confirm &amp; Build Scope →</button>
+        <button onClick={confirmExtraction} style={primaryBtn}>Confirm &amp; Build Scope →</button>
       </div>
     </div>
   );
@@ -969,7 +982,7 @@ function ScopeModal({ scope, labour, inputs, onConfirm, onBack }: { scope: Scope
         </div>
         <div style={{padding:"12px 24px",borderTop:"1px solid #E0E5EC",display:"flex",gap:10,justifyContent:"flex-end"}}>
           <button onClick={onBack} style={{padding:"8px 18px",borderRadius:6,border:"1px solid #C8D0DB",background:"#fff",color:C.slate,cursor:"pointer",fontWeight:600,fontSize:12}}>← Revise</button>
-          <button onClick={onConfirm} style={{padding:"8px 22px",borderRadius:6,border:"none",background:C.gold,color:C.navy,cursor:"pointer",fontWeight:800,fontSize:13}}>Confirm &amp; Generate Estimate →</button>
+          <button onClick={onConfirm} style={primaryBtn}>Confirm &amp; Generate Estimate →</button>
         </div>
       </div>
     </div>
@@ -999,7 +1012,7 @@ function EstimateTab({ scope, labour, inputs, finalGrade, docRef, documentType, 
           <div style={{textAlign:"right"}}>
             <GradePill grade={finalGrade}/>
             <div style={{color:C.muted,fontSize:10,marginTop:6}}>{issuable?"✓ Internal use OK":"⚠ Not client-issuable"}</div>
-            <button onClick={onPrintDocument} disabled={isGeneratingRef} style={{marginTop:10,padding:"7px 16px",borderRadius:6,border:"none",background:C.gold,color:C.navy,cursor:isGeneratingRef?"wait":"pointer",fontWeight:700,fontSize:12,opacity:isGeneratingRef?0.6:1}}>⬇ Download {documentType==="invoice"?"Invoice":"Quote"}</button>
+            <button onClick={onPrintDocument} disabled={isGeneratingRef} style={{...primaryBtn,marginTop:10,cursor:isGeneratingRef?"wait":"pointer",opacity:isGeneratingRef?0.6:1}}>⬇ Download {documentType==="invoice"?"Invoice":"Quote"}</button>
           </div>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginTop:16,paddingTop:16,borderTop:`1px solid ${C.navyLt}`}}>
@@ -1071,7 +1084,7 @@ function BuyTab({ scope, quoteRef, onPrintBuy }: { scope: ScopeLine[]; inputs: I
           <div style={{color:C.gold,fontSize:26,fontWeight:900}}>{fmt(total)}</div>
           <div style={{color:C.slateL,fontSize:11}}>{fmt(total*1.15)} incl. VAT · {buyLines.length} lines</div>
         </div>
-        <button onClick={onPrintBuy} style={{padding:"8px 18px",borderRadius:6,border:"none",background:C.gold,color:C.navy,cursor:"pointer",fontWeight:700,fontSize:12}}>⬇ Download Buy List</button>
+        <button onClick={onPrintBuy} style={primaryBtn}>⬇ Download Buy List</button>
       </div>
       {Object.entries(bySupplier).map(([sup,items])=>{
         const st=items.reduce((s,l)=>s+l.total,0);
@@ -1340,7 +1353,11 @@ const templateSmallInputStyle: React.CSSProperties = {padding:"6px 8px",border:`
 // Same look as templateSmallInputStyle but with the shared gold chevron — used by
 // the cascade/product <select>s so every dropdown in the app matches.
 const templateSmallSelectStyle: React.CSSProperties = {...templateSmallInputStyle, appearance:"none", cursor:"pointer", paddingRight:24, backgroundImage:CHEVRON, backgroundRepeat:"no-repeat", backgroundPosition:"right 7px center"};
-const templateLockedTextStyle: React.CSSProperties = {fontSize:11,color:C.slate,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"};
+const templateLockedTextStyle: React.CSSProperties = {
+  fontSize:11, color:C.slate, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
+  padding:"6px 8px", border:`1px solid ${UI.border}`, borderRadius:6, background:UI.pageBg,
+  boxSizing:"border-box", height:32, display:"flex", alignItems:"center",
+};
 
 // A fixture-template catalogue-cascade row's Application/Fitting Type/Size/Product
 // cells — four dependent dropdowns, each disabled until the one before it is
@@ -1538,9 +1555,9 @@ function StandaloneFittingSection({ title, use, rows, catalogue, catalogueLoadin
             </div>}
         <div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}>
           <button onClick={()=>onAdd(use)}
-            style={{padding:"6px 12px",borderRadius:6,border:`1px dashed ${C.gold}`,background:C.goldPale,color:C.navy,cursor:"pointer",fontSize:12,fontWeight:700}}>+ Add fitting</button>
+            style={addLineBtn}>+ Add fitting</button>
           <button onClick={()=>onAddCustom(use)}
-            style={{padding:"6px 12px",borderRadius:6,border:`1px dashed ${C.gold}`,background:C.goldPale,color:C.navy,cursor:"pointer",fontSize:12,fontWeight:700}}>+ Add custom fitting</button>
+            style={addLineBtn}>+ Add custom fitting</button>
         </div>
         <div style={{fontSize:10,color:C.muted,marginTop:6}}>ⓘ {priced} priced · only confirmed rows are priced and added to the buy list.</div>
       </div>
@@ -1672,9 +1689,9 @@ function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, 
         </div>
         <div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}>
           <button onClick={()=>onAddCatalogRow(tpl.instanceId)}
-            style={{padding:"6px 12px",borderRadius:6,border:`1px dashed ${C.gold}`,background:C.goldPale,color:C.navy,cursor:"pointer",fontSize:12,fontWeight:700}}>+ Add fitting</button>
+            style={addLineBtn}>+ Add fitting</button>
           <button onClick={()=>onAddCustomRow(tpl.instanceId)}
-            style={{padding:"6px 12px",borderRadius:6,border:`1px dashed ${C.gold}`,background:C.goldPale,color:C.navy,cursor:"pointer",fontSize:12,fontWeight:700}}>+ Add custom fitting</button>
+            style={addLineBtn}>+ Add custom fitting</button>
         </div>
         <div style={{fontSize:10,color:C.muted,marginTop:6}}>ⓘ Only confirmed rows are priced and added to the buy list.</div>
       </div>
@@ -1722,7 +1739,7 @@ function FixtureTemplatesSection({ applied, catalogue, catalogueLoading, onApply
             {templates.map(t=><option key={t.template_id} value={t.template_id}>{t.template_name} ({t.scope})</option>)}
           </select>
           <button onClick={()=>pick&&onApply(pick)} disabled={!pick}
-            style={{padding:"7px 14px",borderRadius:6,border:`1px dashed ${C.gold}`,background:C.goldPale,color:C.navy,cursor:pick?"pointer":"not-allowed",fontSize:12,fontWeight:700,opacity:pick?1:0.5}}>+ Add template</button>
+            style={{...addLineBtn,cursor:pick?"pointer":"not-allowed",opacity:pick?1:0.5}}>+ Add template</button>
         </div>
         {applied.length===0
           ? <div style={{fontSize:12,color:C.slateL,padding:"2px 2px 4px"}}>No templates added. A template <em>suggests</em> scope; you confirm what gets priced — nothing is priced from a suggestion alone.</div>
@@ -2064,7 +2081,7 @@ export default function EstimatePage() {
   if (screen==="output") return (
     <div className="cos-app" style={{fontFamily:"'Inter',system-ui,sans-serif",background:UI.pageBg,minHeight:"100vh"}}>
       <AppHeader showTabs={true}/>
-      <div style={{maxWidth:960,margin:"0 auto",padding:"0 20px 32px"}}>
+      <div style={{maxWidth:960,margin:"0 auto",padding:`0 ${S.xxl}px ${S.xxl}px`}}>
         {inputs._scanNotes&&!geyserAsm&&<div style={{background:"#FEF5E7",border:`1px solid ${C.amber}40`,borderRadius:"0 0 6px 6px",padding:"6px 16px",fontSize:11,color:C.navy,marginBottom:4}}>📐 <strong>Scan-derived scope:</strong> {inputs._scanNotes}</div>}
         {geyserAsm&&<div style={{background:"#FEF5E7",border:`1px solid ${C.amber}40`,borderRadius:"0 0 6px 6px",padding:"6px 16px",fontSize:11,color:C.navy,marginBottom:4}}>♨ <strong>Geyser assembly · {finalGrade} grade:</strong> fixed-composition quote — {flags.length} note{flags.length===1?"":"s"} in the Learn tab{GRADES[finalGrade]?.rank>=GRADES["Derived"].rank?" · client-issuable through the normal gate.":" · not client-issuable until grade lifts."}</div>}
         <div style={{background:C.white,borderRadius:"0 10px 10px 10px",borderLeft:`1px solid ${UI.border}`,borderRight:`1px solid ${UI.border}`,borderBottom:`1px solid ${UI.border}`,overflow:"hidden",boxShadow:UI.cardShadow}}>
@@ -2146,7 +2163,7 @@ export default function EstimatePage() {
             </div>);
           })}
           <button onClick={()=>addPipeLine(use)}
-            style={{padding:"7px 14px",borderRadius:6,border:`1px dashed ${C.gold}`,background:C.goldPale,color:C.navy,cursor:"pointer",fontSize:12,fontWeight:700}}>+ Add {use==="supply"?"supply":"drain"} line</button>
+            style={addLineBtn}>+ Add {use==="supply"?"supply":"drain"} line</button>
           {extra}
         </div>
       </div>
@@ -2302,7 +2319,7 @@ export default function EstimatePage() {
             })}
             <div style={{display:"flex",gap:8,alignItems:"center",marginTop:4}}>
               <button onClick={()=>addFixtureLine("toilet")}
-                style={{padding:"7px 14px",borderRadius:6,border:`1px dashed ${C.gold}`,background:C.goldPale,color:C.navy,cursor:"pointer",fontSize:12,fontWeight:700}}>+ Add fixture line</button>
+                style={addLineBtn}>+ Add fixture line</button>
               <span style={{fontSize:10,color:C.muted}}>Library prices are <GradePill grade="Sourced"/>; custom lines are <GradePill grade="Assumption"/> &amp; flagged.</span>
             </div>
           </div>
