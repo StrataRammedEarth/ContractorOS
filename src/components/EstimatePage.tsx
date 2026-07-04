@@ -1378,16 +1378,27 @@ const templateLockedTextStyle: React.CSSProperties = {
   padding:"6px 8px", border:`1px solid ${UI.border}`, borderRadius:6, background:UI.pageBg,
   boxSizing:"border-box", height:32, display:"flex", alignItems:"center",
 };
+// Per-cell divider fragment shared by every fitting-cascade row renderer
+// (CatalogFittingRow, StandaloneCatalogRow, and the renderRow/customRow
+// closures below). These rows are display:"contents" wrappers with no box
+// of their own, so a row-level borderBottom (like .cos-toggle's pipe/fixture
+// divider) has nothing to paint on — instead every one of a row's real cells
+// gets the same borderBottom+paddingBottom, which lines up into one visual
+// divider across the row's full width. Spread this LAST in each cell's style
+// object so paddingBottom wins over any shorthand `padding` already set.
+const cellDivider = (showDivider: boolean): React.CSSProperties =>
+  showDivider ? { borderBottom:`1px solid ${UI.borderRow}`, paddingBottom:6 } : {};
 
 // A fixture-template catalogue-cascade row's Application/Fitting Type/Size/Product
 // cells — four dependent dropdowns, each disabled until the one before it is
 // resolved. Sizes never include a null bucket now (a no-dimension row is simply
 // unreachable via the cascade), so gating reads straight off the row fields with
 // no per-mount "chosen" flag.
-function CatalogFittingRow({ row, catalogue, catalogueLoading, onUpdate, onRemove }: {
+function CatalogFittingRow({ row, catalogue, catalogueLoading, showDivider, onUpdate, onRemove }: {
   row: TemplateRowInstance;
   catalogue: PlumblinkMaterial[];
   catalogueLoading: boolean;
+  showDivider: boolean;
   onUpdate: (fn: (r: TemplateRowInstance) => TemplateRowInstance) => void;
   onRemove: () => void;
 }) {
@@ -1403,22 +1414,22 @@ function CatalogFittingRow({ row, catalogue, catalogueLoading, onUpdate, onRemov
       <input type="checkbox" checked={row.checked} disabled={disabled}
         title={disabled?"Select a product first":""}
         onChange={e=>onUpdate(x=>rowSetChecked(x,e.target.checked))}
-        style={{width:16,height:16,cursor:disabled?"not-allowed":"pointer"}}/>
+        style={{width:16,height:16,cursor:disabled?"not-allowed":"pointer",...cellDivider(showDivider)}}/>
       <select value={row.application||"__select__"} disabled={catalogueLoading}
         onChange={e=>{const v=e.target.value;if(v==="__select__")return;onUpdate(x=>rowSetApplication(x,v));}}
-        style={templateSmallSelectStyle}>
+        style={{...templateSmallSelectStyle,...cellDivider(showDivider)}}>
         <option value="__select__" disabled>{catalogueLoading?"Loading catalogue…":"Select…"}</option>
         {applications.map(a=><option key={a} value={a}>{a}</option>)}
       </select>
       <select value={row.fittingType||"__select__"} disabled={!row.application}
         onChange={e=>{const v=e.target.value;if(v==="__select__")return;onUpdate(x=>rowSetFittingType(x,v));}}
-        style={templateSmallSelectStyle}>
+        style={{...templateSmallSelectStyle,...cellDivider(showDivider)}}>
         <option value="__select__" disabled>Select…</option>
         {fittingTypes.map(ft=><option key={ft} value={ft}>{ft}</option>)}
       </select>
       <select value={row.nominalSize??"__select__"} disabled={!row.fittingType}
         onChange={e=>{const v=e.target.value;if(v==="__select__")return;onUpdate(x=>rowSetSize(x,v));}}
-        style={templateSmallSelectStyle}>
+        style={{...templateSmallSelectStyle,...cellDivider(showDivider)}}>
         <option value="__select__" disabled>Select…</option>
         {sizes.map(s=><option key={s} value={s}>{s}</option>)}
       </select>
@@ -1428,15 +1439,15 @@ function CatalogFittingRow({ row, catalogue, catalogueLoading, onUpdate, onRemov
           const m=products.find(p=>p.material_code===v);
           if(m) onUpdate(x=>rowSelectMaterial(x,{materialCode:m.material_code,description:m.description??"",unitPrice:m.unit_price_excl_vat??0}));
         }}
-        style={templateSmallSelectStyle}>
+        style={{...templateSmallSelectStyle,...cellDivider(showDivider)}}>
         <option value="__select__" disabled>{products.length?"Select product…":"No matching products"}</option>
         {products.map(p=><option key={p.material_code} value={p.material_code}>{productOptionLabel(p)}</option>)}
       </select>
       <input type="number" min={0} step={1} value={row.defaultQty} title="Qty per unit"
         onChange={e=>{const q=Math.max(0,parseFloat(e.target.value)||0);onUpdate(x=>({...x,defaultQty:q}));}}
-        style={{width:48,padding:"6px 6px",border:`1px solid ${UI.borderStrong}`,borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center"}}/>
-      <PriceCell row={row}/>
-      <div style={{display:"flex",alignItems:"center",gap:4,justifySelf:"end"}}>
+        style={{width:48,padding:"6px 6px",border:`1px solid ${UI.borderStrong}`,borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center",...cellDivider(showDivider)}}/>
+      <PriceCell row={row} style={cellDivider(showDivider)}/>
+      <div style={{display:"flex",alignItems:"center",gap:4,justifySelf:"end",...cellDivider(showDivider)}}>
         {grade ? <GradePill grade={grade}/> : <span/>}
         <button onClick={onRemove} title="Remove"
           style={rowDeleteBtnCompact}>✕</button>
@@ -1449,10 +1460,11 @@ function CatalogFittingRow({ row, catalogue, catalogueLoading, onUpdate, onRemov
 // fixed by the section, so the cascade is just Fitting Type⇄Size⇄Product... but
 // the section runs it Size → Fitting Type → Product (Size upstream). Three
 // dependent dropdowns using the standalone reset setters, plus checkbox/qty.
-function StandaloneCatalogRow({ row, catalogue, catalogueLoading, onUpdate, onRemove }: {
+function StandaloneCatalogRow({ row, catalogue, catalogueLoading, showDivider, onUpdate, onRemove }: {
   row: TemplateRowInstance;
   catalogue: PlumblinkMaterial[];
   catalogueLoading: boolean;
+  showDivider: boolean;
   onUpdate: (fn: (r: TemplateRowInstance) => TemplateRowInstance) => void;
   onRemove: () => void;
 }) {
@@ -1467,16 +1479,16 @@ function StandaloneCatalogRow({ row, catalogue, catalogueLoading, onUpdate, onRe
       <input type="checkbox" checked={row.checked} disabled={disabled}
         title={disabled?"Select a product first":""}
         onChange={e=>onUpdate(x=>rowSetChecked(x,e.target.checked))}
-        style={{width:16,height:16,cursor:disabled?"not-allowed":"pointer"}}/>
+        style={{width:16,height:16,cursor:disabled?"not-allowed":"pointer",...cellDivider(showDivider)}}/>
       <select value={row.nominalSize??"__select__"} disabled={catalogueLoading}
         onChange={e=>{const v=e.target.value;if(v==="__select__")return;onUpdate(x=>rowSetStandaloneSize(x,v));}}
-        style={templateSmallSelectStyle}>
+        style={{...templateSmallSelectStyle,...cellDivider(showDivider)}}>
         <option value="__select__" disabled>{catalogueLoading?"Loading catalogue…":"Select…"}</option>
         {sizes.map(s=><option key={s} value={s}>{s}</option>)}
       </select>
       <select value={row.fittingType||"__select__"} disabled={!row.nominalSize}
         onChange={e=>{const v=e.target.value;if(v==="__select__")return;onUpdate(x=>rowSetStandaloneFittingType(x,v));}}
-        style={templateSmallSelectStyle}>
+        style={{...templateSmallSelectStyle,...cellDivider(showDivider)}}>
         <option value="__select__" disabled>Select…</option>
         {fittingTypes.map(ft=><option key={ft} value={ft}>{ft}</option>)}
       </select>
@@ -1486,15 +1498,15 @@ function StandaloneCatalogRow({ row, catalogue, catalogueLoading, onUpdate, onRe
           const m=products.find(p=>p.material_code===v);
           if(m) onUpdate(x=>rowSelectMaterial(x,{materialCode:m.material_code,description:m.description??"",unitPrice:m.unit_price_excl_vat??0}));
         }}
-        style={templateSmallSelectStyle}>
+        style={{...templateSmallSelectStyle,...cellDivider(showDivider)}}>
         <option value="__select__" disabled>{products.length?"Select product…":"No matching products"}</option>
         {products.map(p=><option key={p.material_code} value={p.material_code}>{productOptionLabel(p)}</option>)}
       </select>
       <input type="number" min={0} step={1} value={row.defaultQty} title="Qty"
         onChange={e=>{const q=Math.max(0,parseFloat(e.target.value)||0);onUpdate(x=>({...x,defaultQty:q}));}}
-        style={{width:48,padding:"6px 6px",border:`1px solid ${UI.borderStrong}`,borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center"}}/>
-      <PriceCell row={row}/>
-      <div style={{display:"flex",alignItems:"center",gap:4,justifySelf:"end"}}>
+        style={{width:48,padding:"6px 6px",border:`1px solid ${UI.borderStrong}`,borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center",...cellDivider(showDivider)}}/>
+      <PriceCell row={row} style={cellDivider(showDivider)}/>
+      <div style={{display:"flex",alignItems:"center",gap:4,justifySelf:"end",...cellDivider(showDivider)}}>
         {grade ? <GradePill grade={grade}/> : <span/>}
         <button onClick={onRemove} title="Remove"
           style={rowDeleteBtnCompact}>✕</button>
@@ -1523,7 +1535,7 @@ function StandaloneFittingSection({ title, use, rows, catalogue, catalogueLoadin
   const catalog = rows.filter(r=>r.origin==="catalog");
   const custom  = rows.filter(r=>r.origin==="custom");
 
-  const customRow = (r: TemplateRowInstance) => {
+  const customRow = (r: TemplateRowInstance, showDivider: boolean) => {
     const disabled = isCheckboxDisabled(r);
     const grade = resolvedGrade(r);
     return (
@@ -1531,14 +1543,14 @@ function StandaloneFittingSection({ title, use, rows, catalogue, catalogueLoadin
         <input type="checkbox" checked={r.checked} disabled={disabled}
           title={disabled?"Enter a product first":""}
           onChange={e=>{const c=e.target.checked;onUpdate(use,r.id,x=>rowSetChecked(x,c));}}
-          style={{width:16,height:16,cursor:disabled?"not-allowed":"pointer"}}/>
+          style={{width:16,height:16,cursor:disabled?"not-allowed":"pointer",...cellDivider(showDivider)}}/>
         <input placeholder="Size" value={r.nominalSize ?? ""}
           onChange={e=>{const v=e.target.value;onUpdate(use,r.id,x=>({...x,nominalSize:v||null}));}}
-          style={templateSmallInputStyle}/>
+          style={{...templateSmallInputStyle,...cellDivider(showDivider)}}/>
         <input placeholder="Fitting type" value={r.fittingType}
           onChange={e=>{const v=e.target.value;onUpdate(use,r.id,x=>({...x,fittingType:v}));}}
-          style={templateSmallInputStyle}/>
-        <div style={{minWidth:0,overflow:"hidden"}}>
+          style={{...templateSmallInputStyle,...cellDivider(showDivider)}}/>
+        <div style={{minWidth:0,overflow:"hidden",...cellDivider(showDivider)}}>
           <TemplateProductSelect row={r}
             onSelect={m=>onUpdate(use,r.id,x=>rowSelectMaterial(x,m))}
             onManual={(d,p)=>onUpdate(use,r.id,x=>rowSetManual(x,d,p))}
@@ -1546,9 +1558,9 @@ function StandaloneFittingSection({ title, use, rows, catalogue, catalogueLoadin
         </div>
         <input type="number" min={0} step={1} value={r.defaultQty} title="Qty"
           onChange={e=>{const q=Math.max(0,parseFloat(e.target.value)||0);onUpdate(use,r.id,x=>({...x,defaultQty:q}));}}
-          style={{width:48,padding:"6px 6px",border:`1px solid ${UI.borderStrong}`,borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center"}}/>
-        <PriceCell row={r}/>
-        <div style={{display:"flex",alignItems:"center",gap:4,justifySelf:"end"}}>
+          style={{width:48,padding:"6px 6px",border:`1px solid ${UI.borderStrong}`,borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center",...cellDivider(showDivider)}}/>
+        <PriceCell row={r} style={cellDivider(showDivider)}/>
+        <div style={{display:"flex",alignItems:"center",gap:4,justifySelf:"end",...cellDivider(showDivider)}}>
           {grade ? <GradePill grade={grade}/> : <span/>}
           <button onClick={()=>onRemove(use,r.id)} title="Remove"
             style={rowDeleteBtnCompact}>✕</button>
@@ -1572,12 +1584,13 @@ function StandaloneFittingSection({ title, use, rows, catalogue, catalogueLoadin
               <span style={{...T.colHead,textAlign:"right"}}>Price</span>
               <span/>
               <span/>
-              {catalog.map(r=>(
+              {catalog.map((r,i)=>(
                 <StandaloneCatalogRow key={r.id} row={r} catalogue={catalogue} catalogueLoading={catalogueLoading}
+                  showDivider={i<catalog.length-1}
                   onUpdate={fn=>onUpdate(use,r.id,fn)} onRemove={()=>onRemove(use,r.id)}/>
               ))}
               {custom.length>0&&<div style={{gridColumn:"1 / -1",fontSize:11,fontWeight:700,color:C.slate,textTransform:"uppercase",letterSpacing:0.6,margin:"10px 0 4px"}}>Custom fittings</div>}
-              {custom.map(customRow)}
+              {custom.map((r,i)=>customRow(r, i<custom.length-1))}
             </div>}
         <div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}>
           <button onClick={()=>onAdd(use)}
@@ -1616,7 +1629,7 @@ function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, 
   // Suggested/Optional/Custom rows share this renderer — Application/Size/Fitting
   // Type are locked display text for the first two, free-text inputs for Custom.
   // Catalog rows are rendered separately by CatalogFittingRow (cascade dropdowns).
-  const renderRow = (r: TemplateRowInstance) => {
+  const renderRow = (r: TemplateRowInstance, showDivider: boolean) => {
     const disabled = isCheckboxDisabled(r);
     const grade = resolvedGrade(r);
     const editable = r.origin==="custom";
@@ -1626,23 +1639,23 @@ function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, 
         <input type="checkbox" checked={r.checked} disabled={disabled}
           title={disabled?"Select a product first":""}
           onChange={e=>{const c=e.target.checked;onUpdateRow(tpl.instanceId,r.id,x=>rowSetChecked(x,c));}}
-          style={{width:16,height:16,cursor:disabled?"not-allowed":"pointer",opacity:rowOpacity}}/>
+          style={{width:16,height:16,cursor:disabled?"not-allowed":"pointer",opacity:rowOpacity,...cellDivider(showDivider)}}/>
         {editable
           ? <input placeholder="Application" value={r.application}
               onChange={e=>{const v=e.target.value;onUpdateRow(tpl.instanceId,r.id,x=>({...x,application:v}));}}
-              style={{...templateSmallInputStyle,opacity:rowOpacity}}/>
-          : <span style={{...templateLockedTextStyle,fontWeight:600,opacity:rowOpacity}}>{r.application}</span>}
+              style={{...templateSmallInputStyle,opacity:rowOpacity,...cellDivider(showDivider)}}/>
+          : <span style={{...templateLockedTextStyle,fontWeight:600,opacity:rowOpacity,...cellDivider(showDivider)}}>{r.application}</span>}
         {editable
           ? <input placeholder="Fitting type" value={r.fittingType}
               onChange={e=>{const v=e.target.value;onUpdateRow(tpl.instanceId,r.id,x=>({...x,fittingType:v}));}}
-              style={{...templateSmallInputStyle,opacity:rowOpacity}}/>
-          : <span title={r.productRole ?? undefined} style={{...templateLockedTextStyle,fontWeight:600,opacity:rowOpacity}}>{r.fittingType}</span>}
+              style={{...templateSmallInputStyle,opacity:rowOpacity,...cellDivider(showDivider)}}/>
+          : <span title={r.productRole ?? undefined} style={{...templateLockedTextStyle,fontWeight:600,opacity:rowOpacity,...cellDivider(showDivider)}}>{r.fittingType}</span>}
         {editable
           ? <input placeholder="Size" value={r.nominalSize ?? ""}
               onChange={e=>{const v=e.target.value;onUpdateRow(tpl.instanceId,r.id,x=>({...x,nominalSize:v}));}}
-              style={{...templateSmallInputStyle,opacity:rowOpacity}}/>
-          : <span style={{...templateLockedTextStyle,opacity:rowOpacity}}>{r.nominalSize ?? "—"}</span>}
-        <div style={{opacity:rowOpacity,minWidth:0,overflow:"hidden"}}>
+              style={{...templateSmallInputStyle,opacity:rowOpacity,...cellDivider(showDivider)}}/>
+          : <span style={{...templateLockedTextStyle,opacity:rowOpacity,...cellDivider(showDivider)}}>{r.nominalSize ?? "—"}</span>}
+        <div style={{opacity:rowOpacity,minWidth:0,overflow:"hidden",...cellDivider(showDivider)}}>
           <TemplateProductSelect row={r}
             onSelect={m=>onUpdateRow(tpl.instanceId,r.id,x=>rowSelectMaterial(x,m))}
             onManual={(d,p)=>onUpdateRow(tpl.instanceId,r.id,x=>rowSetManual(x,d,p))}
@@ -1650,9 +1663,9 @@ function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, 
         </div>
         <input type="number" min={0} step={1} value={r.defaultQty} title="Qty per unit"
           onChange={e=>{const q=Math.max(0,parseFloat(e.target.value)||0);onUpdateRow(tpl.instanceId,r.id,x=>({...x,defaultQty:q}));}}
-          style={{width:48,padding:"6px 6px",border:`1px solid ${UI.borderStrong}`,borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center",opacity:rowOpacity}}/>
-        <PriceCell row={r} style={{opacity:rowOpacity}}/>
-        <div style={{display:"flex",alignItems:"center",gap:4,justifySelf:"end"}}>
+          style={{width:48,padding:"6px 6px",border:`1px solid ${UI.borderStrong}`,borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center",opacity:rowOpacity,...cellDivider(showDivider)}}/>
+        <PriceCell row={r} style={{opacity:rowOpacity,...cellDivider(showDivider)}}/>
+        <div style={{display:"flex",alignItems:"center",gap:4,justifySelf:"end",...cellDivider(showDivider)}}>
           {grade ? <GradePill grade={grade}/> : <span/>}
           {r.origin==="custom"
             ? <button onClick={()=>onRemoveRow(tpl.instanceId,r.id)} title="Remove"
@@ -1704,16 +1717,17 @@ function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, 
           <span/>
 
           {suggested.length>0&&groupHead(filledCheck,`Suggested fittings (${sc.active} of ${sc.total} confirmed)`)}
-          {suggested.map(renderRow)}
+          {suggested.map((r,i)=>renderRow(r, i<suggested.length-1))}
           {optional.length>0&&groupHead(emptyRadio,`Optional fittings (${oc.active} of ${oc.total} selected)`)}
-          {optional.map(renderRow)}
+          {optional.map((r,i)=>renderRow(r, i<optional.length-1))}
           {catalog.length>0&&plainHead("Catalogue fittings")}
-          {catalog.map(r=>(
+          {catalog.map((r,i)=>(
             <CatalogFittingRow key={r.id} row={r} catalogue={catalogue} catalogueLoading={catalogueLoading}
+              showDivider={i<catalog.length-1}
               onUpdate={fn=>onUpdateRow(tpl.instanceId,r.id,fn)} onRemove={()=>onRemoveRow(tpl.instanceId,r.id)}/>
           ))}
           {custom.length>0&&plainHead("Custom fittings")}
-          {custom.map(renderRow)}
+          {custom.map((r,i)=>renderRow(r, i<custom.length-1))}
         </div>
         <div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}>
           <button onClick={()=>onAddCatalogRow(tpl.instanceId)}
