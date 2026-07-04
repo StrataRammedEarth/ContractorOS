@@ -64,8 +64,8 @@ const T: Record<string, React.CSSProperties> = {
   fieldLabel: { display:"block", fontSize:11, fontWeight:600, color:C.slateL, marginBottom:4 },
   colHead:    { fontSize:10, fontWeight:700, color:C.slateL, textTransform:"uppercase", letterSpacing:0.5 },
   value:      { fontSize:13, fontWeight:600, color:C.navy },
-  rate:       { fontSize:11, fontWeight:500, color:C.slateL },
-  total:      { fontSize:15, fontWeight:700, color:C.navy },
+  rate:       { fontSize:11, fontWeight:500, color:C.slateL, padding:"6px 8px", border:`1px solid ${UI.border}`, borderRadius:6, background:UI.pageBg, boxSizing:"border-box", height:34, display:"inline-flex", alignItems:"center", justifyContent:"flex-end" },
+  total:      { fontSize:15, fontWeight:700, color:C.navy, padding:"6px 10px", border:`1px solid ${UI.border}`, borderRadius:6, background:C.white, boxSizing:"border-box", display:"inline-flex", alignItems:"center", justifyContent:"flex-end" },
   secondary:  { fontSize:11, color:C.slateL },
   muted:      { fontSize:10, color:C.muted },
 };
@@ -644,7 +644,7 @@ function PriceCell({ row, style }: {
   style?: React.CSSProperties;
 }) {
   return isPriced(row)
-    ? <span style={{...T.total,textAlign:"right",...style}}>{fmt(resolvedTotal(row))}</span>
+    ? <span style={{...T.total,textAlign:"right",height:32,...style}}>{fmt(resolvedTotal(row))}</span>
     : <span style={style}/>;
 }
 function SectionHeader({ children }: { children: React.ReactNode }) {
@@ -2143,7 +2143,7 @@ export default function EstimatePage() {
                   <span style={T.secondary}>m</span>
                 </div>
                 <span style={{...T.rate,textAlign:"right"}}>R{l.perMetre.toFixed(2)}/m</span>
-                <span style={{...T.total,textAlign:"right"}}>{fmt(l.metres*l.perMetre)}</span>
+                <span style={{...T.total,textAlign:"right",height:34}}>{fmt(l.metres*l.perMetre)}</span>
                 <GradePill grade={l.grade}/>
                 <button onClick={()=>removePipeLine(use,l.id)} title="Remove line" aria-label="Remove line" style={rowDeleteBtn}>✕</button>
               </div>
@@ -2299,7 +2299,7 @@ export default function EstimatePage() {
                   <input className="cos-num" type="number" min={0} max={50} value={fl.quantity}
                     onChange={e=>updateFixtureLine(fl.id,{quantity:Math.max(0,parseInt(e.target.value)||0)})}
                     style={{...rowCtl,minWidth:0,fontWeight:700,textAlign:"center",padding:"0 6px"}}/>
-                  <span style={{...T.total,textAlign:"right"}}>{fmt(fl.quantity*fl.unitPrice)}</span>
+                  <span style={{...T.total,textAlign:"right",height:34}}>{fmt(fl.quantity*fl.unitPrice)}</span>
                   <GradePill grade={fl.grade}/>
                   <button onClick={()=>removeFixtureLine(fl.id)} title="Remove line" aria-label="Remove line" style={rowDeleteBtn}>✕</button>
                 </div>
