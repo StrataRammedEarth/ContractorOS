@@ -1357,7 +1357,19 @@ const TEMPLATE_ROW_GRID = "22px 80px 110px 70px 1fr 52px 112px minmax(88px, auto
 // minWidth:0 overrides the grid item's default min-width:auto (which otherwise
 // sizes to the element's intrinsic content — e.g. a <select>'s longest option
 // text — and forces the whole row to overflow its container).
-const templateSmallInputStyle: React.CSSProperties = {padding:"6px 8px",border:`1px solid ${UI.borderStrong}`,borderRadius:6,fontSize:12,width:"100%",minWidth:0,boxSizing:"border-box",color:C.navy,background:C.white,height:32};
+// Spreads inputStyle for the properties that are genuinely identical
+// (border, radius, color, background, box-sizing) so a future change to
+// inputStyle's border/color propagates here automatically. padding and
+// height are NOT spread — they're deliberately different from inputStyle
+// (a shorter, denser control for the fitting-cascade grid) and, critically,
+// must stay numerically identical to templateLockedTextStyle's padding/height
+// (see that const's own comment) so editable and locked cells in the same
+// AppliedTemplateBlock row align. Do not "fix" this to match inputStyle's
+// height/padding — that would misalign this style from templateLockedTextStyle.
+const templateSmallInputStyle: React.CSSProperties = {
+  ...inputStyle, padding:"6px 8px", height:32, fontSize:12,
+  width:"100%", minWidth:0,
+};
 // Same look as templateSmallInputStyle but with the shared gold chevron — used by
 // the cascade/product <select>s so every dropdown in the app matches.
 const templateSmallSelectStyle: React.CSSProperties = {...templateSmallInputStyle, appearance:"none", cursor:"pointer", paddingRight:24, backgroundImage:CHEVRON, backgroundRepeat:"no-repeat", backgroundPosition:"right 7px center"};
