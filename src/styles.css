@@ -220,7 +220,7 @@
   align-items: center;
 }
 .cos-app .cos-line--pipe {
-  grid-template-columns: minmax(0, 1.5fr) 92px 90px 74px 90px 58px 30px;
+  grid-template-columns: minmax(0, 1.3fr) 74px 66px 84px 118px 58px 30px;
 }
 .cos-app .cos-line--fixture {
   grid-template-columns: 40px minmax(0, 0.9fr) minmax(0, 1.6fr) 70px 90px 58px 30px;
