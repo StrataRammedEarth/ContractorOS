@@ -1699,6 +1699,33 @@ function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, 
       }
     });
   };
+  // Bug fix: a freshly-applied instance's PCV/VB rows load with materialCode set
+  // (from default_material_code) but description/unitPrice blank — these rows are
+  // manual-entry (empty product_filter), so TemplateProductSelect's normal
+  // default-price resolution never runs for them. Without this, the picker's
+  // starting combination silently priced at R0 until the plumber happened to
+  // touch the Pressure/Size selector. Runs setPcvVbCombo's row-update logic once
+  // on mount for whichever combination pcvCombo was derived to (the shipped
+  // 400kPa/22mm default on a fresh apply, or a reloaded estimate's actual
+  // combination) — guarded to only touch rows that are still genuinely
+  // unresolved, so it can never clobber a value the plumber already edited.
+  useEffect(() => {
+    if (!isGeyserBurst) return;
+    const combo = PCV_VB_MATERIAL_MAP[`${pcvCombo.pressure}|${pcvCombo.size}`];
+    if (!combo) return;
+    tpl.rows.forEach(r => {
+      const unresolved = r.unitPrice === 0 && r.description === '';
+      if (!unresolved) return;
+      if (r.fittingType === 'Pressure Control Valve' && r.materialCode === combo.pcv.materialCode) {
+        onUpdateRow(tpl.instanceId, r.id, x => ({ ...x, description: combo.pcv.description, unitPrice: combo.pcv.unitPrice }));
+      } else if (r.fittingType === 'Vacuum Breaker' && r.materialCode === combo.vb.materialCode) {
+        onUpdateRow(tpl.instanceId, r.id, x => ({ ...x, description: combo.vb.description, unitPrice: combo.vb.unitPrice }));
+      }
+    });
+    // Mount-only: seeds the initial price once. Subsequent changes happen via
+    // the dropdown's onChange (setPcvVbCombo), not this effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const sc = sectionCounts(tpl.rows,"suggested");
   const oc = sectionCounts(tpl.rows,"optional");
   const suggested = tpl.rows.filter(r=>r.origin==="suggested");
