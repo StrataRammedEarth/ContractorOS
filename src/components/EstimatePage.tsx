@@ -244,13 +244,16 @@ interface AppliedTemplate {
   fixtureType: string;
   templateName: string;
   templateVariant: string;
-  scope: 'fixture' | 'system';
+  scope: 'fixture' | 'system' | 'geyser';
   quantityBasis: number;
   rows: TemplateRowInstance[];
 }
 
 interface GeyserMeta {
   jobType: GeyserJobType; size: GeyserSize; brand: GeyserBrand; solar: boolean;
+}
+interface ActiveSections {
+  waterSupply: boolean; drainage: boolean; geyser: boolean; fixtures: boolean;
 }
 interface Inputs {
   projectName: string; clientName: string; pipeType: string;
@@ -1260,7 +1263,7 @@ function pipeLineFrom(use: 'supply'|'drainage', type: string, diameter: number, 
 // Genuinely empty — not a pre-filled demo job. Water Supply/Drainage/Fixtures
 // contribute nothing to scope/labour until the user actually enters data, which
 // is what lets buildScope(inputs)/buildLabour(inputs) be a true no-op whenever
-// jobMode isn't "plumbing" (see the scope/labour concatenation below).
+// a section is toggled off (see maskedInputs/the scope/labour concatenation below).
 const DEFAULT: Inputs = {
   projectName:"Bathroom Fit-out — 3 Fixture", clientName:"",
   pipeType:"PEX 15mm (Cobra)", supplyMetres:20, drainMetres:15, points:0, trenching:true,
@@ -1896,7 +1899,14 @@ function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, 
   );
 }
 
-function FixtureTemplatesSection({ applied, catalogue, catalogueLoading, onApply, onRemoveTemplate, onSetBasis, onUpdateRow, onAddCustomRow, onAddCatalogRow, onRemoveRow }: {
+// Reused three times (Drainage's 2.3, Fixtures' 4.2, Geyser's 3.3.2) against the
+// same underlying inputs.fittingTemplates array — scopeFilter partitions both
+// the picker's offered templates and the rendered applied list by
+// AppliedTemplate.scope, so applying a template from one nested location never
+// bleeds into another's rendered list even though they share the array.
+function FixtureTemplatesSection({ title, scopeFilter, applied, catalogue, catalogueLoading, onApply, onRemoveTemplate, onSetBasis, onUpdateRow, onAddCustomRow, onAddCatalogRow, onRemoveRow }: {
+  title: string;
+  scopeFilter: 'fixture' | 'system' | 'geyser';
   applied: AppliedTemplate[];
   catalogue: PlumblinkMaterial[];
   catalogueLoading: boolean;
@@ -1908,7 +1918,7 @@ function FixtureTemplatesSection({ applied, catalogue, catalogueLoading, onApply
   onAddCatalogRow: (instanceId: string) => void;
   onRemoveRow: (instanceId: string, rowId: string) => void;
 }) {
-  const [templates, setTemplates] = useState<FixtureTemplate[]>([]);
+  const [allTemplates, setAllTemplates] = useState<FixtureTemplate[]>([]);
   const [picked, setPicked] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -1916,31 +1926,36 @@ function FixtureTemplatesSection({ applied, catalogue, catalogueLoading, onApply
     let alive = true;
     fetchFixtureTemplates().then(ts => {
       if (!alive) return;
-      setTemplates(ts); setLoading(false);
-      if (ts[0]) setPicked(ts[0].template_id);
+      setAllTemplates(ts); setLoading(false);
     });
     return () => { alive = false; };
   }, []);
+
+  const templates = allTemplates.filter(t=>t.scope===scopeFilter);
+  useEffect(() => {
+    if (!picked && templates[0]) setPicked(templates[0].template_id);
+  }, [templates, picked]);
+  const scopedApplied = applied.filter(a=>a.scope===scopeFilter);
 
   const pick = templates.find(t=>t.template_id===picked);
 
   return (
     <div style={cardStyle}>
-      <SectionHeader>Fitting Templates — suggested fittings per fixture (confirm to price)</SectionHeader>
+      <SectionHeader>{title}</SectionHeader>
       <div style={{padding:S.xl}}>
-        <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:applied.length?12:8}}>
+        <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:scopedApplied.length?12:8}}>
           <select value={picked} onChange={e=>setPicked(e.target.value)} disabled={loading||templates.length===0}
             style={{...selectStyle,flex:1,minWidth:200,height:34,fontSize:12}}>
             {loading&&<option>Loading templates…</option>}
             {!loading&&templates.length===0&&<option>No templates found</option>}
-            {templates.map(t=><option key={t.template_id} value={t.template_id}>{t.template_name} ({t.scope})</option>)}
+            {templates.map(t=><option key={t.template_id} value={t.template_id}>{t.template_name}</option>)}
           </select>
           <button onClick={()=>pick&&onApply(pick)} disabled={!pick}
             style={{...addLineBtn,cursor:pick?"pointer":"not-allowed",opacity:pick?1:0.5}}>+ Add template</button>
         </div>
-        {applied.length===0
+        {scopedApplied.length===0
           ? <div style={{fontSize:12,color:C.slateL,padding:"2px 2px 4px"}}>No templates added. A template <em>suggests</em> scope; you confirm what gets priced — nothing is priced from a suggestion alone.</div>
-          : applied.map(tpl=><AppliedTemplateBlock key={tpl.instanceId} tpl={tpl}
+          : scopedApplied.map(tpl=><AppliedTemplateBlock key={tpl.instanceId} tpl={tpl}
               onRemoveTemplate={onRemoveTemplate} onSetBasis={onSetBasis} onUpdateRow={onUpdateRow}
               onAddCustomRow={onAddCustomRow} onAddCatalogRow={onAddCatalogRow} onRemoveRow={onRemoveRow}
               catalogue={catalogue} catalogueLoading={catalogueLoading}/>)}
@@ -1974,7 +1989,12 @@ export default function EstimatePage() {
   const [screen, setScreen] = useState<"entry"|"scan"|"review"|"output">("entry");
   const [tab,    setTab]    = useState("estimate");
   const [inputs, setInputs] = useState<Inputs>(DEFAULT);
-  const [jobMode, setJobMode] = useState<"plumbing"|"geyser">("plumbing");
+  // Independent per-section toggles — replaces the old exclusive jobMode gate.
+  // A job can hold any combination concurrently; Scan Drawing stays a distinct
+  // full-screen flow via `screen`, not a fifth toggle (finishing a scan already
+  // returns to a normal editing state, so it isn't "concurrent" the same way).
+  const [activeSections, setActiveSections] = useState<ActiveSections>({ waterSupply:false, drainage:false, geyser:false, fixtures:false });
+  const toggleSection = useCallback((key: keyof ActiveSections) => setActiveSections(p=>({...p, [key]:!p[key]})), []);
   // Cascade catalogue lifted here (fetched once) and shared by the fixture
   // templates section and both standalone Supply/Drainage fitting sections.
   const [catalogue, setCatalogue] = useState<PlumblinkMaterial[]>([]);
@@ -2009,23 +2029,44 @@ export default function EstimatePage() {
 
   // Geyser assembly (fixed-composition) vs plumbing engine (baseline-and-scale)
   const geyserAsm = useMemo<GeyserAssembly | null>(() =>
-    jobMode==="geyser" && geyserPricing
+    activeSections.geyser && geyserPricing
       ? (geyser.jobType==="burst_replacement"
           ? buildGeyserReplacement(geyser.size, geyser.brand, geyserPricing)
           : buildElementRepair(geyser.size, geyser.solar, geyserPricing))
-      : null, [jobMode, geyser, geyserPricing]);
+      : null, [activeSections.geyser, geyser, geyserPricing]);
 
-  const scope  = useMemo(()=> [...buildScope(inputs, { invoiceStrict: documentType==="invoice" }), ...(geyserAsm ? geyserToScope(geyserAsm) : [])],  [geyserAsm, inputs, documentType]);
-  const labour = useMemo(()=> [...buildLabour(inputs, crewRateHr), ...(geyserAsm ? geyserToLabour(geyserAsm, crewRateHr) : [])], [geyserAsm, inputs, crewRateHr]);
-  // Flags: geyser flags, or warnings for any user-entered (custom) lines.
-  const flags  = geyserAsm
-    ? geyserAsm.flags
-    : [
-        ...(inputs.fixtureLines ?? []).filter(l => l.source==="custom" && l.quantity>0)
-          .map(l => `Custom fixture line "${l.description || "(unnamed)"}" — user-entered price R${l.unitPrice}, unverified (Assumption)`),
-        ...([...(inputs.supplyLines ?? []), ...(inputs.drainLines ?? [])]).filter(l => l.source==="custom" && l.metres>0)
-          .map(l => `Custom ${l.use} pipe "${l.description || "(unnamed)"}" — user-entered R${l.perMetre}/m, unverified (Assumption)`),
-      ];
+  // A toggled-off section's data isn't cleared (re-enabling restores it as-is)
+  // but must not silently contribute to totals while its card is hidden — this
+  // masks what's passed into buildScope/buildLabour per active section, without
+  // touching either function's internals. fittingTemplates is shared across the
+  // three nested template pickers (Drainage/Fixtures/Geyser); each applied
+  // instance's own `scope` says which section it belongs to.
+  const maskedInputs = useMemo<Inputs>(() => ({
+    ...inputs,
+    supplyLines: activeSections.waterSupply ? (inputs.supplyLines ?? []) : [],
+    supplyFittings: activeSections.waterSupply ? (inputs.supplyFittings ?? []) : [],
+    points: activeSections.waterSupply ? inputs.points : 0,
+    drainLines: activeSections.drainage ? (inputs.drainLines ?? []) : [],
+    drainageFittings: activeSections.drainage ? (inputs.drainageFittings ?? []) : [],
+    trenching: activeSections.drainage ? inputs.trenching : false,
+    fixtureLines: activeSections.fixtures ? (inputs.fixtureLines ?? []) : [],
+    fittingTemplates: (inputs.fittingTemplates ?? []).filter(t =>
+      (t.scope==='system' && activeSections.drainage) ||
+      (t.scope==='fixture' && activeSections.fixtures) ||
+      (t.scope==='geyser' && activeSections.geyser)),
+  }), [inputs, activeSections]);
+
+  const scope  = useMemo(()=> [...buildScope(maskedInputs, { invoiceStrict: documentType==="invoice" }), ...(geyserAsm ? geyserToScope(geyserAsm) : [])],  [geyserAsm, maskedInputs, documentType]);
+  const labour = useMemo(()=> [...buildLabour(maskedInputs, crewRateHr), ...(geyserAsm ? geyserToLabour(geyserAsm, crewRateHr) : [])], [geyserAsm, maskedInputs, crewRateHr]);
+  // Flags: geyser flags concatenated with warnings for any user-entered (custom)
+  // lines — concatenated, not either/or, now that sections can be concurrent.
+  const flags = [
+    ...(geyserAsm ? geyserAsm.flags : []),
+    ...(maskedInputs.fixtureLines ?? []).filter(l => l.source==="custom" && l.quantity>0)
+      .map(l => `Custom fixture line "${l.description || "(unnamed)"}" — user-entered price R${l.unitPrice}, unverified (Assumption)`),
+    ...([...(maskedInputs.supplyLines ?? []), ...(maskedInputs.drainLines ?? [])]).filter(l => l.source==="custom" && l.metres>0)
+      .map(l => `Custom ${l.use} pipe "${l.description || "(unnamed)"}" — user-entered R${l.perMetre}/m, unverified (Assumption)`),
+  ];
   const finalGrade = useMemo(()=>{
     const all=[...scope.map(l=>l.conf),...labour.map(l=>l.conf)];
     return all.reduce((m,g)=>(GRADES[g]?.rank<GRADES[m]?.rank?g:m),"Validated");
@@ -2037,8 +2078,8 @@ export default function EstimatePage() {
     ? `${geyser.size}L ${geyser.jobType==="burst_replacement"?`${geyser.brand} geyser replacement`:"geyser element repair"}`
     : "";
   const effInputs: Inputs = geyserAsm
-    ? { ...inputs, projectName: (inputs.projectName && inputs.projectName!==DEFAULT.projectName) ? inputs.projectName : geyserName, _geyser: geyser, _scanNotes: undefined }
-    : inputs;
+    ? { ...maskedInputs, projectName: (maskedInputs.projectName && maskedInputs.projectName!==DEFAULT.projectName) ? maskedInputs.projectName : geyserName, _geyser: geyser, _scanNotes: undefined }
+    : maskedInputs;
 
   const setInp = useCallback((k: keyof Inputs, v: unknown) => setInputs(p=>({...p,[k]:v})),[]);
   const setGey = useCallback((patch: Partial<GeyserMeta>) => setGeyser(p=>({...p,...patch})),[]);
@@ -2120,7 +2161,10 @@ export default function EstimatePage() {
   },[]);
 
   const onScanDone = useCallback((data: Inputs) => {
-    setJobMode("plumbing");
+    // Scan Drawing stays a distinct flow, not concurrent with the other four —
+    // finishing a scan returns to a clean plumbing-only state (matching the old
+    // jobMode="plumbing" reset) rather than merging into whatever was active.
+    setActiveSections({ waterSupply:true, drainage:true, fixtures:true, geyser:false });
     setInputs({
       ...data,
       fixtureLines: scanFixturesToLines(data.fixtures),
@@ -2137,16 +2181,34 @@ export default function EstimatePage() {
   // Save document to DB for persistence
   const saveDocumentToDB = async (reference: string) => {
     try {
+      // Per-section snapshot (Brief C-2 Step 0.6) — a faithful, reconstructable
+      // record of what was actually quoted (which sections were active and each
+      // active section's real input data), not just totals as before. This is
+      // write-only: no code path reads this shape back into the editor.
+      const activeSectionKeys = (Object.keys(activeSections) as (keyof ActiveSections)[]).filter(k=>activeSections[k]);
       const snapshot = {
         projectName: effInputs.projectName,
         clientName: effInputs.clientName,
-        supplyLines: effInputs.supplyLines,
-        drainLines: effInputs.drainLines,
-        fixtureLines: effInputs.fixtureLines,
-        supplyFittings: effInputs.supplyFittings,
-        drainageFittings: effInputs.drainageFittings,
-        fittingTemplates: effInputs.fittingTemplates,
-        points: effInputs.points,
+        activeSections: activeSectionKeys,
+        waterSupply: activeSections.waterSupply ? {
+          supplyLines: inputs.supplyLines ?? [],
+          supplyFittings: inputs.supplyFittings ?? [],
+        } : null,
+        drainage: activeSections.drainage ? {
+          drainLines: inputs.drainLines ?? [],
+          drainageFittings: inputs.drainageFittings ?? [],
+          trenching: inputs.trenching,
+          templates: (inputs.fittingTemplates ?? []).filter(t=>t.scope==='system'),
+        } : null,
+        geyser: activeSections.geyser ? {
+          ...geyser,
+          templates: (inputs.fittingTemplates ?? []).filter(t=>t.scope==='geyser'),
+        } : null,
+        fixtures: activeSections.fixtures ? {
+          fixtureLines: inputs.fixtureLines ?? [],
+          templates: (inputs.fittingTemplates ?? []).filter(t=>t.scope==='fixture'),
+        } : null,
+        points: inputs.points,
         totals: {
           material: matTotal,
           labour: labTotal,
@@ -2414,28 +2476,43 @@ export default function EstimatePage() {
           </div>
         </div>)}
 
-        {/* Job-type selector — a single dropdown replacing the old button rows.
-            Plumbing Estimate / Geyser Replacement / Scan Drawing. The document
-            type (quote vs invoice) is NOT chosen here — it arrives from home. */}
+        {/* Job sections — independent toggles replacing the old exclusive
+            dropdown. A job can hold any combination of Water Supply, Drainage,
+            Geyser and Fixtures data concurrently. Scan Drawing stays a distinct
+            full-screen flow rather than a fifth toggle. Document type (quote vs
+            invoice) is NOT chosen here — it arrives from home. */}
         <div style={cardStyle}>
-          <SectionHeader>Job type</SectionHeader>
+          <SectionHeader>Job sections</SectionHeader>
           <div style={{padding:S.xl}}>
-            <select
-              value={jobMode==="geyser"?"geyser":"plumbing"}
-              onChange={e=>{
-                const v=e.target.value;
-                if(v==="geyser"){setJobMode("geyser");}
-                else if(v==="scan"){setJobMode("plumbing");setScreen("scan");}
-                else{setJobMode("plumbing");setScreen("entry");}
-              }}
-              style={{...selectStyle,width:"100%",height:46,borderRadius:8,fontSize:14,fontWeight:700,
-                paddingLeft:14,paddingRight:34,backgroundPosition:"right 14px center"}}>
-              <option value="plumbing">Plumbing Estimate</option>
-              <option value="geyser">Geyser Replacement</option>
-              <option value="scan">Scan Drawing</option>
-            </select>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginBottom:10}}>
+              {([
+                {key:"waterSupply" as const, label:"Water Supply"},
+                {key:"drainage" as const, label:"Drainage"},
+                {key:"geyser" as const, label:"Geyser"},
+                {key:"fixtures" as const, label:"Fixtures"},
+              ]).map(s=>{
+                const on = activeSections[s.key];
+                return (
+                <button key={s.key} onClick={()=>toggleSection(s.key)} className="cos-toggle" aria-pressed={on} style={{
+                  display:"flex",alignItems:"center",justifyContent:"center",gap:7,
+                  padding:"11px 12px",borderRadius:8,cursor:"pointer",fontSize:12.5,fontWeight:800,
+                  border:`2px solid ${on?C.gold:UI.borderStrong}`,
+                  background:on?C.gold:C.white,color:on?C.navy:C.slate,
+                  boxShadow:on?"0 2px 8px rgba(245,166,35,0.35)":"none"}}>
+                  <span aria-hidden style={{display:"inline-flex",alignItems:"center",justifyContent:"center",
+                    width:16,height:16,borderRadius:"50%",flexShrink:0,fontSize:10,fontWeight:900,
+                    background:on?C.navy:"transparent",color:on?C.gold:"transparent",
+                    border:on?"none":`2px solid ${UI.borderStrong}`}}>{on?"✓":""}</span>
+                  {s.label}
+                </button>);
+              })}
+            </div>
+            <button onClick={()=>setScreen("scan")}
+              style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1px solid ${UI.borderStrong}`,background:C.white,color:C.slate,fontWeight:700,fontSize:12.5,cursor:"pointer"}}>
+              📐 Scan Drawing instead
+            </button>
             <div style={{fontSize:11,color:C.muted,marginTop:8}}>
-              Options: Plumbing Estimate · Geyser Replacement · Scan Drawing
+              Enable any combination — a job can hold Water Supply, Drainage, Geyser and Fixtures data at once.
             </div>
           </div>
         </div>
@@ -2449,25 +2526,62 @@ export default function EstimatePage() {
                 <input value={inputs[f.k] as string} onChange={e=>setInp(f.k,e.target.value)}
                   style={{...inputStyle,width:"100%"}}/>
               </div>))}
+            {/* Points relocated from inline-in-Water-Supply to job-level (Brief
+                C-2 Change #5) — it only drives Water Supply's own fittings/labour
+                (F01-F04/C01/C02/A01/L03), so it's disabled/greyed rather than
+                silently inert whenever Water Supply itself is toggled off — a
+                dead-but-editable field is a worse footgun than a disabled one. */}
+            <div style={{gridColumn:"1 / -1",opacity:activeSections.waterSupply?1:0.5}}>
+              <label style={T.fieldLabel}>Points (make-offs)</label>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <input type="number" min={0} value={inputs.points} disabled={!activeSections.waterSupply}
+                  onChange={e=>setInp("points",Math.max(0,parseInt(e.target.value)||0))}
+                  style={{...rowCtl,width:76,textAlign:"center",fontWeight:700,cursor:activeSections.waterSupply?"text":"not-allowed"}}/>
+                <span style={{...T.muted}}>
+                  {activeSections.waterSupply
+                    ? "drives fittings & stop taps — set to 0 for maintenance callouts or repairs"
+                    : "enable Water Supply to use Points — it only drives Water Supply's fittings/labour"}
+                </span>
+              </div>
+            </div>
           </div>
         </div>
 
-        {jobMode==="plumbing"&&(<>
-        {pipeSection("supply","Water Supply",
-          <div style={{display:"flex",alignItems:"center",gap:8,marginTop:10,paddingTop:10,borderTop:"1px solid #EDF0F5"}}>
-            <label style={{fontSize:11,color:C.slateL,fontWeight:600}}>Points (make-offs)</label>
-            <input type="number" min={0} value={inputs.points}
-              onChange={e=>setInp("points",Math.max(0,parseInt(e.target.value)||0))}
-              style={{...rowCtl,width:76,textAlign:"center",fontWeight:700}}/>
-            <span style={{...T.muted}}>drives fittings & stop taps — set to 0 for maintenance callouts or repairs</span>
-          </div>)}
+        {activeSections.waterSupply&&(<>
+        {pipeSection("supply","Water Supply", null)}
+        <StandaloneFittingSection title="Supply Fittings" use="supply"
+          rows={inputs.supplyFittings ?? []} catalogue={catalogue} catalogueLoading={catalogueLoading}
+          onAdd={addStandaloneFitting} onAddCustom={addStandaloneCustomFitting}
+          onUpdate={updateStandaloneFitting} onRemove={removeStandaloneFitting}/>
+        </>)}
 
+        {activeSections.drainage&&(<>
         {pipeSection("drainage","Drainage",
           <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",marginTop:10,paddingTop:10,borderTop:"1px solid #EDF0F5"}}>
             <input type="checkbox" checked={inputs.trenching} onChange={e=>setInp("trenching",e.target.checked)} style={{width:16,height:16}}/>
             <span style={{fontSize:13,color:C.navy}}>Include trench excavation labour (across drainage lines)</span>
           </label>)}
+        <StandaloneFittingSection title="Drainage Fittings" use="drainage"
+          rows={inputs.drainageFittings ?? []} catalogue={catalogue} catalogueLoading={catalogueLoading}
+          onAdd={addStandaloneFitting} onAddCustom={addStandaloneCustomFitting}
+          onUpdate={updateStandaloneFitting} onRemove={removeStandaloneFitting}/>
+        <FixtureTemplatesSection
+          title="Drainage Templates"
+          scopeFilter="system"
+          applied={inputs.fittingTemplates ?? []}
+          catalogue={catalogue}
+          catalogueLoading={catalogueLoading}
+          onApply={applyTemplate}
+          onRemoveTemplate={removeTemplate}
+          onSetBasis={setTemplateBasis}
+          onUpdateRow={updateTemplateRow}
+          onAddCustomRow={addCustomTemplateRow}
+          onAddCatalogRow={addCatalogTemplateRow}
+          onRemoveRow={removeTemplateRow}
+        />
+        </>)}
 
+        {activeSections.fixtures&&(<>
         <div style={cardStyle}>
           <SectionHeader>Fixtures</SectionHeader>
           <div style={{padding:S.xl}}>
@@ -2537,19 +2651,12 @@ export default function EstimatePage() {
           </div>
         </div>
 
-        {/* Standalone fittings — Supply and Drainage sections, each a plain
-            catalogue-cascade list (Size → Fitting Type → Product) with a fixed
-            application. Not linked to any fixture. */}
-        <StandaloneFittingSection title="Supply Fittings" use="supply"
-          rows={inputs.supplyFittings ?? []} catalogue={catalogue} catalogueLoading={catalogueLoading}
-          onAdd={addStandaloneFitting} onAddCustom={addStandaloneCustomFitting}
-          onUpdate={updateStandaloneFitting} onRemove={removeStandaloneFitting}/>
-        <StandaloneFittingSection title="Drainage Fittings" use="drainage"
-          rows={inputs.drainageFittings ?? []} catalogue={catalogue} catalogueLoading={catalogueLoading}
-          onAdd={addStandaloneFitting} onAddCustom={addStandaloneCustomFitting}
-          onUpdate={updateStandaloneFitting} onRemove={removeStandaloneFitting}/>
-
+        {/* 4.2 Fixtures and Fittings Replacement Templates — the six confirmed
+            FIXTURE_* templates, same mechanism as Drainage's 2.3 above, scoped
+            to 'fixture' so it only shows/holds this section's applied templates. */}
         <FixtureTemplatesSection
+          title="Fixtures and Fittings Replacement Templates"
+          scopeFilter="fixture"
           applied={inputs.fittingTemplates ?? []}
           catalogue={catalogue}
           catalogueLoading={catalogueLoading}
@@ -2563,19 +2670,33 @@ export default function EstimatePage() {
         />
         </>)}
 
-        {jobMode==="geyser"&&(
+        {activeSections.geyser&&(<>
         <div style={cardStyle}>
           <SectionHeader>Geyser Job Specs</SectionHeader>
           <div style={{padding:S.xl}}>
+            {/* 3.1/3.2/3.3 — same nesting pattern as Drainage's 2.3 and Fixtures'
+                4.2: a set of sibling options under one "Job type" umbrella. 3.1
+                is a disabled placeholder (per the PDF, not built yet); 3.2/3.3
+                are today's existing burst_replacement/element_repair bundles,
+                unchanged. 3.3.2 General Repairs (the itemized alternative) is
+                its own FixtureTemplatesSection instance below, always visible
+                alongside whichever fixed-composition bundle is selected. */}
             <div style={{marginBottom:16}}>
               <label style={{...T.fieldLabel,marginBottom:6}}>Job type</label>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                {([{v:"burst_replacement" as const,l:"Burst replacement"},{v:"element_repair" as const,l:"Element / thermostat repair"}]).map(j=>{
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+                <button type="button" disabled aria-disabled="true" title="Not built yet" style={{
+                  display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,
+                  padding:"11px 8px",borderRadius:8,cursor:"not-allowed",fontSize:12,fontWeight:800,
+                  border:`2px dashed ${UI.borderStrong}`,background:"#F5F6F8",color:C.slateL,opacity:0.7}}>
+                  3.1 New Installation
+                  <span style={{fontSize:9,fontWeight:600,letterSpacing:0.4,textTransform:"uppercase"}}>Coming soon</span>
+                </button>
+                {([{v:"burst_replacement" as const,l:"3.2 Burst Replacement"},{v:"element_repair" as const,l:"3.3 Replacement / Repairs"}]).map(j=>{
                   const on = geyser.jobType===j.v;
                   return (
                   <button key={j.v} onClick={()=>setGey({jobType:j.v})} className="cos-toggle" aria-pressed={on} style={{
                     display:"flex",alignItems:"center",justifyContent:"center",gap:7,
-                    padding:"11px 12px",borderRadius:8,cursor:"pointer",fontSize:12.5,fontWeight:800,
+                    padding:"11px 8px",borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:800,
                     border:`2px solid ${on?C.gold:UI.borderStrong}`,
                     background:on?C.gold:C.white,color:on?C.navy:C.slate,
                     boxShadow:on?"0 2px 8px rgba(245,166,35,0.35)":"none"}}>
@@ -2587,6 +2708,8 @@ export default function EstimatePage() {
                   </button>);
                 })}
               </div>
+              {geyser.jobType==="element_repair"&&
+                <div style={{fontSize:10,color:C.slateL,marginTop:6}}>3.3.1 Thermostat / Element bundle — fixed-composition, below.</div>}
             </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
               <div>
@@ -2636,7 +2759,27 @@ export default function EstimatePage() {
               </div>
             </div>
           </div>
-        </div>)}
+        </div>
+        {/* 3.3.2 General Repairs — itemized alternative to the fixed-composition
+            bundles above (GEYSER_BURST_REPLACEMENT/GEYSER_ELEMENT_REPAIR), same
+            mechanism as Drainage's 2.3 and Fixtures' 4.2, scoped to 'geyser'.
+            Brief B-2's Pressure/Size picker is keyed off templateId, not
+            location, so it keeps working here unchanged. */}
+        <FixtureTemplatesSection
+          title="3.3.2 General Repairs — itemized fitting templates"
+          scopeFilter="geyser"
+          applied={inputs.fittingTemplates ?? []}
+          catalogue={catalogue}
+          catalogueLoading={catalogueLoading}
+          onApply={applyTemplate}
+          onRemoveTemplate={removeTemplate}
+          onSetBasis={setTemplateBasis}
+          onUpdateRow={updateTemplateRow}
+          onAddCustomRow={addCustomTemplateRow}
+          onAddCatalogRow={addCatalogTemplateRow}
+          onRemoveRow={removeTemplateRow}
+        />
+        </>)}
 
         <div style={{background:"#fff",border:`1px solid ${C.gold}40`,borderRadius:8,padding:"14px 20px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
           <div>

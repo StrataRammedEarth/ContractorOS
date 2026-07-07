@@ -191,7 +191,7 @@ export function resolvedTotal(row: Pick<TemplateRowInstance, 'checked' | 'materi
   return resolvedQty(row) * row.unitPrice;
 }
 
-export function quantityInputLabel(scope: 'fixture' | 'system'): string {
+export function quantityInputLabel(scope: 'fixture' | 'system' | 'geyser'): string {
   return scope === 'system' ? 'Pipe run length (m)' : 'Fixture count';
 }
 
