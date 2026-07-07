@@ -11,7 +11,7 @@ import {
 import { useSettings, DEFAULT_SETTINGS, type OrgSettings } from "@/lib/settings-context";
 import { supabase } from "@/lib/supabase-client";
 import {
-  fetchFixtureTemplates, fetchTemplateRows, fetchCandidateMaterials,
+  fetchFixtureTemplates, fetchTemplateRows, fetchCandidateMaterials, fetchMaterialByCode,
   type FixtureTemplate,
 } from "@/lib/fixture-templates";
 import {
@@ -1298,7 +1298,23 @@ function TemplateProductSelect({ row, onSelect, onManual, onResolveDefault }: {
   const [manual, setManual] = useState(false);
 
   useEffect(() => {
-    if (manualOnly) { setLoading(false); return; }
+    if (manualOnly) {
+      setLoading(false);
+      // A manual-entry row can still carry a real default_material_code (the
+      // Geyser templates' rows all do — empty product_filter means there's no
+      // cascade to run, but the row's default is still a genuine catalog SKU).
+      // Without this, such a row loads with materialCode set but description/
+      // unitPrice blank forever, since the catalog-fetch branch below — the
+      // only other place that seeds a default's price — never runs for it.
+      if (row.materialCode && row.unitPrice === 0 && row.description === '') {
+        let alive = true;
+        fetchMaterialByCode(row.materialCode).then(m => {
+          if (alive && m) onResolveDefault(m.unit_price_excl_vat ?? 0, m.description ?? "");
+        });
+        return () => { alive = false; };
+      }
+      return;
+    }
     let alive = true;
     setLoading(true);
     fetchCandidateMaterials({ product_filter: row.productFilter }).then(ms => {

@@ -74,6 +74,25 @@ export async function fetchCandidateMaterials(row: Pick<FixtureTemplateRow, 'pro
   return data ?? [];
 }
 
+// Some templates (currently only Geyser) seed a manual-entry row (empty
+// product_filter, per isManualLine) with a real default_material_code — a
+// single fixed SKU with nothing to cascade through, but its price/description
+// still needs resolving on load like any other row's default. A point lookup
+// by code, not a filter query — fetchCandidateMaterials short-circuits to []
+// for these rows precisely because there's no filter to run.
+export async function fetchMaterialByCode(materialCode: string): Promise<PlumblinkMaterial | null> {
+  const { data, error } = await supabase
+    .from('plumblink_materials')
+    .select('*')
+    .eq('material_code', materialCode)
+    .returns<PlumblinkMaterial[]>();
+  if (error) {
+    console.error(`❌ Error loading material "${materialCode}":`, error);
+    return null;
+  }
+  return data?.[0] ?? null;
+}
+
 export function findTemplateForFixtureType(templates: FixtureTemplate[], fixtureType: string): FixtureTemplate | undefined {
   return templates.find((t) => t.scope === 'fixture' && t.fixture_type === fixtureType);
 }

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   fetchCandidateMaterials,
   fetchFixtureTemplates,
+  fetchMaterialByCode,
   fetchTemplateRows,
   findSystemTemplate,
   findTemplateForFixtureType,
@@ -178,6 +179,42 @@ describe('fetchCandidateMaterials', () => {
     const result = await fetchCandidateMaterials(TOILET_ROW);
 
     expect(result).toEqual([]);
+    expect(consoleSpy).toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
+});
+
+describe('fetchMaterialByCode', () => {
+  it('queries plumblink_materials by material_code and returns the first match', async () => {
+    const material = { material_code: 'PLB-GEY-PCV01', description: 'Advanced Plastic Multi PCV Valve Relief & Isolator 400kPa 22mm', unit_price_excl_vat: 549 };
+    setResponse('plumblink_materials', { data: [material], error: null });
+
+    const result = await fetchMaterialByCode('PLB-GEY-PCV01');
+
+    expect(result).toEqual(material);
+    expect(getCalls()).toEqual([
+      { table: 'plumblink_materials', method: 'from', args: [] },
+      { table: 'plumblink_materials', method: 'select', args: ['*'] },
+      { table: 'plumblink_materials', method: 'eq', args: ['material_code', 'PLB-GEY-PCV01'] },
+      { table: 'plumblink_materials', method: 'returns', args: [] },
+    ]);
+  });
+
+  it('returns null when no material matches the code', async () => {
+    setResponse('plumblink_materials', { data: [], error: null });
+
+    const result = await fetchMaterialByCode('PLB-DOES-NOT-EXIST');
+
+    expect(result).toBeNull();
+  });
+
+  it('returns null on error rather than throwing', async () => {
+    setResponse('plumblink_materials', { data: null, error: { message: 'boom' } });
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = await fetchMaterialByCode('PLB-GEY-PCV01');
+
+    expect(result).toBeNull();
     expect(consoleSpy).toHaveBeenCalled();
     consoleSpy.mockRestore();
   });
