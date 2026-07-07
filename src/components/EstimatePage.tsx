@@ -2034,6 +2034,14 @@ export default function EstimatePage() {
           ? buildGeyserReplacement(geyser.size, geyser.brand, geyserPricing)
           : buildElementRepair(geyser.size, geyser.solar, geyserPricing))
       : null, [activeSections.geyser, geyser, geyserPricing]);
+  // The bundle's OWN economics, isolated from whatever else is in the job —
+  // NOT matTotal/labTotal/sell below, which are job-wide totals across every
+  // active section (and, since Change #6, possibly also 3.3.2 General Repairs
+  // template lines for the same geyser). The "Fixed-composition assembly" box
+  // must show only the bundle's own price; using the job-wide totals there
+  // was harmless under the old exclusive-jobMode design (the job WAS the
+  // bundle), but silently inflates once other sections/templates coexist.
+  const geyserBundleLadder = useMemo(() => geyserAsm ? applyLadder(geyserAsm.materialCost, geyserAsm.labourCost, ladder) : null, [geyserAsm, ladder]);
 
   // A toggled-off section's data isn't cleared (re-enabling restores it as-is)
   // but must not silently contribute to totals while its card is hidden — this
@@ -2741,10 +2749,10 @@ export default function EstimatePage() {
                 <span style={{fontSize:12,fontWeight:800,color:C.navy}}>♨ Fixed-composition assembly</span>
                 <GradePill grade={finalGrade}/>
               </div>
-              {[
-                {l:"Parts",v:matTotal},
-                {l:"Labour",v:labTotal},
-                {l:"Markup (commercial ladder)",v:sell-matTotal-labTotal},
+              {geyserAsm&&geyserBundleLadder&&[
+                {l:"Parts",v:geyserAsm.materialCost},
+                {l:"Labour",v:geyserAsm.labourCost},
+                {l:"Markup (commercial ladder)",v:geyserBundleLadder.sell-geyserAsm.materialCost-geyserAsm.labourCost},
               ].map(r=>(
                 <div key={r.l} style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:"3px 0"}}>
                   <span style={{fontSize:11.5,color:C.slate}}>{r.l}</span>
@@ -2752,11 +2760,20 @@ export default function EstimatePage() {
                 </div>))}
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:"7px 0 1px",marginTop:4,borderTop:`1px solid ${C.gold}55`}}>
                 <span style={{fontSize:12,fontWeight:800,color:C.navy}}>Sell price excl. VAT</span>
-                <span style={{fontSize:16,fontWeight:900,color:C.goldDim,fontVariantNumeric:"tabular-nums"}}>{fmt(sell)}</span>
+                <span style={{fontSize:16,fontWeight:900,color:C.goldDim,fontVariantNumeric:"tabular-nums"}}>{fmt(geyserBundleLadder?.sell ?? 0)}</span>
               </div>
               <div style={{fontSize:10,color:C.slateL,marginTop:6}}>
                 {GRADES[finalGrade]?.rank>=GRADES["Derived"].rank?"Client-issuable through the normal gate (see Learn tab).":"Not client-issuable until grade lifts (see Learn tab)."}
               </div>
+              {(() => {
+                const matchingTemplateId = geyser.jobType==="burst_replacement" ? "GEYSER_BURST_REPLACEMENT" : "GEYSER_ELEMENT_REPAIR";
+                const hasOverlap = (maskedInputs.fittingTemplates ?? []).some(t=>t.scope==="geyser" && t.templateId===matchingTemplateId);
+                return hasOverlap && (
+                  <div style={{fontSize:10,color:C.amber,marginTop:6,paddingTop:6,borderTop:`1px solid ${C.gold}30`}}>
+                    ⚠ A 3.3.2 General Repairs template matching this bundle's job type is also applied below — same unit/kit/components, priced twice. Remove one before issuing this quote.
+                  </div>
+                );
+              })()}
             </div>
           </div>
         </div>
