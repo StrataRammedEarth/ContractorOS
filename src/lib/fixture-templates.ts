@@ -10,7 +10,7 @@ export interface FixtureTemplate {
   fixture_type: string;
   template_name: string;
   template_variant: string;
-  scope: 'fixture' | 'system';
+  scope: 'fixture' | 'system' | 'geyser';
 }
 
 export interface FixtureTemplateRow {
