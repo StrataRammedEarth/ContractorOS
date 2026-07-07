@@ -1604,6 +1604,58 @@ function StandaloneFittingSection({ title, use, rows, catalogue, catalogueLoadin
   );
 }
 
+// GEYSER_BURST_REPLACEMENT's Pressure/Size picker (Brief B-2) — Advanced brand
+// only, 4 fixed combinations sourced from Plumblink Quote #6519 (Brief A-2).
+// A module-level constant, not fetched: plumblink_materials has no 'Geyser'
+// application rows in the cascade catalogue (fetchCascadeCatalogue filters to
+// Drainage/Supply only), and these 4 combinations are fixed and known, so
+// there's nothing to gain from a live lookup. Values re-verified directly
+// against Supabase before hardcoding, per every prior brief in this sequence.
+type GeyserPcvPressure = '400kPa' | '600kPa';
+type GeyserPcvSize = '15mm' | '22mm';
+interface GeyserPcvVbMaterial { materialCode: string; description: string; unitPrice: number; }
+const PCV_VB_MATERIAL_MAP: Record<string, { pcv: GeyserPcvVbMaterial; vb: GeyserPcvVbMaterial }> = {
+  '400kPa|15mm': {
+    pcv: { materialCode:'PLB-GEY-PCV02', description:'Advanced Plastic Multi PCV Valve Relief & Isolator 400kPa 15mm', unitPrice:549.00 },
+    vb:  { materialCode:'PLB-GEY-VB02',  description:'Advanced Vacuum Breaker 15mm CXC', unitPrice:75.00 },
+  },
+  '400kPa|22mm': {
+    pcv: { materialCode:'PLB-GEY-PCV01', description:'Advanced Plastic Multi PCV Valve Relief & Isolator 400kPa 22mm', unitPrice:549.00 },
+    vb:  { materialCode:'PLB-GEY-VB01',  description:'Advanced Vacuum Breaker 22mm CXC', unitPrice:75.00 },
+  },
+  '600kPa|15mm': {
+    pcv: { materialCode:'PLB-GEY-PCV03', description:'Advanced Plastic Multi PCV Valve Relief & Isolator 600kPa 15mm', unitPrice:549.00 },
+    vb:  { materialCode:'PLB-GEY-VB02',  description:'Advanced Vacuum Breaker 15mm CXC', unitPrice:75.00 },
+  },
+  '600kPa|22mm': {
+    pcv: { materialCode:'PLB-GEY-PCV04', description:'Advanced Plastic Multi PCV Valve Relief & Isolator 600kPa 22mm', unitPrice:549.00 },
+    vb:  { materialCode:'PLB-GEY-VB01',  description:'Advanced Vacuum Breaker 22mm CXC', unitPrice:75.00 },
+  },
+};
+// Reverse lookup from the PCV row's current materialCode — used only to derive
+// the picker's initial Pressure/Size so a reloaded estimate's selector reflects
+// whatever combination its rows already carry. Not a persistence mechanism: it
+// just reads the AppliedTemplate row state that already exists, the same state
+// everything else in this control operates on. Falls back to the template's
+// shipped default (400kPa/22mm) when there's no match (fresh application).
+const PCV_CODE_TO_COMBO: Record<string, { pressure: GeyserPcvPressure; size: GeyserPcvSize }> = {
+  'PLB-GEY-PCV01': { pressure:'400kPa', size:'22mm' },
+  'PLB-GEY-PCV02': { pressure:'400kPa', size:'15mm' },
+  'PLB-GEY-PCV03': { pressure:'600kPa', size:'15mm' },
+  'PLB-GEY-PCV04': { pressure:'600kPa', size:'22mm' },
+};
+// No dedicated "Unit row Size/Brand dropdown" exists to copy styling from —
+// every fixture-template row (Unit included) uses the same generic
+// TemplateProductSelect cascade dropdown. This matches the app-wide gold-chevron
+// <select> convention instead (see CHEVRON/selectStyle), scaled to sit inline in
+// the block header alongside the existing Fixture count input.
+const geyserPcvVbSelectStyle: React.CSSProperties = {
+  padding:"6px 22px 6px 8px", border:`1px solid ${UI.borderStrong}`, borderRadius:6,
+  fontSize:12, color:C.navy, background:C.white, cursor:"pointer", appearance:"none",
+  backgroundImage:CHEVRON, backgroundRepeat:"no-repeat", backgroundPosition:"right 6px center",
+  boxSizing:"border-box", width:74,
+};
+
 // One applied template: its Suggested/Optional/Custom/Catalog rows with
 // informational section counts (NOT interactive toggles — bulk-toggle-on-header
 // was rejected in design review) and the quantity-basis input (fixture count vs
@@ -1620,6 +1672,33 @@ function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, 
   catalogueLoading: boolean;
 }) {
   const [collapsed, setCollapsed] = useState(false);
+  // Identify by template_id, not fixture_type — GEYSER_ELEMENT_REPAIR also has
+  // fixture_type:'Geyser' but no PCV/Vacuum Breaker rows, so it must not render
+  // this control. Hooks below must still run unconditionally (rules of hooks);
+  // they're simply unused for every other template's instances.
+  const isGeyserBurst = tpl.templateId === 'GEYSER_BURST_REPLACEMENT';
+  const [pcvCombo, setPcvCombo] = useState<{ pressure: GeyserPcvPressure; size: GeyserPcvSize }>(() => {
+    const pcvRow = tpl.rows.find(r => r.fittingType === 'Pressure Control Valve');
+    const found = pcvRow?.materialCode ? PCV_CODE_TO_COMBO[pcvRow.materialCode] : undefined;
+    return found ?? { pressure:'400kPa', size:'22mm' };
+  });
+  // Updates the PCV row and both Vacuum Breaker rows' materialCode/description/
+  // unitPrice together for the new combination. Deliberately does not touch
+  // checked/touched on any row — a row's confirm state is independent of which
+  // real Plumblink SKU it would price at, per Brief B-2 Change #5. Unit and
+  // Drip Tray rows are untouched because they never match either fittingType.
+  const setPcvVbCombo = (pressure: GeyserPcvPressure, size: GeyserPcvSize) => {
+    setPcvCombo({ pressure, size });
+    const combo = PCV_VB_MATERIAL_MAP[`${pressure}|${size}`];
+    if (!combo) return;
+    tpl.rows.forEach(r => {
+      if (r.fittingType === 'Pressure Control Valve') {
+        onUpdateRow(tpl.instanceId, r.id, x => ({ ...x, materialCode: combo.pcv.materialCode, description: combo.pcv.description, unitPrice: combo.pcv.unitPrice }));
+      } else if (r.fittingType === 'Vacuum Breaker') {
+        onUpdateRow(tpl.instanceId, r.id, x => ({ ...x, materialCode: combo.vb.materialCode, description: combo.vb.description, unitPrice: combo.vb.unitPrice }));
+      }
+    });
+  };
   const sc = sectionCounts(tpl.rows,"suggested");
   const oc = sectionCounts(tpl.rows,"optional");
   const suggested = tpl.rows.filter(r=>r.origin==="suggested");
@@ -1702,6 +1781,24 @@ function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, 
           </div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
+          {isGeyserBurst && (
+            <>
+              <label style={{fontSize:11,color:C.slateL,fontWeight:600}}>Pressure</label>
+              <select value={pcvCombo.pressure} title="PCV / vacuum breaker pressure rating"
+                onChange={e=>setPcvVbCombo(e.target.value as GeyserPcvPressure, pcvCombo.size)}
+                style={geyserPcvVbSelectStyle}>
+                <option value="400kPa">400kPa</option>
+                <option value="600kPa">600kPa</option>
+              </select>
+              <label style={{fontSize:11,color:C.slateL,fontWeight:600}}>Size</label>
+              <select value={pcvCombo.size} title="PCV / vacuum breaker size"
+                onChange={e=>setPcvVbCombo(pcvCombo.pressure, e.target.value as GeyserPcvSize)}
+                style={geyserPcvVbSelectStyle}>
+                <option value="15mm">15mm</option>
+                <option value="22mm">22mm</option>
+              </select>
+            </>
+          )}
           <label style={{fontSize:11,color:C.slateL,fontWeight:600}}>{quantityInputLabel(tpl.scope)}</label>
           <input type="number" min={tpl.scope==="system"?0:1} step={tpl.scope==="system"?0.5:1} value={tpl.quantityBasis}
             onChange={e=>onSetBasis(tpl.instanceId,Math.max(0,parseFloat(e.target.value)||0))}
