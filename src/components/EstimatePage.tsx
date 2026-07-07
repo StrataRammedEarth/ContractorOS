@@ -11,7 +11,7 @@ import {
 import { useSettings, DEFAULT_SETTINGS, type OrgSettings } from "@/lib/settings-context";
 import { supabase } from "@/lib/supabase-client";
 import {
-  fetchFixtureTemplates, fetchTemplateRows, fetchCandidateMaterials,
+  fetchFixtureTemplates, fetchTemplateRows, fetchCandidateMaterials, fetchMaterialByCode,
   type FixtureTemplate,
 } from "@/lib/fixture-templates";
 import {
@@ -1298,7 +1298,23 @@ function TemplateProductSelect({ row, onSelect, onManual, onResolveDefault }: {
   const [manual, setManual] = useState(false);
 
   useEffect(() => {
-    if (manualOnly) { setLoading(false); return; }
+    if (manualOnly) {
+      setLoading(false);
+      // A manual-entry row can still carry a real default_material_code (the
+      // Geyser templates' rows all do — empty product_filter means there's no
+      // cascade to run, but the row's default is still a genuine catalog SKU).
+      // Without this, such a row loads with materialCode set but description/
+      // unitPrice blank forever, since the catalog-fetch branch below — the
+      // only other place that seeds a default's price — never runs for it.
+      if (row.materialCode && row.unitPrice === 0 && row.description === '') {
+        let alive = true;
+        fetchMaterialByCode(row.materialCode).then(m => {
+          if (alive && m) onResolveDefault(m.unit_price_excl_vat ?? 0, m.description ?? "");
+        });
+        return () => { alive = false; };
+      }
+      return;
+    }
     let alive = true;
     setLoading(true);
     fetchCandidateMaterials({ product_filter: row.productFilter }).then(ms => {
@@ -1699,6 +1715,33 @@ function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, 
       }
     });
   };
+  // Bug fix: a freshly-applied instance's PCV/VB rows load with materialCode set
+  // (from default_material_code) but description/unitPrice blank — these rows are
+  // manual-entry (empty product_filter), so TemplateProductSelect's normal
+  // default-price resolution never runs for them. Without this, the picker's
+  // starting combination silently priced at R0 until the plumber happened to
+  // touch the Pressure/Size selector. Runs setPcvVbCombo's row-update logic once
+  // on mount for whichever combination pcvCombo was derived to (the shipped
+  // 400kPa/22mm default on a fresh apply, or a reloaded estimate's actual
+  // combination) — guarded to only touch rows that are still genuinely
+  // unresolved, so it can never clobber a value the plumber already edited.
+  useEffect(() => {
+    if (!isGeyserBurst) return;
+    const combo = PCV_VB_MATERIAL_MAP[`${pcvCombo.pressure}|${pcvCombo.size}`];
+    if (!combo) return;
+    tpl.rows.forEach(r => {
+      const unresolved = r.unitPrice === 0 && r.description === '';
+      if (!unresolved) return;
+      if (r.fittingType === 'Pressure Control Valve' && r.materialCode === combo.pcv.materialCode) {
+        onUpdateRow(tpl.instanceId, r.id, x => ({ ...x, description: combo.pcv.description, unitPrice: combo.pcv.unitPrice }));
+      } else if (r.fittingType === 'Vacuum Breaker' && r.materialCode === combo.vb.materialCode) {
+        onUpdateRow(tpl.instanceId, r.id, x => ({ ...x, description: combo.vb.description, unitPrice: combo.vb.unitPrice }));
+      }
+    });
+    // Mount-only: seeds the initial price once. Subsequent changes happen via
+    // the dropdown's onChange (setPcvVbCombo), not this effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const sc = sectionCounts(tpl.rows,"suggested");
   const oc = sectionCounts(tpl.rows,"optional");
   const suggested = tpl.rows.filter(r=>r.origin==="suggested");
