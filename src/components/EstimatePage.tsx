@@ -574,8 +574,8 @@ function buildLabour(inp: Inputs, crewRateHr: number = CREW_RATE_HR): LabourLine
     lines.push({ id, description:desc, hours:hrs, rate:crewRateHr, cost:hrs*crewRateHr, conf:grade, derivation:deriv });
   if (trenching && drainMetres>0)
     add("L01","Trench excavation",drainMetres*PROD.trenchExcavation,"Sourced",`${drainMetres}m × ${PROD.trenchExcavation}hr/m (Vazirani)`);
-  add("L02","Pipework installation",supplyMetres*PROD.pipeworkInstall,"Sourced",`${supplyMetres}m × ${PROD.pipeworkInstall}hr/m (Spon's)`);
-  add("L03","Point make-off",points*PROD.pointMakeOff,"Assumption",`${points} pts × ${PROD.pointMakeOff}hr/pt (VR-03 open)`);
+  if (supplyMetres>0) add("L02","Pipework installation",supplyMetres*PROD.pipeworkInstall,"Sourced",`${supplyMetres}m × ${PROD.pipeworkInstall}hr/m (Spon's)`);
+  if (points>0) add("L03","Point make-off",points*PROD.pointMakeOff,"Assumption",`${points} pts × ${PROD.pointMakeOff}hr/pt (VR-03 open)`);
   if (drainMetres>0) add("L04","Drainage installation",drainMetres*PROD.drainInstall,"Assumption",`${drainMetres}m × ${PROD.drainInstall}hr/m`);
   // One labour line per fixture line; hours from the per-type install constant.
   fixtureLines.forEach((fl, i) => {
@@ -1257,16 +1257,20 @@ function pipeLineFrom(use: 'supply'|'drainage', type: string, diameter: number, 
   return { id:_uid(), use, source:'library', pipeCode:r.code, type:r.type, diameter:r.diameter,
     description:r.description, perMetre:r.perMetre, metres, grade:r.grade, supplier:r.source };
 }
+// Genuinely empty — not a pre-filled demo job. Water Supply/Drainage/Fixtures
+// contribute nothing to scope/labour until the user actually enters data, which
+// is what lets buildScope(inputs)/buildLabour(inputs) be a true no-op whenever
+// jobMode isn't "plumbing" (see the scope/labour concatenation below).
 const DEFAULT: Inputs = {
   projectName:"Bathroom Fit-out — 3 Fixture", clientName:"",
-  pipeType:"PEX 15mm (Cobra)", supplyMetres:20, drainMetres:15, points:3, trenching:true,
+  pipeType:"PEX 15mm (Cobra)", supplyMetres:20, drainMetres:15, points:0, trenching:true,
   fixtures:{toilet:1,basin:1,shower:1,showerDoor:1,showerRose:1,showerArm:1,kitchenMixer:0},
-  fixtureLines:(["toilet","basin","shower_mixer","shower_door","shower_rose"] as FixtureType[]).map(t=>makeFixtureLine(t)),
+  fixtureLines:[],
   supplyFittings:[],
   drainageFittings:[],
   fittingTemplates:[],
-  supplyLines:[pipeLineFrom("supply","Copper",15,20)],
-  drainLines:[pipeLineFrom("drainage","PVC",110,15)],
+  supplyLines:[],
+  drainLines:[],
 };
 
 // Convert scan-extracted fixture counts into fixture lines (one preset line per type).
@@ -2011,8 +2015,8 @@ export default function EstimatePage() {
           : buildElementRepair(geyser.size, geyser.solar, geyserPricing))
       : null, [jobMode, geyser, geyserPricing]);
 
-  const scope  = useMemo(()=> geyserAsm ? geyserToScope(geyserAsm)  : buildScope(inputs, { invoiceStrict: documentType==="invoice" }),  [geyserAsm, inputs, documentType]);
-  const labour = useMemo(()=> geyserAsm ? geyserToLabour(geyserAsm, crewRateHr) : buildLabour(inputs, crewRateHr), [geyserAsm, inputs, crewRateHr]);
+  const scope  = useMemo(()=> [...buildScope(inputs, { invoiceStrict: documentType==="invoice" }), ...(geyserAsm ? geyserToScope(geyserAsm) : [])],  [geyserAsm, inputs, documentType]);
+  const labour = useMemo(()=> [...buildLabour(inputs, crewRateHr), ...(geyserAsm ? geyserToLabour(geyserAsm, crewRateHr) : [])], [geyserAsm, inputs, crewRateHr]);
   // Flags: geyser flags, or warnings for any user-entered (custom) lines.
   const flags  = geyserAsm
     ? geyserAsm.flags
