@@ -1154,6 +1154,20 @@ function ProfilePage() {
               />
             </div>
           </div>
+          <div style={grid2}>
+            <div>
+              <Label hint="applied to labour rate when the Invoice's After-hours job checkbox is ticked">
+                After-hours multiplier (×)
+              </Label>
+              <input
+                type="number"
+                step="0.1"
+                style={inputStyle()}
+                value={form.afterHoursMultiplier}
+                onChange={(e) => setNum("afterHoursMultiplier", e.target.value)}
+              />
+            </div>
+          </div>
         </Card>
 
         {/* Section D — Document Settings */}
