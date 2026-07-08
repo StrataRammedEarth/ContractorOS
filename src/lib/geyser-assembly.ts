@@ -27,7 +27,7 @@ import { supabase } from './supabase-client';
 
 export type GeyserBrand = 'Kwikot' | 'Ariston';
 export type GeyserSize = 50 | 100 | 150 | 200 | 250;
-export type GeyserJobType = 'burst_replacement' | 'element_repair';
+export type GeyserJobType = 'burst_replacement' | 'element_repair' | 'new_installation';
 export type Grade =
   | 'Validated'
   | 'Sourced'
@@ -120,6 +120,20 @@ const ELEMENT_COMPONENTS_FALLBACK = { element: 400, thermostat: 280, flange: 100
 
 const SUPPORTED_SIZES: GeyserSize[] = [50, 100, 150, 200, 250];
 const GEYSER_BRANDS: GeyserBrand[] = ['Kwikot', 'Ariston'];
+
+// ─── NEW INSTALLATION — "New Point" connection charge — Assumption grade ──────
+// Sole evidence: Vissi Plumbing Solutions quote, job 7174 "Villa Blu" (new-build
+// construction site, Designer Construction, 2026-06-25) — "1 X Geyser Point
+// R4,500.00" under a "New Points" heading, alongside kitchen sink/water feature
+// new points billed the same way. This is Vissi's SELL price for running a new
+// supply/drain/electrical connection and hanging the unit at a location with no
+// existing point — NOT true cost, and NOT split into material/labour. Stored
+// here as a flat labour-cost stand-in (same pattern already used for element-
+// repair's flat R700/R900 sell-side rates, VR-10) rather than back-derived,
+// because no true-cost breakdown of this line exists. Flagged in the assembly's
+// output; caps the whole New Installation assembly at Assumption grade.
+// Does not vary by size — the only real data point is a single flat quote line.
+const NEW_POINT_CONNECTION_COST = 4500;
 
 export interface GeyserPricingData {
   unitCostBySize: Record<GeyserSize, Partial<Record<GeyserBrand, number>>>;
@@ -251,6 +265,62 @@ export function buildGeyserReplacement(
     // and client-issuable through the normal gate. Labour stays crew-derived but,
     // per owner decision, does not cap the grade (flagged for confirmation, VR-09).
     grade: 'Sourced',
+    flags,
+  };
+}
+
+/**
+ * Build a New Installation assembly (fixed-composition, size × brand-driven,
+ * same pattern as burst replacement). Reuses the same real unit + kit pricing
+ * as buildGeyserReplacement — a new install still buys the same physical
+ * geyser and installation kit. The one thing that differs is labour: instead
+ * of the swap-only crew block (GEYSER_LABOUR_COST), a new install's labour is
+ * the flat New Point connection charge (NEW_POINT_CONNECTION_COST) — see that
+ * constant's comment for sourcing. That single sell-side data point caps the
+ * whole assembly at Assumption grade, unlike burst replacement's Sourced.
+ */
+export function buildNewInstallation(
+  size: GeyserSize,
+  brand: GeyserBrand,
+  pricing: GeyserPricingData
+): GeyserAssembly {
+  const flags: string[] = [];
+
+  const unitCost = pricing.unitCostBySize[size][brand] ?? GEYSER_UNIT_COST_FALLBACK[size][brand];
+  const geyserLine: CostLine = {
+    code: `PLB-GEY-${size}`,
+    description: `${size}L ${brand} B-rated geyser, inc TP&DC (5yr warranty)`,
+    unit: 'ea',
+    quantity: 1,
+    unitCost,
+    total: unitCost,
+    grade: 'Sourced', // VR-07 CLOSED — real Plumblink 2026 price (same as burst replacement)
+    writingMode: 'Install',
+  };
+
+  const kitLines: CostLine[] = pricing.replacementKit.map((l) => ({
+    ...l,
+    total: l.unitCost * l.quantity,
+  }));
+
+  const lines = [geyserLine, ...kitLines];
+  const materialCost = lines.reduce((s, l) => s + l.total, 0);
+  const labourCost = NEW_POINT_CONNECTION_COST;
+
+  flags.push('New Point connection labour (R4,500) is a single sell-side quote line (job 7174, Villa Blu new-build, 2026-06-25), not a true-cost breakdown — Assumption grade, does not vary by size, pending contractor confirmation of true labour/material cost for a new connection');
+  flags.push('Not client-issuable until New Point cost is confirmed and re-graded');
+
+  return {
+    jobType: 'new_installation',
+    size,
+    brand,
+    lines,
+    materialCost,
+    labourCost,
+    // Unit/kit are Sourced, but the New Point labour line is a raw sell-side
+    // figure standing in for cost (weakest-input cap, same VR rule as Doc 03) —
+    // caps the whole assembly at Assumption until true-cost data replaces it.
+    grade: 'Assumption',
     flags,
   };
 }
