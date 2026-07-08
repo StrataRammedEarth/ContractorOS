@@ -1,10 +1,13 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import {
   loadAttendance,
   loadDriverLogs,
   loadEmployees,
+  loadVehicles,
   saveAttendance,
+  saveDriverLog,
+  removeDriverLog,
   getStoredOwnerSecret,
   setStoredOwnerSecret,
   clearStoredOwnerSecret,
@@ -12,6 +15,7 @@ import {
   type AttendanceStatus,
   type DriverLog,
   type Employee,
+  type Vehicle,
 } from "@/lib/supabase-client";
 
 export const Route = createFileRoute("/team")({
@@ -210,23 +214,256 @@ function DayCell({
 
 type AttendanceDraft = { status: AttendanceStatus | ""; note: string };
 
-function AttendanceModal({
+const fieldStyle: CSSProperties = {
+  padding: "6px 8px",
+  borderRadius: 6,
+  border: "1px solid #C8D0DB",
+  fontSize: 12,
+  color: "#0D1B2A",
+};
+
+type DriverLogDraft = { employeeId: string; vehicleId: string; startTime: string; endTime: string };
+
+function DriverLogSection({
+  employees,
+  vehicles,
+  logs,
+  adding,
+  removingId,
+  error,
+  onAdd,
+  onRemove,
+}: {
+  employees: Employee[];
+  vehicles: Vehicle[];
+  logs: DriverLog[];
+  adding: boolean;
+  removingId: string | null;
+  error: string | null;
+  onAdd: (entry: {
+    employee_id: string;
+    vehicle_id: string;
+    start_time: string | null;
+    end_time: string | null;
+  }) => Promise<boolean>;
+  onRemove: (id: string) => void;
+}) {
+  const [showForm, setShowForm] = useState(false);
+  const [draft, setDraft] = useState<DriverLogDraft>({
+    employeeId: "",
+    vehicleId: "",
+    startTime: "",
+    endTime: "",
+  });
+
+  const resetForm = () => {
+    setDraft({ employeeId: "", vehicleId: "", startTime: "", endTime: "" });
+    setShowForm(false);
+  };
+
+  const handleAdd = async () => {
+    if (!draft.employeeId || !draft.vehicleId) return;
+    const success = await onAdd({
+      employee_id: draft.employeeId,
+      vehicle_id: draft.vehicleId,
+      start_time: draft.startTime || null,
+      end_time: draft.endTime || null,
+    });
+    if (success) resetForm();
+  };
+
+  return (
+    <div style={{ marginTop: 18, paddingTop: 14, borderTop: `2px solid ${C.navy}22` }}>
+      <div
+        style={{
+          fontSize: 12,
+          fontWeight: 800,
+          color: C.navy,
+          marginBottom: 8,
+          textTransform: "uppercase",
+          letterSpacing: 0.3,
+        }}
+      >
+        Driver Logs
+      </div>
+
+      {logs.length === 0 && !showForm && (
+        <div style={{ fontSize: 12, color: C.slateL, marginBottom: 8 }}>
+          No driver log entries for this day.
+        </div>
+      )}
+
+      {logs.map((log) => (
+        <div
+          key={log.id}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 8,
+            fontSize: 12,
+            color: C.navy,
+            padding: "6px 0",
+            borderBottom: "1px solid #EEF1F5",
+          }}
+        >
+          <span>
+            🚚 {log.vehicle_registration ?? "Unknown vehicle"} · {log.employee_name ?? "Unknown"}
+            {(log.start_time || log.end_time) &&
+              ` · ${log.start_time ?? "?"}–${log.end_time ?? "?"}`}
+          </span>
+          <button
+            onClick={() => onRemove(log.id)}
+            disabled={removingId === log.id}
+            style={{
+              background: "none",
+              border: "none",
+              color: C.red,
+              cursor: removingId === log.id ? "not-allowed" : "pointer",
+              fontSize: 11,
+              fontWeight: 700,
+            }}
+          >
+            {removingId === log.id ? "Removing…" : "Remove"}
+          </button>
+        </div>
+      ))}
+
+      {showForm ? (
+        <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+          <select
+            value={draft.employeeId}
+            onChange={(e) => setDraft((d) => ({ ...d, employeeId: e.target.value }))}
+            style={fieldStyle}
+          >
+            <option value="">Select employee…</option>
+            {employees.map((e) => (
+              <option key={e.id} value={e.id}>
+                {e.name}
+              </option>
+            ))}
+          </select>
+          <select
+            value={draft.vehicleId}
+            onChange={(e) => setDraft((d) => ({ ...d, vehicleId: e.target.value }))}
+            style={fieldStyle}
+          >
+            <option value="">Select vehicle…</option>
+            {vehicles.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.registration_number}
+              </option>
+            ))}
+          </select>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <input
+              type="time"
+              value={draft.startTime}
+              onChange={(e) => setDraft((d) => ({ ...d, startTime: e.target.value }))}
+              style={fieldStyle}
+            />
+            <input
+              type="time"
+              value={draft.endTime}
+              onChange={(e) => setDraft((d) => ({ ...d, endTime: e.target.value }))}
+              style={fieldStyle}
+            />
+          </div>
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <button
+              onClick={resetForm}
+              disabled={adding}
+              style={{
+                padding: "6px 12px",
+                borderRadius: 6,
+                border: "1px solid #C8D0DB",
+                background: "#fff",
+                color: C.slate,
+                fontWeight: 600,
+                fontSize: 12,
+                cursor: "pointer",
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleAdd}
+              disabled={adding || !draft.employeeId || !draft.vehicleId}
+              style={{
+                padding: "6px 12px",
+                borderRadius: 6,
+                border: "none",
+                background: C.gold,
+                color: C.navy,
+                fontWeight: 700,
+                fontSize: 12,
+                cursor: adding ? "not-allowed" : "pointer",
+                opacity: adding || !draft.employeeId || !draft.vehicleId ? 0.6 : 1,
+              }}
+            >
+              {adding ? "Adding…" : "Add"}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={() => setShowForm(true)}
+          style={{
+            marginTop: 8,
+            background: "none",
+            border: "none",
+            color: C.gold,
+            fontWeight: 700,
+            fontSize: 12,
+            cursor: "pointer",
+            padding: 0,
+          }}
+        >
+          + Add entry
+        </button>
+      )}
+
+      {error && <div style={{ color: C.red, fontSize: 12, marginTop: 6 }}>{error}</div>}
+    </div>
+  );
+}
+
+function DayModal({
   date,
   employees,
+  vehicles,
   existing,
   saving,
   error,
+  driverLogs,
+  addingDriverLog,
+  removingDriverLogId,
+  driverLogError,
   onSave,
+  onAddDriverLog,
+  onRemoveDriverLog,
   onClose,
 }: {
   date: Date;
   employees: Employee[];
+  vehicles: Vehicle[];
   existing: AttendanceRecord[];
   saving: boolean;
   error: string | null;
+  driverLogs: DriverLog[];
+  addingDriverLog: boolean;
+  removingDriverLogId: string | null;
+  driverLogError: string | null;
   onSave: (
     entries: { employee_id: string; status: AttendanceStatus; note: string | null }[],
   ) => void;
+  onAddDriverLog: (entry: {
+    employee_id: string;
+    vehicle_id: string;
+    start_time: string | null;
+    end_time: string | null;
+  }) => Promise<boolean>;
+  onRemoveDriverLog: (id: string) => void;
   onClose: () => void;
 }) {
   const [drafts, setDrafts] = useState<Record<string, AttendanceDraft>>(() => {
@@ -375,6 +612,17 @@ function AttendanceModal({
             })
           )}
           {error && <div style={{ color: C.red, fontSize: 12, marginTop: 6 }}>{error}</div>}
+
+          <DriverLogSection
+            employees={employees}
+            vehicles={vehicles}
+            logs={driverLogs}
+            adding={addingDriverLog}
+            removingId={removingDriverLogId}
+            error={driverLogError}
+            onAdd={onAddDriverLog}
+            onRemove={onRemoveDriverLog}
+          />
         </div>
         <div
           style={{
@@ -433,9 +681,13 @@ function TeamPage() {
   const [driverLogs, setDriverLogs] = useState<DriverLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [openDate, setOpenDate] = useState<Date | null>(null);
   const [savingAttendance, setSavingAttendance] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [addingDriverLog, setAddingDriverLog] = useState(false);
+  const [removingDriverLogId, setRemovingDriverLogId] = useState<string | null>(null);
+  const [driverLogError, setDriverLogError] = useState<string | null>(null);
 
   const weeks = useMemo(() => buildMonthGrid(monthAnchor), [monthAnchor]);
   const gridStart = weeks[0][0].date;
@@ -478,8 +730,11 @@ function TeamPage() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const list = await loadEmployees();
-      if (!cancelled) setEmployees(list);
+      const [employeeList, vehicleList] = await Promise.all([loadEmployees(), loadVehicles()]);
+      if (!cancelled) {
+        setEmployees(employeeList);
+        setVehicles(vehicleList);
+      }
     })();
     return () => {
       cancelled = true;
@@ -512,18 +767,25 @@ function TeamPage() {
   const closeModal = () => {
     setOpenDate(null);
     setSaveError(null);
+    setDriverLogError(null);
+  };
+
+  const getOrPromptOwnerSecret = (promptMessage: string): string | null => {
+    let ownerSecret = getStoredOwnerSecret();
+    if (!ownerSecret) {
+      ownerSecret = window.prompt(promptMessage);
+      if (!ownerSecret) return null;
+      setStoredOwnerSecret(ownerSecret);
+    }
+    return ownerSecret;
   };
 
   const handleSaveAttendance = async (
     entries: { employee_id: string; status: AttendanceStatus; note: string | null }[],
   ) => {
     if (!openDate) return;
-    let ownerSecret = getStoredOwnerSecret();
-    if (!ownerSecret) {
-      ownerSecret = window.prompt("Enter the owner passphrase to save attendance:");
-      if (!ownerSecret) return;
-      setStoredOwnerSecret(ownerSecret);
-    }
+    const ownerSecret = getOrPromptOwnerSecret("Enter the owner passphrase to save attendance:");
+    if (!ownerSecret) return;
 
     setSavingAttendance(true);
     setSaveError(null);
@@ -542,6 +804,62 @@ function TeamPage() {
 
     await refetchCalendarData();
     closeModal();
+  };
+
+  const handleAddDriverLog = async (entry: {
+    employee_id: string;
+    vehicle_id: string;
+    start_time: string | null;
+    end_time: string | null;
+  }): Promise<boolean> => {
+    if (!openDate) return false;
+    const ownerSecret = getOrPromptOwnerSecret(
+      "Enter the owner passphrase to add a driver log entry:",
+    );
+    if (!ownerSecret) return false;
+
+    setAddingDriverLog(true);
+    setDriverLogError(null);
+    const result = await saveDriverLog({ ...entry, date: dateKey(openDate) }, ownerSecret);
+    setAddingDriverLog(false);
+
+    if (!result.success) {
+      if (result.unauthorized) {
+        clearStoredOwnerSecret();
+        setDriverLogError("Incorrect owner passphrase. Please try again.");
+      } else {
+        setDriverLogError(result.error ?? "Failed to add driver log entry.");
+      }
+      return false;
+    }
+
+    await refetchCalendarData();
+    return true;
+  };
+
+  const handleRemoveDriverLog = async (id: string) => {
+    if (!window.confirm("Remove this driver log entry?")) return;
+    const ownerSecret = getOrPromptOwnerSecret(
+      "Enter the owner passphrase to remove this driver log entry:",
+    );
+    if (!ownerSecret) return;
+
+    setRemovingDriverLogId(id);
+    setDriverLogError(null);
+    const result = await removeDriverLog(id, ownerSecret);
+    setRemovingDriverLogId(null);
+
+    if (!result.success) {
+      if (result.unauthorized) {
+        clearStoredOwnerSecret();
+        setDriverLogError("Incorrect owner passphrase. Please try again.");
+      } else {
+        setDriverLogError(result.error ?? "Failed to remove driver log entry.");
+      }
+      return;
+    }
+
+    await refetchCalendarData();
   };
 
   return (
@@ -690,13 +1008,20 @@ function TeamPage() {
       </div>
 
       {openDate && (
-        <AttendanceModal
+        <DayModal
           date={openDate}
           employees={employees}
+          vehicles={vehicles}
           existing={attendanceByDate.get(dateKey(openDate)) ?? []}
           saving={savingAttendance}
           error={saveError}
+          driverLogs={driverLogsByDate.get(dateKey(openDate)) ?? []}
+          addingDriverLog={addingDriverLog}
+          removingDriverLogId={removingDriverLogId}
+          driverLogError={driverLogError}
           onSave={handleSaveAttendance}
+          onAddDriverLog={handleAddDriverLog}
+          onRemoveDriverLog={handleRemoveDriverLog}
           onClose={closeModal}
         />
       )}

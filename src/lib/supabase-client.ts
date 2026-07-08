@@ -449,6 +449,60 @@ export async function saveAttendance(
   }
 }
 
+export async function saveDriverLog(
+  entry: {
+    employee_id: string;
+    vehicle_id: string;
+    date: string;
+    start_time?: string | null;
+    end_time?: string | null;
+  },
+  ownerSecret: string,
+): Promise<{ success: boolean; error?: string; unauthorized?: boolean }> {
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/save-driver-log`, {
+      method: "POST",
+      headers: edgeHeaders(),
+      body: JSON.stringify({ ...entry, owner_secret: ownerSecret }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      return {
+        success: false,
+        error: data.error ?? `HTTP ${res.status}`,
+        unauthorized: res.status === 401,
+      };
+    }
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+export async function removeDriverLog(
+  id: string,
+  ownerSecret: string,
+): Promise<{ success: boolean; error?: string; unauthorized?: boolean }> {
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/remove-driver-log`, {
+      method: "POST",
+      headers: edgeHeaders(),
+      body: JSON.stringify({ id, owner_secret: ownerSecret }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      return {
+        success: false,
+        error: data.error ?? `HTTP ${res.status}`,
+        unauthorized: res.status === 401,
+      };
+    }
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
 // ─── UTILS ────────────────────────────────────────────────────────────────────
 
 export async function testConnection(): Promise<boolean> {
