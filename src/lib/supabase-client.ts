@@ -1,21 +1,25 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL ?? import.meta.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY ?? import.meta.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '';
+const supabaseUrl =
+  import.meta.env.VITE_SUPABASE_URL ?? import.meta.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+const supabaseAnonKey =
+  import.meta.env.VITE_SUPABASE_ANON_KEY ?? import.meta.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  console.error('❌ Supabase env vars missing. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env.local');
+  console.error(
+    "❌ Supabase env vars missing. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env.local",
+  );
 }
 
 export const supabase = createClient(
-  supabaseUrl || 'https://placeholder.supabase.co',
-  supabaseAnonKey || 'placeholder_key'
+  supabaseUrl || "https://placeholder.supabase.co",
+  supabaseAnonKey || "placeholder_key",
 );
 
 function edgeHeaders(): Record<string, string> {
   return {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${supabaseAnonKey}`,
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${supabaseAnonKey}`,
   };
 }
 
@@ -27,10 +31,10 @@ export interface LibraryRecord {
   description: string;
   unit?: string;
   price: number;
-  confidence: 'Locked' | 'Validated' | 'Sourced' | 'Derived' | 'Assumption' | 'Placeholder';
+  confidence: "Locked" | "Validated" | "Sourced" | "Derived" | "Assumption" | "Placeholder";
   supplier?: string;
-  record_type: 'material' | 'resource' | 'productivity_record';
-  status?: 'active' | 'inactive';
+  record_type: "material" | "resource" | "productivity_record";
+  status?: "active" | "inactive";
   created_at?: string;
 }
 
@@ -118,12 +122,12 @@ export interface Vehicle {
 }
 
 export type AttendanceStatus =
-  | 'present'
-  | 'absent'
-  | 'on_leave'
-  | 'sick'
-  | 'public_holiday'
-  | 'half_day';
+  | "present"
+  | "absent"
+  | "on_leave"
+  | "sick"
+  | "public_holiday"
+  | "half_day";
 
 export interface AttendanceRecord {
   id: string;
@@ -150,8 +154,8 @@ export interface DriverLog {
 // ─── LIBRARY LOADING ──────────────────────────────────────────────────────────
 
 export async function loadLibrary(
-  recordType: 'material' | 'resource' | 'productivity_record' | 'all' = 'all',
-  status: 'active' | 'inactive' = 'active'
+  recordType: "material" | "resource" | "productivity_record" | "all" = "all",
+  status: "active" | "inactive" = "active",
 ): Promise<LibraryRecord[]> {
   try {
     const params = new URLSearchParams({ record_type: recordType, status });
@@ -160,7 +164,10 @@ export async function loadLibrary(
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
     const data = await res.json();
-    if (!data.success) { console.warn(`⚠️ Failed to load ${recordType}:`, data.error); return []; }
+    if (!data.success) {
+      console.warn(`⚠️ Failed to load ${recordType}:`, data.error);
+      return [];
+    }
     console.log(`✅ Loaded ${data.records?.length ?? 0} ${recordType} records`);
     return data.records ?? [];
   } catch (err) {
@@ -171,12 +178,18 @@ export async function loadLibrary(
 
 // ─── VALIDATE ─────────────────────────────────────────────────────────────────
 
-export async function validateEstimate(estimateData: Partial<EstimateData>): Promise<ValidationResult> {
+export async function validateEstimate(
+  estimateData: Partial<EstimateData>,
+): Promise<ValidationResult> {
   try {
     const res = await fetch(`${supabaseUrl}/functions/v1/validate-estimate`, {
-      method: 'POST',
+      method: "POST",
       headers: edgeHeaders(),
-      body: JSON.stringify({ estimate_data: estimateData, lines: estimateData.scope ?? [], totals: estimateData.totals ?? {} }),
+      body: JSON.stringify({
+        estimate_data: estimateData,
+        lines: estimateData.scope ?? [],
+        totals: estimateData.totals ?? {},
+      }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
@@ -193,14 +206,20 @@ export async function saveEstimate(
   estimateData: Partial<EstimateData>,
   projectName: string,
   clientName: string,
-  trade = 'plumbing',
-  status: 'draft' | 'submitted' | 'approved' = 'draft'
+  trade = "plumbing",
+  status: "draft" | "submitted" | "approved" = "draft",
 ): Promise<SaveResult> {
   try {
     const res = await fetch(`${supabaseUrl}/functions/v1/save-estimate`, {
-      method: 'POST',
+      method: "POST",
       headers: edgeHeaders(),
-      body: JSON.stringify({ estimate_data: estimateData, project_name: projectName, client_name: clientName, trade, status }),
+      body: JSON.stringify({
+        estimate_data: estimateData,
+        project_name: projectName,
+        client_name: clientName,
+        trade,
+        status,
+      }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
@@ -224,10 +243,13 @@ export async function loadEmployees(): Promise<Employee[]> {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
     const data = await res.json();
-    if (!data.success) { console.warn('⚠️ Failed to load employees:', data.error); return []; }
+    if (!data.success) {
+      console.warn("⚠️ Failed to load employees:", data.error);
+      return [];
+    }
     return data.employees ?? [];
   } catch (err) {
-    console.error('❌ Error loading employees:', err);
+    console.error("❌ Error loading employees:", err);
     return [];
   }
 }
@@ -240,12 +262,13 @@ export async function saveEmployee(employee: {
 }): Promise<{ success: boolean; employee?: Employee; error?: string }> {
   try {
     const res = await fetch(`${supabaseUrl}/functions/v1/save-employee`, {
-      method: 'POST',
+      method: "POST",
       headers: edgeHeaders(),
       body: JSON.stringify(employee),
     });
     const data = await res.json();
-    if (!res.ok || !data.success) return { success: false, error: data.error ?? `HTTP ${res.status}` };
+    if (!res.ok || !data.success)
+      return { success: false, error: data.error ?? `HTTP ${res.status}` };
     return { success: true, employee: data.employee };
   } catch (err) {
     return { success: false, error: String(err) };
@@ -255,12 +278,13 @@ export async function saveEmployee(employee: {
 export async function removeEmployee(id: string): Promise<{ success: boolean; error?: string }> {
   try {
     const res = await fetch(`${supabaseUrl}/functions/v1/remove-employee`, {
-      method: 'POST',
+      method: "POST",
       headers: edgeHeaders(),
       body: JSON.stringify({ id }),
     });
     const data = await res.json();
-    if (!res.ok || !data.success) return { success: false, error: data.error ?? `HTTP ${res.status}` };
+    if (!res.ok || !data.success)
+      return { success: false, error: data.error ?? `HTTP ${res.status}` };
     return { success: true };
   } catch (err) {
     return { success: false, error: String(err) };
@@ -279,10 +303,13 @@ export async function loadVehicles(): Promise<Vehicle[]> {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
     const data = await res.json();
-    if (!data.success) { console.warn('⚠️ Failed to load vehicles:', data.error); return []; }
+    if (!data.success) {
+      console.warn("⚠️ Failed to load vehicles:", data.error);
+      return [];
+    }
     return data.vehicles ?? [];
   } catch (err) {
-    console.error('❌ Error loading vehicles:', err);
+    console.error("❌ Error loading vehicles:", err);
     return [];
   }
 }
@@ -295,12 +322,13 @@ export async function saveVehicle(vehicle: {
 }): Promise<{ success: boolean; vehicle?: Vehicle; error?: string }> {
   try {
     const res = await fetch(`${supabaseUrl}/functions/v1/save-vehicle`, {
-      method: 'POST',
+      method: "POST",
       headers: edgeHeaders(),
       body: JSON.stringify(vehicle),
     });
     const data = await res.json();
-    if (!res.ok || !data.success) return { success: false, error: data.error ?? `HTTP ${res.status}` };
+    if (!res.ok || !data.success)
+      return { success: false, error: data.error ?? `HTTP ${res.status}` };
     return { success: true, vehicle: data.vehicle };
   } catch (err) {
     return { success: false, error: String(err) };
@@ -310,12 +338,13 @@ export async function saveVehicle(vehicle: {
 export async function removeVehicle(id: string): Promise<{ success: boolean; error?: string }> {
   try {
     const res = await fetch(`${supabaseUrl}/functions/v1/remove-vehicle`, {
-      method: 'POST',
+      method: "POST",
       headers: edgeHeaders(),
       body: JSON.stringify({ id }),
     });
     const data = await res.json();
-    if (!res.ok || !data.success) return { success: false, error: data.error ?? `HTTP ${res.status}` };
+    if (!res.ok || !data.success)
+      return { success: false, error: data.error ?? `HTTP ${res.status}` };
     return { success: true };
   } catch (err) {
     return { success: false, error: String(err) };
@@ -336,10 +365,13 @@ export async function loadAttendance(start: string, end: string): Promise<Attend
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
     const data = await res.json();
-    if (!data.success) { console.warn('⚠️ Failed to load attendance:', data.error); return []; }
+    if (!data.success) {
+      console.warn("⚠️ Failed to load attendance:", data.error);
+      return [];
+    }
     return data.attendance ?? [];
   } catch (err) {
-    console.error('❌ Error loading attendance:', err);
+    console.error("❌ Error loading attendance:", err);
     return [];
   }
 }
@@ -352,11 +384,68 @@ export async function loadDriverLogs(start: string, end: string): Promise<Driver
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
     const data = await res.json();
-    if (!data.success) { console.warn('⚠️ Failed to load driver logs:', data.error); return []; }
+    if (!data.success) {
+      console.warn("⚠️ Failed to load driver logs:", data.error);
+      return [];
+    }
     return data.driver_logs ?? [];
   } catch (err) {
-    console.error('❌ Error loading driver logs:', err);
+    console.error("❌ Error loading driver logs:", err);
     return [];
+  }
+}
+
+// Owner-only write gate, stopgap until real auth exists (see save-attendance
+// edge function comment): a shared passphrase, kept in localStorage once
+// entered so the owner isn't re-prompted every save.
+const OWNER_SECRET_STORAGE_KEY = "contractoros_owner_secret";
+
+export function getStoredOwnerSecret(): string | null {
+  try {
+    return localStorage.getItem(OWNER_SECRET_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setStoredOwnerSecret(secret: string): void {
+  try {
+    localStorage.setItem(OWNER_SECRET_STORAGE_KEY, secret);
+  } catch {
+    // localStorage unavailable (e.g. private browsing); secret just won't persist.
+  }
+}
+
+export function clearStoredOwnerSecret(): void {
+  try {
+    localStorage.removeItem(OWNER_SECRET_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+export async function saveAttendance(
+  date: string,
+  entries: { employee_id: string; status: AttendanceStatus; note?: string | null }[],
+  ownerSecret: string,
+): Promise<{ success: boolean; error?: string; unauthorized?: boolean }> {
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/save-attendance`, {
+      method: "POST",
+      headers: edgeHeaders(),
+      body: JSON.stringify({ date, entries, owner_secret: ownerSecret }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      return {
+        success: false,
+        error: data.error ?? `HTTP ${res.status}`,
+        unauthorized: res.status === 401,
+      };
+    }
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: String(err) };
   }
 }
 
@@ -364,7 +453,10 @@ export async function loadDriverLogs(start: string, end: string): Promise<Driver
 
 export async function testConnection(): Promise<boolean> {
   try {
-    const res = await fetch(`${supabaseUrl}/functions/v1/get-library?record_type=material&status=active`, { method: 'HEAD', headers: edgeHeaders() });
+    const res = await fetch(
+      `${supabaseUrl}/functions/v1/get-library?record_type=material&status=active`,
+      { method: "HEAD", headers: edgeHeaders() },
+    );
     return res.ok;
   } catch {
     return false;

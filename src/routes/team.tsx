@@ -3,9 +3,15 @@ import { useEffect, useMemo, useState } from "react";
 import {
   loadAttendance,
   loadDriverLogs,
+  loadEmployees,
+  saveAttendance,
+  getStoredOwnerSecret,
+  setStoredOwnerSecret,
+  clearStoredOwnerSecret,
   type AttendanceRecord,
   type AttendanceStatus,
   type DriverLog,
+  type Employee,
 } from "@/lib/supabase-client";
 
 export const Route = createFileRoute("/team")({
@@ -43,6 +49,15 @@ const STATUS_LABELS: Record<AttendanceStatus, string> = {
   public_holiday: "Public holiday",
   half_day: "Half day",
 };
+
+const STATUS_OPTIONS: AttendanceStatus[] = [
+  "present",
+  "absent",
+  "on_leave",
+  "sick",
+  "public_holiday",
+  "half_day",
+];
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTH_LABELS = [
@@ -150,15 +165,19 @@ function DayCell({
   inMonth,
   attendance,
   driverLogs,
+  onClick,
 }: {
   date: Date;
   inMonth: boolean;
   attendance: AttendanceRecord[];
   driverLogs: DriverLog[];
+  onClick: () => void;
 }) {
   const isToday = dateKey(date) === dateKey(new Date());
   return (
     <div
+      onClick={onClick}
+      title="Click to mark attendance"
       style={{
         minHeight: 92,
         border: "1px solid #DDE3EA",
@@ -166,6 +185,7 @@ function DayCell({
         padding: 6,
         background: inMonth ? "#fff" : "#F7F9FB",
         opacity: inMonth ? 1 : 0.55,
+        cursor: "pointer",
       }}
     >
       <div
@@ -188,6 +208,222 @@ function DayCell({
   );
 }
 
+type AttendanceDraft = { status: AttendanceStatus | ""; note: string };
+
+function AttendanceModal({
+  date,
+  employees,
+  existing,
+  saving,
+  error,
+  onSave,
+  onClose,
+}: {
+  date: Date;
+  employees: Employee[];
+  existing: AttendanceRecord[];
+  saving: boolean;
+  error: string | null;
+  onSave: (
+    entries: { employee_id: string; status: AttendanceStatus; note: string | null }[],
+  ) => void;
+  onClose: () => void;
+}) {
+  const [drafts, setDrafts] = useState<Record<string, AttendanceDraft>>(() => {
+    const initial: Record<string, AttendanceDraft> = {};
+    for (const emp of employees) {
+      const record = existing.find((a) => a.employee_id === emp.id);
+      initial[emp.id] = { status: record?.status ?? "", note: record?.note ?? "" };
+    }
+    return initial;
+  });
+
+  const setDraft = (employeeId: string, patch: Partial<AttendanceDraft>) => {
+    setDrafts((prev) => ({ ...prev, [employeeId]: { ...prev[employeeId], ...patch } }));
+  };
+
+  const dateLabel = date.toLocaleDateString("en-ZA", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+
+  const handleSave = () => {
+    const entries: { employee_id: string; status: AttendanceStatus; note: string | null }[] = [];
+    for (const emp of employees) {
+      const draft = drafts[emp.id];
+      if (draft && draft.status !== "") {
+        entries.push({
+          employee_id: emp.id,
+          status: draft.status,
+          note: draft.note.trim() === "" ? null : draft.note.trim(),
+        });
+      }
+    }
+    onSave(entries);
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(13,27,42,0.5)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 100,
+        padding: 20,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "#fff",
+          borderRadius: 10,
+          overflow: "hidden",
+          width: "100%",
+          maxWidth: 520,
+          maxHeight: "85vh",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        <div
+          style={{
+            background: C.navyMid,
+            color: C.gold,
+            fontWeight: 700,
+            fontSize: 13,
+            padding: "12px 16px",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <span>{dateLabel}</span>
+          <button
+            onClick={onClose}
+            style={{
+              background: "none",
+              border: "none",
+              color: C.gold,
+              cursor: "pointer",
+              fontSize: 16,
+            }}
+          >
+            ✕
+          </button>
+        </div>
+        <div style={{ padding: 16, overflowY: "auto", flex: 1 }}>
+          {employees.length === 0 ? (
+            <div style={{ fontSize: 12, color: C.slateL }}>No active employees.</div>
+          ) : (
+            employees.map((emp) => {
+              const draft = drafts[emp.id] ?? { status: "", note: "" };
+              return (
+                <div
+                  key={emp.id}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: 8,
+                    alignItems: "center",
+                    marginBottom: 10,
+                    paddingBottom: 10,
+                    borderBottom: "1px solid #EEF1F5",
+                  }}
+                >
+                  <div style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>{emp.name}</div>
+                  <select
+                    value={draft.status}
+                    onChange={(e) =>
+                      setDraft(emp.id, { status: e.target.value as AttendanceStatus | "" })
+                    }
+                    style={{
+                      padding: "6px 8px",
+                      borderRadius: 6,
+                      border: "1px solid #C8D0DB",
+                      fontSize: 12,
+                      color: C.navy,
+                    }}
+                  >
+                    <option value="">— Not marked —</option>
+                    {STATUS_OPTIONS.map((s) => (
+                      <option key={s} value={s}>
+                        {STATUS_LABELS[s]}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    value={draft.note}
+                    onChange={(e) => setDraft(emp.id, { note: e.target.value })}
+                    placeholder="Note (optional)"
+                    style={{
+                      gridColumn: "1 / span 2",
+                      padding: "6px 8px",
+                      borderRadius: 6,
+                      border: "1px solid #C8D0DB",
+                      fontSize: 12,
+                      color: C.navy,
+                    }}
+                  />
+                </div>
+              );
+            })
+          )}
+          {error && <div style={{ color: C.red, fontSize: 12, marginTop: 6 }}>{error}</div>}
+        </div>
+        <div
+          style={{
+            padding: 16,
+            borderTop: "1px solid #DDE3EA",
+            display: "flex",
+            gap: 8,
+            justifyContent: "flex-end",
+          }}
+        >
+          <button
+            onClick={onClose}
+            disabled={saving}
+            style={{
+              padding: "8px 16px",
+              borderRadius: 6,
+              border: "1px solid #C8D0DB",
+              background: "#fff",
+              color: C.slate,
+              fontWeight: 600,
+              fontSize: 12,
+              cursor: "pointer",
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            style={{
+              padding: "8px 16px",
+              borderRadius: 6,
+              border: "none",
+              background: C.gold,
+              color: C.navy,
+              fontWeight: 700,
+              fontSize: 12,
+              cursor: saving ? "not-allowed" : "pointer",
+              opacity: saving ? 0.6 : 1,
+            }}
+          >
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TeamPage() {
   const [monthAnchor, setMonthAnchor] = useState(() => {
     const now = new Date();
@@ -196,10 +432,25 @@ function TeamPage() {
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [driverLogs, setDriverLogs] = useState<DriverLog[]>([]);
   const [loading, setLoading] = useState(true);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [openDate, setOpenDate] = useState<Date | null>(null);
+  const [savingAttendance, setSavingAttendance] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const weeks = useMemo(() => buildMonthGrid(monthAnchor), [monthAnchor]);
   const gridStart = weeks[0][0].date;
   const gridEnd = weeks[weeks.length - 1][6].date;
+
+  const refetchCalendarData = async () => {
+    const start = dateKey(gridStart);
+    const end = dateKey(gridEnd);
+    const [attendanceList, driverLogList] = await Promise.all([
+      loadAttendance(start, end),
+      loadDriverLogs(start, end),
+    ]);
+    setAttendance(attendanceList);
+    setDriverLogs(driverLogList);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -224,6 +475,17 @@ function TeamPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monthAnchor]);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const list = await loadEmployees();
+      if (!cancelled) setEmployees(list);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const attendanceByDate = useMemo(() => {
     const map = new Map<string, AttendanceRecord[]>();
     for (const a of attendance) {
@@ -246,6 +508,41 @@ function TeamPage() {
 
   const goPrevMonth = () => setMonthAnchor((m) => new Date(m.getFullYear(), m.getMonth() - 1, 1));
   const goNextMonth = () => setMonthAnchor((m) => new Date(m.getFullYear(), m.getMonth() + 1, 1));
+
+  const closeModal = () => {
+    setOpenDate(null);
+    setSaveError(null);
+  };
+
+  const handleSaveAttendance = async (
+    entries: { employee_id: string; status: AttendanceStatus; note: string | null }[],
+  ) => {
+    if (!openDate) return;
+    let ownerSecret = getStoredOwnerSecret();
+    if (!ownerSecret) {
+      ownerSecret = window.prompt("Enter the owner passphrase to save attendance:");
+      if (!ownerSecret) return;
+      setStoredOwnerSecret(ownerSecret);
+    }
+
+    setSavingAttendance(true);
+    setSaveError(null);
+    const result = await saveAttendance(dateKey(openDate), entries, ownerSecret);
+    setSavingAttendance(false);
+
+    if (!result.success) {
+      if (result.unauthorized) {
+        clearStoredOwnerSecret();
+        setSaveError("Incorrect owner passphrase. Please try saving again.");
+      } else {
+        setSaveError(result.error ?? "Failed to save attendance.");
+      }
+      return;
+    }
+
+    await refetchCalendarData();
+    closeModal();
+  };
 
   return (
     <div
@@ -382,6 +679,7 @@ function TeamPage() {
                       inMonth={inMonth}
                       attendance={attendanceByDate.get(key) ?? []}
                       driverLogs={driverLogsByDate.get(key) ?? []}
+                      onClick={() => setOpenDate(date)}
                     />
                   );
                 })}
@@ -390,6 +688,18 @@ function TeamPage() {
           </div>
         )}
       </div>
+
+      {openDate && (
+        <AttendanceModal
+          date={openDate}
+          employees={employees}
+          existing={attendanceByDate.get(dateKey(openDate)) ?? []}
+          saving={savingAttendance}
+          error={saveError}
+          onSave={handleSaveAttendance}
+          onClose={closeModal}
+        />
+      )}
     </div>
   );
 }
