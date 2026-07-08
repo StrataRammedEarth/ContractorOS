@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { Link, getRouteApi } from "@tanstack/react-router";
 import {
   buildGeyserReplacement, buildElementRepair, buildNewInstallation, fetchGeyserPricing,
@@ -9,7 +9,7 @@ import {
   type InvoiceMeta, type DocumentType,
 } from "@/lib/invoice-document";
 import { useSettings, DEFAULT_SETTINGS, type OrgSettings } from "@/lib/settings-context";
-import { supabase } from "@/lib/supabase-client";
+import { supabase, loadEmployees, type Employee } from "@/lib/supabase-client";
 import {
   fetchFixtureTemplates, fetchTemplateRows, fetchCandidateMaterials, fetchMaterialByCode,
   type FixtureTemplate,
@@ -265,6 +265,10 @@ interface Inputs {
   fittingTemplates?: AppliedTemplate[]; // fixture-linked fitting templates
   supplyLines?: PipeLine[];     // canonical supply pipe (replaces pipeType+supplyMetres)
   drainLines?: PipeLine[];      // canonical drainage pipe (replaces drainMetres)
+  // Denormalized {id, name} pairs, not a live employees join — a later soft-delete
+  // (is_active=false) must not change what a saved estimate displays it allocated.
+  // Purely descriptive: never read by buildScope/buildLabour or scope-review gating.
+  allocatedEmployees?: { id: string; name: string }[];
   _scanNotes?: string; _scanConf?: string;
   _geyser?: GeyserMeta; // present when this is a geyser-assembly job
 }
@@ -1303,6 +1307,7 @@ const DEFAULT: Inputs = {
   fittingTemplates:[],
   supplyLines:[],
   drainLines:[],
+  allocatedEmployees:[],
 };
 
 // Convert scan-extracted fixture counts into fixture lines (one preset line per type).
@@ -1928,6 +1933,85 @@ function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, 
   );
 }
 
+// Multi-select of active employees, purely descriptive metadata on the job
+// (Brief 2 — "Employees Allocated"). No existing multi-select pattern in the
+// app to mirror, so this is a plain dropdown-of-checkboxes + removable chips.
+function EmployeesAllocatedField({ value, onChange, employees, loading }: {
+  value: { id: string; name: string }[];
+  onChange: (next: { id: string; name: string }[]) => void;
+  employees: Employee[];
+  loading: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const selectedIds = new Set(value.map(v => v.id));
+  const disabled = !loading && employees.length === 0;
+
+  useEffect(() => {
+    if (!open) return;
+    const onDocMouseDown = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDocMouseDown);
+    return () => document.removeEventListener("mousedown", onDocMouseDown);
+  }, [open]);
+
+  const toggle = (emp: Employee) => {
+    onChange(selectedIds.has(emp.id)
+      ? value.filter(v => v.id !== emp.id)
+      : [...value, { id: emp.id, name: emp.name }]);
+  };
+  const remove = (id: string) => onChange(value.filter(v => v.id !== id));
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative" }}>
+      <label style={T.fieldLabel}>Employees Allocated</label>
+      <button type="button" onClick={() => !disabled && setOpen(o => !o)} disabled={disabled}
+        style={{ ...selectStyle, width: "100%", textAlign: "left",
+          cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.6 : 1,
+          color: value.length ? C.navy : C.slateL }}>
+        {loading ? "Loading employees…" : disabled ? "No employees added"
+          : value.length ? `${value.length} selected` : "Select employees…"}
+      </button>
+      {disabled && (
+        <div style={{ ...T.muted, marginTop: 4 }}>
+          No employees added — add employees in Profile &amp; Settings.
+        </div>
+      )}
+      {open && !disabled && (
+        <div style={{ position: "absolute", zIndex: 20, top: "100%", left: 0, right: 0, marginTop: 4,
+          background: C.white, border: `1px solid ${UI.borderStrong}`, borderRadius: 6,
+          boxShadow: UI.cardShadow, maxHeight: 220, overflowY: "auto" }}>
+          {employees.map(emp => (
+            <label key={emp.id} style={{ display: "flex", alignItems: "center", gap: 8,
+              padding: "8px 10px", cursor: "pointer", fontSize: 13, color: C.navy }}>
+              <input type="checkbox" checked={selectedIds.has(emp.id)} onChange={() => toggle(emp)}
+                style={{ width: 14, height: 14 }} />
+              {emp.name}{emp.position ? ` (${emp.position})` : ""}
+            </label>
+          ))}
+        </div>
+      )}
+      {value.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+          {value.map(v => (
+            <span key={v.id} style={{ display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "4px 8px", borderRadius: 14, background: C.goldPale,
+              border: `1px solid ${C.gold}55`, fontSize: 12, color: C.navy, fontWeight: 600 }}>
+              {v.name}
+              <button type="button" onClick={() => remove(v.id)} title={`Remove ${v.name}`}
+                style={{ background: "none", border: "none", cursor: "pointer", padding: 0,
+                  color: C.red, fontWeight: 700, fontSize: 12, lineHeight: 1 }}>
+                ✕
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Reused three times (Drainage's 2.3, Fixtures' 4.2, Geyser's 3.3.2) against the
 // same underlying inputs.fittingTemplates array — scopeFilter partitions both
 // the picker's offered templates and the rendered applied list by
@@ -2018,6 +2102,25 @@ export default function EstimatePage() {
   const [screen, setScreen] = useState<"entry"|"scan"|"review"|"output">("entry");
   const [tab,    setTab]    = useState("estimate");
   const [inputs, setInputs] = useState<Inputs>(DEFAULT);
+
+  // Active employees for the "Employees Allocated" picker (Brief 2). Fetched
+  // once — same org-resolution path as the Settings page's Employee Details
+  // card (get-employees edge function; employees.RLS has no client session yet).
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [employeesLoading, setEmployeesLoading] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const list = await loadEmployees();
+      if (!cancelled) {
+        setEmployees(list);
+        setEmployeesLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   // Independent per-section toggles — replaces the old exclusive jobMode gate.
   // A job can hold any combination concurrently; Scan Drawing stays a distinct
   // full-screen flow via `screen`, not a fifth toggle (finishing a scan already
@@ -2222,6 +2325,7 @@ export default function EstimatePage() {
       const snapshot = {
         projectName: effInputs.projectName,
         clientName: effInputs.clientName,
+        allocatedEmployees: (effInputs.allocatedEmployees ?? []).map(e => ({ id: e.id, name: e.name })),
         activeSections: activeSectionKeys,
         waterSupply: activeSections.waterSupply ? {
           supplyLines: inputs.supplyLines ?? [],
@@ -2559,6 +2663,17 @@ export default function EstimatePage() {
                 <input value={inputs[f.k] as string} onChange={e=>setInp(f.k,e.target.value)}
                   style={{...inputStyle,width:"100%"}}/>
               </div>))}
+            {/* Employees Allocated (Brief 2) — third field per PDF ordering
+                (Project/Job name → Client name → Employees Allocated). Purely
+                descriptive: doesn't touch Points, pricing, or scope-review gating. */}
+            <div style={{gridColumn:"1 / -1"}}>
+              <EmployeesAllocatedField
+                value={inputs.allocatedEmployees ?? []}
+                onChange={v=>setInp("allocatedEmployees", v)}
+                employees={employees}
+                loading={employeesLoading}
+              />
+            </div>
             {/* Points relocated from inline-in-Water-Supply to job-level (Brief
                 C-2 Change #5) — it only drives Water Supply's own fittings/labour
                 (F01-F04/C01/C02/A01/L03), so it's disabled/greyed rather than
