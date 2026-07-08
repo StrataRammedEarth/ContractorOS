@@ -666,6 +666,27 @@ function SectionHeader({ children }: { children: React.ReactNode }) {
     letterSpacing:1,textTransform:"uppercase",padding:"10px 20px",
     borderBottom:`2px solid ${C.gold}40` }}>{children}</div>;
 }
+// Section-level heading + bounding border wrapping all cards belonging to one
+// active Job Section (Water Supply/Drainage/Geyser/Fixtures) — Brief C-4. Purely
+// visual grouping around existing, unchanged cards; the label sits over a break
+// in the border like a fieldset legend, using the page background so it reads
+// as a cutout rather than an overlay. Individual cards keep their own dark
+// SectionHeader banners and marginBottom unchanged — this just adds one more
+// layer around the group so a user scanning a multi-section page can see at a
+// glance where one section's cards end and the next begins.
+function SectionGroup({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div style={{ position:"relative", border:`2px solid ${C.gold}`, borderRadius:12,
+      padding:`${S.lg}px ${S.md}px 2px`, marginTop:30, marginBottom:S.xl }}>
+      <div style={{ position:"absolute", top:-13, left:16, background:UI.pageBg,
+        padding:"0 10px", fontSize:12.5, fontWeight:800, color:C.goldDim,
+        textTransform:"uppercase", letterSpacing:0.8 }}>
+        {label}
+      </div>
+      {children}
+    </div>
+  );
+}
 
 // ─── SETTINGS → ENGINE DERIVATIONS ────────────────────────────────────────────
 const ladderFrom = (s: OrgSettings): LadderRates =>
@@ -2559,15 +2580,18 @@ export default function EstimatePage() {
           </div>
         </div>
 
-        {activeSections.waterSupply&&(<>
+        {activeSections.waterSupply&&(
+        <SectionGroup label="Water Supply">
         {pipeSection("supply","Water Supply", null)}
         <StandaloneFittingSection title="Supply Fittings" use="supply"
           rows={inputs.supplyFittings ?? []} catalogue={catalogue} catalogueLoading={catalogueLoading}
           onAdd={addStandaloneFitting} onAddCustom={addStandaloneCustomFitting}
           onUpdate={updateStandaloneFitting} onRemove={removeStandaloneFitting}/>
-        </>)}
+        </SectionGroup>
+        )}
 
-        {activeSections.drainage&&(<>
+        {activeSections.drainage&&(
+        <SectionGroup label="Drainage">
         {pipeSection("drainage","Drainage",
           <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",marginTop:10,paddingTop:10,borderTop:"1px solid #EDF0F5"}}>
             <input type="checkbox" checked={inputs.trenching} onChange={e=>setInp("trenching",e.target.checked)} style={{width:16,height:16}}/>
@@ -2591,9 +2615,11 @@ export default function EstimatePage() {
           onAddCatalogRow={addCatalogTemplateRow}
           onRemoveRow={removeTemplateRow}
         />
-        </>)}
+        </SectionGroup>
+        )}
 
-        {activeSections.fixtures&&(<>
+        {activeSections.fixtures&&(
+        <SectionGroup label="Fixtures">
         <div style={cardStyle}>
           <SectionHeader>Fixtures</SectionHeader>
           <div style={{padding:S.xl}}>
@@ -2680,9 +2706,11 @@ export default function EstimatePage() {
           onAddCatalogRow={addCatalogTemplateRow}
           onRemoveRow={removeTemplateRow}
         />
-        </>)}
+        </SectionGroup>
+        )}
 
-        {activeSections.geyser&&(<>
+        {activeSections.geyser&&(
+        <SectionGroup label="Geyser">
         <div style={cardStyle}>
           <SectionHeader>Geyser Job Specs</SectionHeader>
           <div style={{padding:S.xl}}>
@@ -2788,7 +2816,8 @@ export default function EstimatePage() {
           onAddCatalogRow={addCatalogTemplateRow}
           onRemoveRow={removeTemplateRow}
         />
-        </>)}
+        </SectionGroup>
+        )}
 
         <div style={{background:"#fff",border:`1px solid ${C.gold}40`,borderRadius:8,padding:"14px 20px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
           <div>
