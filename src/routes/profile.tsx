@@ -2,6 +2,7 @@ import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useSettings, type OrgSettings } from "@/lib/settings-context";
 import { loadEmployees, saveEmployee, removeEmployee, type Employee } from "@/lib/supabase-client";
+import { loadVehicles, saveVehicle, removeVehicle, type Vehicle } from "@/lib/supabase-client";
 
 export const Route = createFileRoute("/profile")({
   head: () => ({ meta: [{ title: "Profile & Settings — ContractorOS" }] }),
@@ -480,6 +481,349 @@ function EmployeeDetailsCard({ hoursPerDay }: { hoursPerDay: number }) {
   );
 }
 
+// ─── VEHICLES (Section F) ──────────────────────────────────────────────────────
+// Same pattern as Section E · Employee Details: reads/writes go through the
+// get-vehicles / save-vehicle / remove-vehicle edge functions (vehicles has RLS
+// with no client-auth session in this app yet, so direct table access from the
+// browser is blocked — same reason as employees above).
+
+type VehicleDraft = { registration_number: string; make: string; model: string };
+const emptyVehicleDraft: VehicleDraft = { registration_number: "", make: "", model: "" };
+
+function VehicleSummaryRow({
+  vehicle,
+  removing,
+  onEdit,
+  onRemove,
+}: {
+  vehicle: Vehicle;
+  removing: boolean;
+  onEdit: () => void;
+  onRemove: () => void;
+}) {
+  const parts = [vehicle.registration_number];
+  if (vehicle.make) parts.push(vehicle.make);
+  if (vehicle.model) parts.push(vehicle.model);
+
+  return (
+    <div
+      style={{
+        border: `1px solid ${C.gold}55`,
+        borderRadius: 8,
+        marginBottom: 10,
+        overflow: "hidden",
+      }}
+    >
+      <div
+        style={{
+          background: "#FDF3DC",
+          padding: "8px 12px",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 8,
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ fontWeight: 700, fontSize: 13, color: C.navy }}>{parts.join(" · ")}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <button
+            onClick={onEdit}
+            title="Edit vehicle"
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: 4,
+              color: C.slate,
+              fontSize: 13,
+            }}
+          >
+            ✎
+          </button>
+          <button
+            onClick={onRemove}
+            disabled={removing}
+            title="Remove vehicle"
+            style={{
+              ...rowDeleteBtnStyle,
+              opacity: removing ? 0.5 : 1,
+              cursor: removing ? "not-allowed" : "pointer",
+            }}
+          >
+            {removing ? "…" : "✕"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function VehicleEditRow({
+  draft,
+  setDraft,
+  error,
+  saving,
+  onSave,
+  onCancel,
+  isNew,
+}: {
+  draft: VehicleDraft;
+  setDraft: React.Dispatch<React.SetStateAction<VehicleDraft>>;
+  error: string | null;
+  saving: boolean;
+  onSave: () => void;
+  onCancel: () => void;
+  isNew?: boolean;
+}) {
+  const regInvalid = !!error && draft.registration_number.trim() === "";
+  return (
+    <div
+      style={{
+        border: `1px solid ${C.gold}55`,
+        borderRadius: 8,
+        marginBottom: 10,
+        padding: 12,
+        background: "#fff",
+      }}
+    >
+      <div
+        style={{ display: "grid", gridTemplateColumns: "2fr 2fr 2fr", gap: 10, marginBottom: 10 }}
+      >
+        <div>
+          <Label>Registration Number *</Label>
+          <input
+            style={inputStyle(regInvalid)}
+            value={draft.registration_number}
+            onChange={(e) => setDraft((d) => ({ ...d, registration_number: e.target.value }))}
+            placeholder="e.g. CA 123-456"
+          />
+        </div>
+        <div>
+          <Label hint="optional">Make</Label>
+          <input
+            style={inputStyle()}
+            value={draft.make}
+            onChange={(e) => setDraft((d) => ({ ...d, make: e.target.value }))}
+            placeholder="e.g. Toyota"
+          />
+        </div>
+        <div>
+          <Label hint="optional">Model</Label>
+          <input
+            style={inputStyle()}
+            value={draft.model}
+            onChange={(e) => setDraft((d) => ({ ...d, model: e.target.value }))}
+            placeholder="e.g. Hilux"
+          />
+        </div>
+      </div>
+      {error && <div style={{ color: C.red, fontSize: 12, marginBottom: 8 }}>{error}</div>}
+      <div style={{ display: "flex", gap: 8 }}>
+        <button
+          onClick={onSave}
+          disabled={saving}
+          style={{
+            padding: "7px 16px",
+            borderRadius: 6,
+            border: "none",
+            background: C.gold,
+            color: C.navy,
+            fontWeight: 700,
+            fontSize: 12,
+            cursor: saving ? "not-allowed" : "pointer",
+            opacity: saving ? 0.6 : 1,
+          }}
+        >
+          {saving ? "Saving…" : isNew ? "Add vehicle" : "Save"}
+        </button>
+        <button
+          onClick={onCancel}
+          disabled={saving}
+          style={{
+            padding: "7px 16px",
+            borderRadius: 6,
+            border: "1px solid #C8D0DB",
+            background: "#fff",
+            color: C.slate,
+            fontWeight: 600,
+            fontSize: 12,
+            cursor: "pointer",
+          }}
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function VehicleDetailsCard() {
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const [adding, setAdding] = useState(false);
+  const [addDraft, setAddDraft] = useState<VehicleDraft>(emptyVehicleDraft);
+  const [addError, setAddError] = useState<string | null>(null);
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<VehicleDraft>(emptyVehicleDraft);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  const [saving, setSaving] = useState(false);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const list = await loadVehicles();
+      if (!cancelled) {
+        setVehicles(list);
+        setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const startAdd = () => {
+    setAdding(true);
+    setAddDraft(emptyVehicleDraft);
+    setAddError(null);
+  };
+  const cancelAdd = () => {
+    setAdding(false);
+    setAddDraft(emptyVehicleDraft);
+    setAddError(null);
+  };
+  const submitAdd = async () => {
+    if (addDraft.registration_number.trim() === "") {
+      setAddError("Registration number is required.");
+      return;
+    }
+    setSaving(true);
+    setAddError(null);
+    const res = await saveVehicle({
+      registration_number: addDraft.registration_number,
+      make: addDraft.make || undefined,
+      model: addDraft.model || undefined,
+    });
+    setSaving(false);
+    if (!res.success || !res.vehicle) {
+      setAddError(res.error ?? "Failed to save vehicle.");
+      return;
+    }
+    setVehicles((prev) => [...prev, res.vehicle as Vehicle]);
+    setAdding(false);
+    setAddDraft(emptyVehicleDraft);
+  };
+
+  const startEdit = (veh: Vehicle) => {
+    setEditingId(veh.id);
+    setEditDraft({
+      registration_number: veh.registration_number,
+      make: veh.make ?? "",
+      model: veh.model ?? "",
+    });
+    setEditError(null);
+  };
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditError(null);
+  };
+  const submitEdit = async () => {
+    if (!editingId) return;
+    if (editDraft.registration_number.trim() === "") {
+      setEditError("Registration number is required.");
+      return;
+    }
+    setSaving(true);
+    setEditError(null);
+    const res = await saveVehicle({
+      id: editingId,
+      registration_number: editDraft.registration_number,
+      make: editDraft.make || undefined,
+      model: editDraft.model || undefined,
+    });
+    setSaving(false);
+    if (!res.success || !res.vehicle) {
+      setEditError(res.error ?? "Failed to save vehicle.");
+      return;
+    }
+    const saved = res.vehicle;
+    setVehicles((prev) => prev.map((v) => (v.id === editingId ? saved : v)));
+    setEditingId(null);
+  };
+
+  const handleRemove = async (veh: Vehicle) => {
+    if (!window.confirm(`Remove ${veh.registration_number}? It can be re-added later.`)) return;
+    setRemovingId(veh.id);
+    const res = await removeVehicle(veh.id);
+    setRemovingId(null);
+    if (!res.success) {
+      window.alert(res.error ?? "Failed to remove vehicle.");
+      return;
+    }
+    setVehicles((prev) => prev.filter((v) => v.id !== veh.id));
+    if (editingId === veh.id) setEditingId(null);
+  };
+
+  return (
+    <Card title="F · Vehicles">
+      {loading ? (
+        <div style={{ fontSize: 12, color: C.slateL }}>Loading vehicles…</div>
+      ) : (
+        <>
+          {vehicles.length === 0 && !adding && (
+            <div style={{ fontSize: 12, color: C.slateL, marginBottom: 10 }}>
+              No vehicles added yet.
+            </div>
+          )}
+
+          {vehicles.map((veh) =>
+            editingId === veh.id ? (
+              <VehicleEditRow
+                key={veh.id}
+                draft={editDraft}
+                setDraft={setEditDraft}
+                error={editError}
+                saving={saving}
+                onSave={submitEdit}
+                onCancel={cancelEdit}
+              />
+            ) : (
+              <VehicleSummaryRow
+                key={veh.id}
+                vehicle={veh}
+                removing={removingId === veh.id}
+                onEdit={() => startEdit(veh)}
+                onRemove={() => handleRemove(veh)}
+              />
+            ),
+          )}
+
+          {adding ? (
+            <VehicleEditRow
+              draft={addDraft}
+              setDraft={setAddDraft}
+              error={addError}
+              saving={saving}
+              onSave={submitAdd}
+              onCancel={cancelAdd}
+              isNew
+            />
+          ) : (
+            <button onClick={startAdd} style={addLineBtnStyle}>
+              + Add Vehicle
+            </button>
+          )}
+        </>
+      )}
+    </Card>
+  );
+}
+
 function ProfilePage() {
   const { settings, saveSettings } = useSettings();
   const router = useRouter();
@@ -869,6 +1213,9 @@ function ProfilePage() {
 
         {/* Section E — Employee Details */}
         <EmployeeDetailsCard hoursPerDay={form.hoursPerDay} />
+
+        {/* Section F — Vehicles */}
+        <VehicleDetailsCard />
 
         {/* Save bar */}
         <div style={{ display: "flex", alignItems: "center", gap: 14, paddingBottom: 40 }}>
