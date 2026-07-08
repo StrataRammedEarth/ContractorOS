@@ -109,6 +109,14 @@ export interface Employee {
   created_at: string;
 }
 
+export interface Vehicle {
+  id: string;
+  registration_number: string;
+  make: string | null;
+  model: string | null;
+  created_at: string;
+}
+
 // ─── LIBRARY LOADING ──────────────────────────────────────────────────────────
 
 export async function loadLibrary(
@@ -217,6 +225,61 @@ export async function saveEmployee(employee: {
 export async function removeEmployee(id: string): Promise<{ success: boolean; error?: string }> {
   try {
     const res = await fetch(`${supabaseUrl}/functions/v1/remove-employee`, {
+      method: 'POST',
+      headers: edgeHeaders(),
+      body: JSON.stringify({ id }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) return { success: false, error: data.error ?? `HTTP ${res.status}` };
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+// ─── VEHICLES ─────────────────────────────────────────────────────────────────
+// Same reasoning as EMPLOYEES above: vehicles has RLS requiring auth.uid(), and
+// this app has no signed-in sessions yet, so reads/writes go through
+// service-role edge functions (get-vehicles / save-vehicle / remove-vehicle).
+
+export async function loadVehicles(): Promise<Vehicle[]> {
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/get-vehicles`, {
+      headers: edgeHeaders(),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    const data = await res.json();
+    if (!data.success) { console.warn('⚠️ Failed to load vehicles:', data.error); return []; }
+    return data.vehicles ?? [];
+  } catch (err) {
+    console.error('❌ Error loading vehicles:', err);
+    return [];
+  }
+}
+
+export async function saveVehicle(vehicle: {
+  id?: string;
+  registration_number: string;
+  make?: string;
+  model?: string;
+}): Promise<{ success: boolean; vehicle?: Vehicle; error?: string }> {
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/save-vehicle`, {
+      method: 'POST',
+      headers: edgeHeaders(),
+      body: JSON.stringify(vehicle),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) return { success: false, error: data.error ?? `HTTP ${res.status}` };
+    return { success: true, vehicle: data.vehicle };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+export async function removeVehicle(id: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/remove-vehicle`, {
       method: 'POST',
       headers: edgeHeaders(),
       body: JSON.stringify({ id }),
