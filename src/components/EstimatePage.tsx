@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { Link, getRouteApi } from "@tanstack/react-router";
 import {
-  buildGeyserReplacement, buildElementRepair, fetchGeyserPricing,
+  buildGeyserReplacement, buildElementRepair, buildNewInstallation, fetchGeyserPricing,
   type GeyserAssembly, type GeyserSize, type GeyserBrand, type GeyserJobType, type GeyserPricingData,
 } from "@/lib/geyser-assembly";
 import {
@@ -599,7 +599,7 @@ function buildLabour(inp: Inputs, crewRateHr: number = CREW_RATE_HR): LabourLine
 // into the existing ScopeLine/LabourLine shapes so the 4 output tabs, the
 // commercial ladder (applyLadder) and the issuance gate all work unchanged.
 function geyserToScope(asm: GeyserAssembly): ScopeLine[] {
-  const supplier = asm.jobType === "burst_replacement" ? "Geyser supplier (confirm)" : "Vissi/local";
+  const supplier = asm.jobType === "burst_replacement" || asm.jobType === "new_installation" ? "Geyser supplier (confirm)" : "Vissi/local";
   return asm.lines.map((l, i) => ({
     id: `G${String(i + 1).padStart(2, "0")}`,
     code: l.code,
@@ -615,17 +615,20 @@ function geyserToScope(asm: GeyserAssembly): ScopeLine[] {
   }));
 }
 function geyserToLabour(asm: GeyserAssembly, crewRateHr: number = CREW_RATE_HR): LabourLine[] {
-  const burst = asm.jobType === "burst_replacement";
+  const description = asm.jobType === "burst_replacement" ? "Geyser remove & replace — labour block"
+    : asm.jobType === "new_installation" ? "New Point — supply/drain/electrical connection & install"
+    : "Element / thermostat repair — labour";
+  const derivation = asm.jobType === "burst_replacement" ? "Fixed crew block by size (Assumption) [VR-09]"
+    : asm.jobType === "new_installation" ? "Single sell-side quote line, not size-graded (Assumption, unconfirmed)"
+    : "Contractor flat-rate, sell-side reference [VR-10 open decision]";
   return [{
     id: "GL01",
-    description: burst ? "Geyser remove & replace — labour block" : "Element / thermostat repair — labour",
+    description,
     hours: asm.labourCost / crewRateHr,
     rate: crewRateHr,
     cost: asm.labourCost,
     conf: asm.grade,
-    derivation: burst
-      ? "Fixed crew block by size (Assumption) [VR-09]"
-      : "Contractor flat-rate, sell-side reference [VR-10 open decision]",
+    derivation,
   }];
 }
 
@@ -690,25 +693,28 @@ function printQuotePDF(inp: Inputs, scope: ScopeLine[], labour: LabourLine[], qu
     .filter(r=>isPriced(r))
     .map(r=>`${r.description || r.fittingType}${r.nominalSize?` ${r.nominalSize}`:""}: ${resolvedQty(r)}`);
   // Scope-of-work grid: geyser assembly vs plumbing run
+  const geyserJobLabel = (jt: GeyserJobType) => jt==="burst_replacement"?"Burst geyser replacement":jt==="new_installation"?"New Installation":"Element / thermostat repair";
   const scopeGrid = g
     ? [
-        `<div class="scope-item"><strong>Job:</strong> ${g.jobType==="burst_replacement"?"Burst geyser replacement":"Element / thermostat repair"}</div>`,
+        `<div class="scope-item"><strong>Job:</strong> ${geyserJobLabel(g.jobType)}</div>`,
         `<div class="scope-item"><strong>Size:</strong> ${g.size}L</div>`,
-        g.jobType==="burst_replacement"?`<div class="scope-item"><strong>Brand:</strong> ${g.brand} (B-rated, 5yr warranty)</div>`:"",
+        (g.jobType==="burst_replacement"||g.jobType==="new_installation")?`<div class="scope-item"><strong>Brand:</strong> ${g.brand} (B-rated, 5yr warranty)</div>`:"",
         g.jobType==="element_repair"?`<div class="scope-item"><strong>Solar geyser:</strong> ${g.solar?"Yes — thermostat retained":"No"}</div>`:"",
         ...scope.map(l=>`<div class="scope-item"><strong>${l.qty}× ${l.description}</strong></div>`),
         `<div class="scope-item"><strong>Commercial rules:</strong> ${ladderLabel(cfg)}</div>`,
       ].filter(Boolean).join("")
     : `${(inp.supplyLines ?? []).filter(l=>l.metres>0).map(l=>`<div class="scope-item"><strong>Supply:</strong> ${l.metres}m ${l.type} ${l.diameter?l.diameter+"mm":""}</div>`).join("")}<div class="scope-item"><strong>Water points:</strong> ${inp.points}</div>${(inp.drainLines ?? []).filter(l=>l.metres>0).map(l=>`<div class="scope-item"><strong>Drainage:</strong> ${l.metres}m ${l.type} ${l.diameter?l.diameter+"mm":""}</div>`).join("")}${fixtureLines.map(l=>`<div class="scope-item"><strong>${l}</strong></div>`).join("")}${fittingLines.map(l=>`<div class="scope-item"><strong>${l}</strong></div>`).join("")}<div class="scope-item"><strong>Commercial rules:</strong> ${ladderLabel(cfg)}</div>`;
   const scopeIntro = g
-    ? `Supply and installation of a ${g.size}L ${g.jobType==="burst_replacement"?`${g.brand} geyser replacement assembly`:"geyser element / thermostat repair"} as set out below.`
+    ? `Supply and installation of a ${g.size}L ${g.jobType==="burst_replacement"?`${g.brand} geyser replacement assembly`:g.jobType==="new_installation"?`${g.brand} geyser new installation (new supply/drain/electrical point)`:"geyser element / thermostat repair"} as set out below.`
     : "Supply and installation of plumbing connection assemblies as set out below.";
   const assumptions = g
     ? [
-        `Asset: ${g.size}L geyser, ${g.jobType==="burst_replacement"?`${g.brand} B-rated (5yr warranty)`:"element/thermostat repair"}`,
+        `Asset: ${g.size}L geyser, ${g.jobType==="burst_replacement"?`${g.brand} B-rated (5yr warranty)`:g.jobType==="new_installation"?`${g.brand} B-rated (5yr warranty), new connection`:"element/thermostat repair"}`,
         "Commercial rules: ${ladderLabel(cfg)}",
         "Geyser unit + kit costs back-derived (Assumption) — confirm buy-prices [VR-07, VR-08]",
-        "Labour block crew-derived (Assumption) — confirm vs actual crew hours [VR-09]",
+        g.jobType==="new_installation"
+          ? "New Point connection labour is a single sell-side quote line, not a true-cost breakdown (Assumption, unconfirmed) — not client-issuable until confirmed"
+          : "Labour block crew-derived (Assumption) — confirm vs actual crew hours [VR-09]",
         g.size===200?"200L pricing interpolated — no direct quote evidence":"",
         g.size===250?"250L evidence stale (2022) — reverify before client issue":"",
       ].filter(Boolean)
@@ -730,7 +736,7 @@ function printQuotePDF(inp: Inputs, scope: ScopeLine[], labour: LabourLine[], qu
 <div class="gold-bar"></div>
 <div class="parties"><div class="party"><div class="party-label">From</div><h3>${biz}</h3><p>${cfg.vatNumber?`VAT no. ${cfg.vatNumber}`:"Not VAT registered"}</p><p>${[cfg.contactName,cfg.phone,cfg.email].filter(Boolean).join(" · ")||"Phone · Email"}</p></div><div class="party"><div class="party-label">To</div><h3>${inp.projectName||"Project"}</h3><p>${inp.clientName||"Client name &amp; site address"}</p></div></div>
 <div class="section-bar">Scope of Work</div><div class="scope-box"><p style="font-size:11px;color:#4A6080;line-height:1.6">${scopeIntro}</p><div class="scope-grid">${scopeGrid}</div></div>
-<div class="section-bar">Pricing</div><table><thead><tr><th>Description</th><th style="text-align:right">Amount (excl VAT)</th></tr></thead><tbody><tr><td>Materials &amp; Supply<div class="sub">${g?"Geyser unit, valves, tray, vacuum breakers, consumables":"Pipe, fittings, connection assemblies, consumables"}</div></td><td>${fmtN(mat)}</td></tr><tr><td>Labour &amp; Installation<div class="sub">${g?(g.jobType==="burst_replacement"?"Remove old geyser, install &amp; commission new assembly":"Element / thermostat repair labour"):"Pipework, point make-off, fixture connection"}</div></td><td>${fmtN(lab)}</td></tr><tr><td>Project allowances &amp; margin<div class="sub">Waste, risk, contingency &amp; markup</div></td><td>${fmtN(allow)}</td></tr></tbody></table>
+<div class="section-bar">Pricing</div><table><thead><tr><th>Description</th><th style="text-align:right">Amount (excl VAT)</th></tr></thead><tbody><tr><td>Materials &amp; Supply<div class="sub">${g?"Geyser unit, valves, tray, vacuum breakers, consumables":"Pipe, fittings, connection assemblies, consumables"}</div></td><td>${fmtN(mat)}</td></tr><tr><td>Labour &amp; Installation<div class="sub">${g?(g.jobType==="burst_replacement"?"Remove old geyser, install &amp; commission new assembly":g.jobType==="new_installation"?"New Point connection (supply/drain/electrical) &amp; install":"Element / thermostat repair labour"):"Pipework, point make-off, fixture connection"}</div></td><td>${fmtN(lab)}</td></tr><tr><td>Project allowances &amp; margin<div class="sub">Waste, risk, contingency &amp; markup</div></td><td>${fmtN(allow)}</td></tr></tbody></table>
 <div class="totals"><div class="total-row"><span>Subtotal (excl VAT)</span><span>R ${fmtN(ld.sell)}</span></div><div class="total-row"><span>VAT @ ${cfg.vatRatePct}%</span><span>R ${fmtN(vat)}</span></div></div>
 <div class="total-final"><span>Total Due</span><span>R ${fmtN(total)}</span></div>
 <div class="bottom-grid"><div class="bottom-box"><h4>Assumptions</h4>${assumptions.map(a=>`<div>— ${a}</div>`).join("")}</div><div class="bottom-box"><h4>Exclusions &amp; Terms</h4><div>— Builder's work, tiling, electrical and making-good excluded.</div><div>— 50% deposit on acceptance; balance on completion.</div><div>— Quote valid ${cfg.quoteValidityDays} days; subject to site confirmation.</div>${cfg.termsConditions?`<div>— ${cfg.termsConditions}</div>`:""}</div></div>
@@ -958,9 +964,11 @@ function ScopeModal({ scope, labour, inputs, onConfirm, onBack }: { scope: Scope
     ? [
         g.jobType==="burst_replacement"
           ? `${g.size}L ${g.brand} B-rated geyser — remove & replace`
+          : g.jobType==="new_installation"
+          ? `${g.size}L ${g.brand} B-rated geyser — new installation`
           : `${g.size}L geyser — element / thermostat repair`,
         ...scope.map(l=>`${l.qty}× ${l.description}`),
-        `Labour: ${fmt(lab)} (${g.jobType==="burst_replacement"?"fixed crew block":"flat-rate repair"})`,
+        `Labour: ${fmt(lab)} (${g.jobType==="burst_replacement"?"fixed crew block":g.jobType==="new_installation"?"New Point connection, flat rate":"flat-rate repair"})`,
         g.solar?"Solar geyser — thermostat not replaced":null,
       ].filter(Boolean)
     : [
@@ -2032,6 +2040,8 @@ export default function EstimatePage() {
     activeSections.geyser && geyserPricing
       ? (geyser.jobType==="burst_replacement"
           ? buildGeyserReplacement(geyser.size, geyser.brand, geyserPricing)
+          : geyser.jobType==="new_installation"
+          ? buildNewInstallation(geyser.size, geyser.brand, geyserPricing)
           : buildElementRepair(geyser.size, geyser.solar, geyserPricing))
       : null, [activeSections.geyser, geyser, geyserPricing]);
 
@@ -2075,7 +2085,9 @@ export default function EstimatePage() {
   // effInputs carries the geyser meta + a descriptive project name into the
   // header, scope modal, tabs and PDF generators.
   const geyserName = geyserAsm
-    ? `${geyser.size}L ${geyser.jobType==="burst_replacement"?`${geyser.brand} geyser replacement`:"geyser element repair"}`
+    ? `${geyser.size}L ${geyser.jobType==="burst_replacement"?`${geyser.brand} geyser replacement`
+      :geyser.jobType==="new_installation"?`${geyser.brand} geyser new installation`
+      :"geyser element repair"}`
     : "";
   const effInputs: Inputs = geyserAsm
     ? { ...maskedInputs, projectName: (maskedInputs.projectName && maskedInputs.projectName!==DEFAULT.projectName) ? maskedInputs.projectName : geyserName, _geyser: geyser, _scanNotes: undefined }
@@ -2676,7 +2688,9 @@ export default function EstimatePage() {
           <div style={{padding:S.xl}}>
             {/* 3.1/3.2/3.3 — same nesting pattern as Drainage's 2.3 and Fixtures'
                 4.2: a set of sibling options under one "Job type" umbrella. 3.1
-                is a disabled placeholder (per the PDF, not built yet); 3.2/3.3
+                New Installation reuses 3.2's unit/kit fixed-composition (size ×
+                brand) plus a flat "New Point" connection labour line — see
+                buildNewInstallation in geyser-assembly.ts for sourcing. 3.2/3.3
                 are today's existing burst_replacement/element_repair bundles,
                 unchanged. 3.3.2 General Repairs (the itemized alternative) is
                 its own FixtureTemplatesSection instance below, always visible
@@ -2684,14 +2698,7 @@ export default function EstimatePage() {
             <div style={{marginBottom:16}}>
               <label style={{...T.fieldLabel,marginBottom:6}}>Job type</label>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
-                <button type="button" disabled aria-disabled="true" title="Not built yet" style={{
-                  display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,
-                  padding:"11px 8px",borderRadius:8,cursor:"not-allowed",fontSize:12,fontWeight:800,
-                  border:`2px dashed ${UI.borderStrong}`,background:"#F5F6F8",color:C.slateL,opacity:0.7}}>
-                  3.1 New Installation
-                  <span style={{fontSize:9,fontWeight:600,letterSpacing:0.4,textTransform:"uppercase"}}>Coming soon</span>
-                </button>
-                {([{v:"burst_replacement" as const,l:"3.2 Burst Replacement"},{v:"element_repair" as const,l:"3.3 Replacement / Repairs"}]).map(j=>{
+                {([{v:"new_installation" as const,l:"3.1 New Installation"},{v:"burst_replacement" as const,l:"3.2 Burst Replacement"},{v:"element_repair" as const,l:"3.3 Replacement / Repairs"}]).map(j=>{
                   const on = geyser.jobType===j.v;
                   return (
                   <button key={j.v} onClick={()=>setGey({jobType:j.v})} className="cos-toggle" aria-pressed={on} style={{
@@ -2710,6 +2717,8 @@ export default function EstimatePage() {
               </div>
               {geyser.jobType==="element_repair"&&
                 <div style={{fontSize:10,color:C.slateL,marginTop:6}}>3.3.1 Thermostat / Element bundle — fixed-composition, below.</div>}
+              {geyser.jobType==="new_installation"&&
+                <div style={{fontSize:10,color:C.slateL,marginTop:6}}>New-construction connection (no existing point) — geyser + kit priced as 3.2, plus a flat New Point connection charge (Assumption, unconfirmed).</div>}
             </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
               <div>
@@ -2719,9 +2728,9 @@ export default function EstimatePage() {
                   {[50,100,150,200,250].map(s=><option key={s} value={s}>{s} L</option>)}
                 </select>
                 <div style={{fontSize:10,color:C.slateL,marginTop:4}}>Unit price Sourced (Plumblink 2026)</div>
-                {geyser.size===150&&<div style={{fontSize:10,color:C.amber,marginTop:3}}>⚠ 150L ~15% under 2024 market — VR-11</div>}
+                {geyser.size===150&&geyser.jobType==="burst_replacement"&&<div style={{fontSize:10,color:C.amber,marginTop:3}}>⚠ 150L ~15% under 2024 market — VR-11</div>}
               </div>
-              {geyser.jobType==="burst_replacement"
+              {(geyser.jobType==="burst_replacement"||geyser.jobType==="new_installation")
                 ? <div>
                     <label style={T.fieldLabel}>Brand</label>
                     <select value={geyser.brand} onChange={e=>setGey({brand:e.target.value as GeyserBrand})}
