@@ -101,6 +101,14 @@ export interface SaveResult {
   error?: string;
 }
 
+export interface Employee {
+  id: string;
+  name: string;
+  position: string | null;
+  hourly_rate: number | null;
+  created_at: string;
+}
+
 // ─── LIBRARY LOADING ──────────────────────────────────────────────────────────
 
 export async function loadLibrary(
@@ -161,6 +169,61 @@ export async function saveEstimate(
     if (!data.success) return { success: false, error: data.error };
     console.log(`✅ Quote saved as ${data.estimate.reference}`);
     return { success: true, estimate: data.estimate };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+// ─── EMPLOYEES ────────────────────────────────────────────────────────────────
+// employees has RLS requiring auth.uid(), and this app has no signed-in
+// sessions yet, so reads/writes go through service-role edge functions
+// (get-employees / save-employee / remove-employee), same as save-estimate.
+
+export async function loadEmployees(): Promise<Employee[]> {
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/get-employees`, {
+      headers: edgeHeaders(),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    const data = await res.json();
+    if (!data.success) { console.warn('⚠️ Failed to load employees:', data.error); return []; }
+    return data.employees ?? [];
+  } catch (err) {
+    console.error('❌ Error loading employees:', err);
+    return [];
+  }
+}
+
+export async function saveEmployee(employee: {
+  id?: string;
+  name: string;
+  position?: string;
+  hourly_rate?: number | null;
+}): Promise<{ success: boolean; employee?: Employee; error?: string }> {
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/save-employee`, {
+      method: 'POST',
+      headers: edgeHeaders(),
+      body: JSON.stringify(employee),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) return { success: false, error: data.error ?? `HTTP ${res.status}` };
+    return { success: true, employee: data.employee };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+export async function removeEmployee(id: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/remove-employee`, {
+      method: 'POST',
+      headers: edgeHeaders(),
+      body: JSON.stringify({ id }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) return { success: false, error: data.error ?? `HTTP ${res.status}` };
+    return { success: true };
   } catch (err) {
     return { success: false, error: String(err) };
   }
