@@ -269,6 +269,9 @@ interface Inputs {
   // (is_active=false) must not change what a saved estimate displays it allocated.
   // Purely descriptive: never read by buildScope/buildLabour or scope-review gating.
   allocatedEmployees?: { id: string; name: string }[];
+  // Invoice-only (Brief 2, Emergency Call-Out) — multiplies the composite crew
+  // hourly rate by settings.afterHoursMultiplier. Never rendered/set on Quote.
+  afterHours?: boolean;
   _scanNotes?: string; _scanConf?: string;
   _geyser?: GeyserMeta; // present when this is a geyser-assembly job
 }
@@ -1314,6 +1317,7 @@ const DEFAULT: Inputs = {
   supplyLines:[],
   drainLines:[],
   allocatedEmployees:[],
+  afterHours:false,
 };
 
 // Convert scan-extracted fixture counts into fixture lines (one preset line per type).
@@ -2103,7 +2107,6 @@ export default function EstimatePage() {
   const { settings } = useSettings();
   const ladder = ladderFrom(settings);
   const vatRate = settings.vatRatePct / 100;
-  const crewRateHr = crewRateFrom(settings);
 
   const [screen, setScreen] = useState<"entry"|"scan"|"review"|"output">("entry");
   const [tab,    setTab]    = useState("estimate");
@@ -2195,6 +2198,14 @@ export default function EstimatePage() {
       (t.scope==='fixture' && activeSections.fixtures) ||
       (t.scope==='geyser' && activeSections.geyser)),
   }), [inputs, activeSections]);
+
+  // Invoice-only "After-hours job" toggle (Brief 2, Emergency Call-Out) — applies
+  // settings.afterHoursMultiplier to the composite crew rate BEFORE the day-rate
+  // → hourly derivation's consumers run, so it compounds correctly rather than
+  // being bolted onto the total afterwards. Materials/ladder/callout/travel are
+  // untouched — this only changes the rate fed into buildLabour/geyserToLabour.
+  const afterHoursActive = documentType==="invoice" && !!inputs.afterHours;
+  const crewRateHr = afterHoursActive ? crewRateFrom(settings) * settings.afterHoursMultiplier : crewRateFrom(settings);
 
   const scope  = useMemo(()=> [...buildScope(maskedInputs, { invoiceStrict: documentType==="invoice" }), ...(geyserAsm ? geyserToScope(geyserAsm) : [])],  [geyserAsm, maskedInputs, documentType]);
   const labour = useMemo(()=> [...buildLabour(maskedInputs, crewRateHr), ...(geyserAsm ? geyserToLabour(geyserAsm, crewRateHr) : [])], [geyserAsm, maskedInputs, crewRateHr]);
@@ -2332,6 +2343,7 @@ export default function EstimatePage() {
         projectName: effInputs.projectName,
         clientName: effInputs.clientName,
         allocatedEmployees: (effInputs.allocatedEmployees ?? []).map(e => ({ id: e.id, name: e.name })),
+        afterHours: effInputs.afterHours ?? false,
         activeSections: activeSectionKeys,
         waterSupply: activeSections.waterSupply ? {
           supplyLines: inputs.supplyLines ?? [],
@@ -2698,6 +2710,16 @@ export default function EstimatePage() {
                 </span>
               </div>
             </div>
+            {/* After-hours job (Brief 2, Emergency Call-Out) — Invoice only, per
+                the locked decision that after-hours pricing is retrospective
+                billing, never quoted in advance. */}
+            {documentType==="invoice"&&(
+            <div style={{gridColumn:"1 / -1"}}>
+              <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}}>
+                <input type="checkbox" checked={inputs.afterHours??false} onChange={e=>setInp("afterHours",e.target.checked)} style={{width:16,height:16}}/>
+                <span style={{fontSize:13,color:C.navy}}>After-hours job — applies {settings.afterHoursMultiplier}× to labour rate</span>
+              </label>
+            </div>)}
           </div>
         </div>
 

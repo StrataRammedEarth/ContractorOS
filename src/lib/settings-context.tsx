@@ -30,6 +30,7 @@ export interface OrgSettings {
   hoursPerDay: number;
   calloutFee?: number;
   travelRatePerKm?: number;
+  afterHoursMultiplier: number;
 
   // Document settings
   quoteValidityDays: number;
@@ -53,6 +54,7 @@ export const DEFAULT_SETTINGS: OrgSettings = {
   plumberDayRate: 600,
   assistantDayRate: 260,
   hoursPerDay: 8,
+  afterHoursMultiplier: 1.5,
   quoteValidityDays: 30,
   invoicePaymentDays: 7,
   quotePrefix: "PLB",
