@@ -307,20 +307,36 @@ function Home() {
           }}
         >
           <Logo />
-          <Link
-            to="/profile"
-            style={{
-              padding: "7px 14px",
-              borderRadius: 6,
-              border: `1px solid ${C.gold}50`,
-              color: C.gold,
-              fontSize: 12,
-              fontWeight: 600,
-              textDecoration: "none",
-            }}
-          >
-            ⚙ Profile &amp; Settings
-          </Link>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <Link
+              to="/team"
+              style={{
+                padding: "7px 14px",
+                borderRadius: 6,
+                border: `1px solid ${C.gold}50`,
+                color: C.gold,
+                fontSize: 12,
+                fontWeight: 600,
+                textDecoration: "none",
+              }}
+            >
+              🗓 Team
+            </Link>
+            <Link
+              to="/profile"
+              style={{
+                padding: "7px 14px",
+                borderRadius: 6,
+                border: `1px solid ${C.gold}50`,
+                color: C.gold,
+                fontSize: 12,
+                fontWeight: 600,
+                textDecoration: "none",
+              }}
+            >
+              ⚙ Profile &amp; Settings
+            </Link>
+          </div>
         </div>
       </div>
 
@@ -419,6 +435,21 @@ function Home() {
         </div>
 
         <div style={{ marginTop: 18, display: "flex", gap: 12 }}>
+          <Link
+            to="/team"
+            style={{
+              padding: "8px 16px",
+              borderRadius: 6,
+              border: "1px solid #C8D0DB",
+              background: "#fff",
+              color: C.slate,
+              fontSize: 12,
+              fontWeight: 600,
+              textDecoration: "none",
+            }}
+          >
+            🗓 Team
+          </Link>
           <Link
             to="/profile"
             style={{

@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as TeamRouteImport } from './routes/team'
 import { Route as ShowcaseRouteImport } from './routes/showcase'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as PlumbingRouteImport } from './routes/plumbing'
@@ -16,6 +17,11 @@ import { Route as CollectionsRouteImport } from './routes/collections'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ProductsSlugRouteImport } from './routes/products.$slug'
 
+const TeamRoute = TeamRouteImport.update({
+  id: '/team',
+  path: '/team',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ShowcaseRoute = ShowcaseRouteImport.update({
   id: '/showcase',
   path: '/showcase',
@@ -53,6 +59,7 @@ export interface FileRoutesByFullPath {
   '/plumbing': typeof PlumbingRoute
   '/profile': typeof ProfileRoute
   '/showcase': typeof ShowcaseRoute
+  '/team': typeof TeamRoute
   '/products/$slug': typeof ProductsSlugRoute
 }
 export interface FileRoutesByTo {
@@ -61,6 +68,7 @@ export interface FileRoutesByTo {
   '/plumbing': typeof PlumbingRoute
   '/profile': typeof ProfileRoute
   '/showcase': typeof ShowcaseRoute
+  '/team': typeof TeamRoute
   '/products/$slug': typeof ProductsSlugRoute
 }
 export interface FileRoutesById {
@@ -70,6 +78,7 @@ export interface FileRoutesById {
   '/plumbing': typeof PlumbingRoute
   '/profile': typeof ProfileRoute
   '/showcase': typeof ShowcaseRoute
+  '/team': typeof TeamRoute
   '/products/$slug': typeof ProductsSlugRoute
 }
 export interface FileRouteTypes {
@@ -80,6 +89,7 @@ export interface FileRouteTypes {
     | '/plumbing'
     | '/profile'
     | '/showcase'
+    | '/team'
     | '/products/$slug'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -88,6 +98,7 @@ export interface FileRouteTypes {
     | '/plumbing'
     | '/profile'
     | '/showcase'
+    | '/team'
     | '/products/$slug'
   id:
     | '__root__'
@@ -96,6 +107,7 @@ export interface FileRouteTypes {
     | '/plumbing'
     | '/profile'
     | '/showcase'
+    | '/team'
     | '/products/$slug'
   fileRoutesById: FileRoutesById
 }
@@ -105,11 +117,19 @@ export interface RootRouteChildren {
   PlumbingRoute: typeof PlumbingRoute
   ProfileRoute: typeof ProfileRoute
   ShowcaseRoute: typeof ShowcaseRoute
+  TeamRoute: typeof TeamRoute
   ProductsSlugRoute: typeof ProductsSlugRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/team': {
+      id: '/team'
+      path: '/team'
+      fullPath: '/team'
+      preLoaderRoute: typeof TeamRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/showcase': {
       id: '/showcase'
       path: '/showcase'
@@ -161,6 +181,7 @@ const rootRouteChildren: RootRouteChildren = {
   PlumbingRoute: PlumbingRoute,
   ProfileRoute: ProfileRoute,
   ShowcaseRoute: ShowcaseRoute,
+  TeamRoute: TeamRoute,
   ProductsSlugRoute: ProductsSlugRoute,
 }
 export const routeTree = rootRouteImport

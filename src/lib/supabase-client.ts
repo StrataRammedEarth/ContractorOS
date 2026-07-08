@@ -117,6 +117,36 @@ export interface Vehicle {
   created_at: string;
 }
 
+export type AttendanceStatus =
+  | 'present'
+  | 'absent'
+  | 'on_leave'
+  | 'sick'
+  | 'public_holiday'
+  | 'half_day';
+
+export interface AttendanceRecord {
+  id: string;
+  employee_id: string;
+  employee_name: string | null;
+  date: string;
+  status: AttendanceStatus;
+  note: string | null;
+  created_at: string;
+}
+
+export interface DriverLog {
+  id: string;
+  employee_id: string;
+  employee_name: string | null;
+  vehicle_id: string;
+  vehicle_registration: string | null;
+  date: string;
+  start_time: string | null;
+  end_time: string | null;
+  created_at: string;
+}
+
 // ─── LIBRARY LOADING ──────────────────────────────────────────────────────────
 
 export async function loadLibrary(
@@ -289,6 +319,44 @@ export async function removeVehicle(id: string): Promise<{ success: boolean; err
     return { success: true };
   } catch (err) {
     return { success: false, error: String(err) };
+  }
+}
+
+// ─── CALENDAR (read-only: attendance + driver logs) ────────────────────────────
+// Same reasoning as EMPLOYEES/VEHICLES above: both tables have RLS requiring
+// auth.uid(), and this app has no signed-in sessions yet, so reads go through
+// service-role edge functions (get-attendance / get-driver-logs). Scoped to a
+// date range (the visible calendar month) rather than loading all history.
+
+export async function loadAttendance(start: string, end: string): Promise<AttendanceRecord[]> {
+  try {
+    const params = new URLSearchParams({ start, end });
+    const res = await fetch(`${supabaseUrl}/functions/v1/get-attendance?${params}`, {
+      headers: edgeHeaders(),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    const data = await res.json();
+    if (!data.success) { console.warn('⚠️ Failed to load attendance:', data.error); return []; }
+    return data.attendance ?? [];
+  } catch (err) {
+    console.error('❌ Error loading attendance:', err);
+    return [];
+  }
+}
+
+export async function loadDriverLogs(start: string, end: string): Promise<DriverLog[]> {
+  try {
+    const params = new URLSearchParams({ start, end });
+    const res = await fetch(`${supabaseUrl}/functions/v1/get-driver-logs?${params}`, {
+      headers: edgeHeaders(),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    const data = await res.json();
+    if (!data.success) { console.warn('⚠️ Failed to load driver logs:', data.error); return []; }
+    return data.driver_logs ?? [];
+  } catch (err) {
+    console.error('❌ Error loading driver logs:', err);
+    return [];
   }
 }
 
