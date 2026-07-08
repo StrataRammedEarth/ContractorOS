@@ -114,13 +114,14 @@ function buildMonthGrid(monthAnchor: Date): { date: Date; inMonth: boolean }[][]
   return weeks;
 }
 
-function AttendanceBadge({ record }: { record: AttendanceRecord }) {
+function AttendanceBadge({ record, richer }: { record: AttendanceRecord; richer?: boolean }) {
   const color = STATUS_COLORS[record.status];
   const label = STATUS_LABELS[record.status] ?? record.status;
-  const shortName = (record.employee_name ?? "Unknown").split(" ")[0];
+  const name = record.employee_name ?? "Unknown";
+  const displayText = richer ? `${name} — ${label}` : name.split(" ")[0];
   return (
     <div
-      title={`${record.employee_name ?? "Unknown"} — ${label}`}
+      title={`${name} — ${label}`}
       style={{
         display: "flex",
         alignItems: "center",
@@ -128,32 +129,42 @@ function AttendanceBadge({ record }: { record: AttendanceRecord }) {
         background: `${color}1A`,
         border: `1px solid ${color}66`,
         borderRadius: 4,
-        padding: "1px 5px",
-        fontSize: 10,
+        padding: richer ? "3px 7px" : "1px 5px",
+        fontSize: richer ? 12 : 10,
         color: C.navy,
-        marginBottom: 2,
+        marginBottom: richer ? 4 : 2,
         overflow: "hidden",
         whiteSpace: "nowrap",
         textOverflow: "ellipsis",
       }}
     >
-      <span style={{ width: 6, height: 6, minWidth: 6, borderRadius: "50%", background: color }} />
-      <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{shortName}</span>
+      <span
+        style={{
+          width: richer ? 7 : 6,
+          height: richer ? 7 : 6,
+          minWidth: richer ? 7 : 6,
+          borderRadius: "50%",
+          background: color,
+        }}
+      />
+      <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{displayText}</span>
     </div>
   );
 }
 
-function DriverLogEntry({ log }: { log: DriverLog }) {
-  const label = [log.vehicle_registration ?? "Unknown vehicle", log.employee_name]
-    .filter(Boolean)
-    .join(" · ");
+function DriverLogEntry({ log, richer }: { log: DriverLog; richer?: boolean }) {
+  const parts = [log.vehicle_registration ?? "Unknown vehicle", log.employee_name].filter(Boolean);
+  if (richer && (log.start_time || log.end_time)) {
+    parts.push(`${log.start_time ?? "?"}–${log.end_time ?? "?"}`);
+  }
+  const label = parts.join(" · ");
   return (
     <div
       title={label}
       style={{
-        fontSize: 10,
+        fontSize: richer ? 12 : 10,
         color: C.slate,
-        marginBottom: 2,
+        marginBottom: richer ? 4 : 2,
         overflow: "hidden",
         whiteSpace: "nowrap",
         textOverflow: "ellipsis",
@@ -169,12 +180,14 @@ function DayCell({
   inMonth,
   attendance,
   driverLogs,
+  richer,
   onClick,
 }: {
   date: Date;
   inMonth: boolean;
   attendance: AttendanceRecord[];
   driverLogs: DriverLog[];
+  richer?: boolean;
   onClick: () => void;
 }) {
   const isToday = dateKey(date) === dateKey(new Date());
@@ -183,10 +196,10 @@ function DayCell({
       onClick={onClick}
       title="Click to mark attendance"
       style={{
-        minHeight: 92,
+        minHeight: richer ? 220 : 92,
         border: "1px solid #DDE3EA",
         borderRadius: 6,
-        padding: 6,
+        padding: richer ? 10 : 6,
         background: inMonth ? "#fff" : "#F7F9FB",
         opacity: inMonth ? 1 : 0.55,
         cursor: "pointer",
@@ -194,19 +207,21 @@ function DayCell({
     >
       <div
         style={{
-          fontSize: 11,
+          fontSize: richer ? 13 : 11,
           fontWeight: isToday ? 800 : 600,
           color: isToday ? C.gold : inMonth ? C.navy : C.muted,
-          marginBottom: 4,
+          marginBottom: richer ? 8 : 4,
         }}
       >
-        {date.getDate()}
+        {richer
+          ? date.toLocaleDateString("en-ZA", { weekday: "short", day: "numeric", month: "short" })
+          : date.getDate()}
       </div>
       {attendance.map((a) => (
-        <AttendanceBadge key={a.id} record={a} />
+        <AttendanceBadge key={a.id} record={a} richer={richer} />
       ))}
       {driverLogs.map((l) => (
-        <DriverLogEntry key={l.id} log={l} />
+        <DriverLogEntry key={l.id} log={l} richer={richer} />
       ))}
     </div>
   );
@@ -428,23 +443,7 @@ function DriverLogSection({
   );
 }
 
-function DayModal({
-  date,
-  employees,
-  vehicles,
-  existing,
-  saving,
-  error,
-  driverLogs,
-  addingDriverLog,
-  removingDriverLogId,
-  driverLogError,
-  onSave,
-  onAddDriverLog,
-  onRemoveDriverLog,
-  onClose,
-}: {
-  date: Date;
+interface DayDetailProps {
   employees: Employee[];
   vehicles: Vehicle[];
   existing: AttendanceRecord[];
@@ -464,8 +463,24 @@ function DayModal({
     end_time: string | null;
   }) => Promise<boolean>;
   onRemoveDriverLog: (id: string) => void;
-  onClose: () => void;
-}) {
+  onClose?: () => void;
+}
+
+function DayDetail({
+  employees,
+  vehicles,
+  existing,
+  saving,
+  error,
+  driverLogs,
+  addingDriverLog,
+  removingDriverLogId,
+  driverLogError,
+  onSave,
+  onAddDriverLog,
+  onRemoveDriverLog,
+  onClose,
+}: DayDetailProps) {
   const [drafts, setDrafts] = useState<Record<string, AttendanceDraft>>(() => {
     const initial: Record<string, AttendanceDraft> = {};
     for (const emp of employees) {
@@ -478,13 +493,6 @@ function DayModal({
   const setDraft = (employeeId: string, patch: Partial<AttendanceDraft>) => {
     setDrafts((prev) => ({ ...prev, [employeeId]: { ...prev[employeeId], ...patch } }));
   };
-
-  const dateLabel = date.toLocaleDateString("en-ZA", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
 
   const handleSave = () => {
     const entries: { employee_id: string; status: AttendanceStatus; note: string | null }[] = [];
@@ -500,6 +508,139 @@ function DayModal({
     }
     onSave(entries);
   };
+
+  return (
+    <>
+      <div style={{ padding: 16, overflowY: "auto", flex: 1 }}>
+        {employees.length === 0 ? (
+          <div style={{ fontSize: 12, color: C.slateL }}>No active employees.</div>
+        ) : (
+          employees.map((emp) => {
+            const draft = drafts[emp.id] ?? { status: "", note: "" };
+            return (
+              <div
+                key={emp.id}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: 8,
+                  alignItems: "center",
+                  marginBottom: 10,
+                  paddingBottom: 10,
+                  borderBottom: "1px solid #EEF1F5",
+                }}
+              >
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>{emp.name}</div>
+                <select
+                  value={draft.status}
+                  onChange={(e) =>
+                    setDraft(emp.id, { status: e.target.value as AttendanceStatus | "" })
+                  }
+                  style={{
+                    padding: "6px 8px",
+                    borderRadius: 6,
+                    border: "1px solid #C8D0DB",
+                    fontSize: 12,
+                    color: C.navy,
+                  }}
+                >
+                  <option value="">— Not marked —</option>
+                  {STATUS_OPTIONS.map((s) => (
+                    <option key={s} value={s}>
+                      {STATUS_LABELS[s]}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  value={draft.note}
+                  onChange={(e) => setDraft(emp.id, { note: e.target.value })}
+                  placeholder="Note (optional)"
+                  style={{
+                    gridColumn: "1 / span 2",
+                    padding: "6px 8px",
+                    borderRadius: 6,
+                    border: "1px solid #C8D0DB",
+                    fontSize: 12,
+                    color: C.navy,
+                  }}
+                />
+              </div>
+            );
+          })
+        )}
+        {error && <div style={{ color: C.red, fontSize: 12, marginTop: 6 }}>{error}</div>}
+
+        <DriverLogSection
+          employees={employees}
+          vehicles={vehicles}
+          logs={driverLogs}
+          adding={addingDriverLog}
+          removingId={removingDriverLogId}
+          error={driverLogError}
+          onAdd={onAddDriverLog}
+          onRemove={onRemoveDriverLog}
+        />
+      </div>
+      <div
+        style={{
+          padding: 16,
+          borderTop: "1px solid #DDE3EA",
+          display: "flex",
+          gap: 8,
+          justifyContent: "flex-end",
+        }}
+      >
+        {onClose && (
+          <button
+            onClick={onClose}
+            disabled={saving}
+            style={{
+              padding: "8px 16px",
+              borderRadius: 6,
+              border: "1px solid #C8D0DB",
+              background: "#fff",
+              color: C.slate,
+              fontWeight: 600,
+              fontSize: 12,
+              cursor: "pointer",
+            }}
+          >
+            Cancel
+          </button>
+        )}
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          style={{
+            padding: "8px 16px",
+            borderRadius: 6,
+            border: "none",
+            background: C.gold,
+            color: C.navy,
+            fontWeight: 700,
+            fontSize: 12,
+            cursor: saving ? "not-allowed" : "pointer",
+            opacity: saving ? 0.6 : 1,
+          }}
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
+      </div>
+    </>
+  );
+}
+
+function DayModal({
+  date,
+  onClose,
+  ...detailProps
+}: DayDetailProps & { date: Date; onClose: () => void }) {
+  const dateLabel = date.toLocaleDateString("en-ZA", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
 
   return (
     <div
@@ -554,128 +695,22 @@ function DayModal({
             ✕
           </button>
         </div>
-        <div style={{ padding: 16, overflowY: "auto", flex: 1 }}>
-          {employees.length === 0 ? (
-            <div style={{ fontSize: 12, color: C.slateL }}>No active employees.</div>
-          ) : (
-            employees.map((emp) => {
-              const draft = drafts[emp.id] ?? { status: "", note: "" };
-              return (
-                <div
-                  key={emp.id}
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr 1fr",
-                    gap: 8,
-                    alignItems: "center",
-                    marginBottom: 10,
-                    paddingBottom: 10,
-                    borderBottom: "1px solid #EEF1F5",
-                  }}
-                >
-                  <div style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>{emp.name}</div>
-                  <select
-                    value={draft.status}
-                    onChange={(e) =>
-                      setDraft(emp.id, { status: e.target.value as AttendanceStatus | "" })
-                    }
-                    style={{
-                      padding: "6px 8px",
-                      borderRadius: 6,
-                      border: "1px solid #C8D0DB",
-                      fontSize: 12,
-                      color: C.navy,
-                    }}
-                  >
-                    <option value="">— Not marked —</option>
-                    {STATUS_OPTIONS.map((s) => (
-                      <option key={s} value={s}>
-                        {STATUS_LABELS[s]}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    value={draft.note}
-                    onChange={(e) => setDraft(emp.id, { note: e.target.value })}
-                    placeholder="Note (optional)"
-                    style={{
-                      gridColumn: "1 / span 2",
-                      padding: "6px 8px",
-                      borderRadius: 6,
-                      border: "1px solid #C8D0DB",
-                      fontSize: 12,
-                      color: C.navy,
-                    }}
-                  />
-                </div>
-              );
-            })
-          )}
-          {error && <div style={{ color: C.red, fontSize: 12, marginTop: 6 }}>{error}</div>}
-
-          <DriverLogSection
-            employees={employees}
-            vehicles={vehicles}
-            logs={driverLogs}
-            adding={addingDriverLog}
-            removingId={removingDriverLogId}
-            error={driverLogError}
-            onAdd={onAddDriverLog}
-            onRemove={onRemoveDriverLog}
-          />
-        </div>
-        <div
-          style={{
-            padding: 16,
-            borderTop: "1px solid #DDE3EA",
-            display: "flex",
-            gap: 8,
-            justifyContent: "flex-end",
-          }}
-        >
-          <button
-            onClick={onClose}
-            disabled={saving}
-            style={{
-              padding: "8px 16px",
-              borderRadius: 6,
-              border: "1px solid #C8D0DB",
-              background: "#fff",
-              color: C.slate,
-              fontWeight: 600,
-              fontSize: 12,
-              cursor: "pointer",
-            }}
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            style={{
-              padding: "8px 16px",
-              borderRadius: 6,
-              border: "none",
-              background: C.gold,
-              color: C.navy,
-              fontWeight: 700,
-              fontSize: 12,
-              cursor: saving ? "not-allowed" : "pointer",
-              opacity: saving ? 0.6 : 1,
-            }}
-          >
-            {saving ? "Saving…" : "Save"}
-          </button>
-        </div>
+        <DayDetail key={dateKey(date)} {...detailProps} onClose={onClose} />
       </div>
     </div>
   );
 }
 
+type ViewMode = "day" | "week" | "month";
+
 function TeamPage() {
-  const [monthAnchor, setMonthAnchor] = useState(() => {
+  const [viewMode, setViewMode] = useState<ViewMode>("month");
+  // The date the user is currently focused on — carries across view switches.
+  // Clicking a day cell (any view) updates this; month prev/next resets it to
+  // the 1st of the adjacent month (unchanged Brief 4 behavior).
+  const [anchorDate, setAnchorDate] = useState(() => {
     const now = new Date();
-    return new Date(now.getFullYear(), now.getMonth(), 1);
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate());
   });
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [driverLogs, setDriverLogs] = useState<DriverLog[]>([]);
@@ -689,9 +724,20 @@ function TeamPage() {
   const [removingDriverLogId, setRemovingDriverLogId] = useState<string | null>(null);
   const [driverLogError, setDriverLogError] = useState<string | null>(null);
 
-  const weeks = useMemo(() => buildMonthGrid(monthAnchor), [monthAnchor]);
-  const gridStart = weeks[0][0].date;
-  const gridEnd = weeks[weeks.length - 1][6].date;
+  const weeks = useMemo(() => buildMonthGrid(anchorDate), [anchorDate]);
+  const weekDates = useMemo(() => {
+    const start = addDays(anchorDate, -anchorDate.getDay());
+    return Array.from({ length: 7 }, (_, i) => addDays(start, i));
+  }, [anchorDate]);
+
+  const gridStart =
+    viewMode === "month" ? weeks[0][0].date : viewMode === "week" ? weekDates[0] : anchorDate;
+  const gridEnd =
+    viewMode === "month"
+      ? weeks[weeks.length - 1][6].date
+      : viewMode === "week"
+        ? weekDates[6]
+        : anchorDate;
 
   const refetchCalendarData = async () => {
     const start = dateKey(gridStart);
@@ -723,9 +769,10 @@ function TeamPage() {
     return () => {
       cancelled = true;
     };
-    // gridStart/gridEnd are derived from monthAnchor; re-fetch only on month change.
+    // gridStart/gridEnd are derived from viewMode/anchorDate; re-fetch when
+    // either the visible range's granularity or its anchor changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [monthAnchor]);
+  }, [viewMode, anchorDate]);
 
   useEffect(() => {
     let cancelled = false;
@@ -761,8 +808,45 @@ function TeamPage() {
     return map;
   }, [driverLogs]);
 
-  const goPrevMonth = () => setMonthAnchor((m) => new Date(m.getFullYear(), m.getMonth() - 1, 1));
-  const goNextMonth = () => setMonthAnchor((m) => new Date(m.getFullYear(), m.getMonth() + 1, 1));
+  const goPrev = () => {
+    if (viewMode === "month") {
+      setAnchorDate((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1));
+    } else if (viewMode === "week") {
+      setAnchorDate((d) => addDays(d, -7));
+    } else {
+      setAnchorDate((d) => addDays(d, -1));
+    }
+  };
+  const goNext = () => {
+    if (viewMode === "month") {
+      setAnchorDate((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1));
+    } else if (viewMode === "week") {
+      setAnchorDate((d) => addDays(d, 7));
+    } else {
+      setAnchorDate((d) => addDays(d, 1));
+    }
+  };
+
+  const openDay = (date: Date) => {
+    setAnchorDate(date);
+    setOpenDate(date);
+  };
+
+  const viewLabel = useMemo(() => {
+    if (viewMode === "month") {
+      return `${MONTH_LABELS[anchorDate.getMonth()]} ${anchorDate.getFullYear()}`;
+    }
+    if (viewMode === "week") {
+      const fmt = (d: Date) => `${MONTH_LABELS[d.getMonth()].slice(0, 3)} ${d.getDate()}`;
+      return `${fmt(weekDates[0])} – ${fmt(weekDates[6])}, ${weekDates[6].getFullYear()}`;
+    }
+    return anchorDate.toLocaleDateString("en-ZA", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  }, [viewMode, anchorDate, weekDates]);
 
   const closeModal = () => {
     setOpenDate(null);
@@ -781,15 +865,16 @@ function TeamPage() {
   };
 
   const handleSaveAttendance = async (
+    date: Date,
     entries: { employee_id: string; status: AttendanceStatus; note: string | null }[],
+    closeAfter: boolean,
   ) => {
-    if (!openDate) return;
     const ownerSecret = getOrPromptOwnerSecret("Enter the owner passphrase to save attendance:");
     if (!ownerSecret) return;
 
     setSavingAttendance(true);
     setSaveError(null);
-    const result = await saveAttendance(dateKey(openDate), entries, ownerSecret);
+    const result = await saveAttendance(dateKey(date), entries, ownerSecret);
     setSavingAttendance(false);
 
     if (!result.success) {
@@ -803,16 +888,18 @@ function TeamPage() {
     }
 
     await refetchCalendarData();
-    closeModal();
+    if (closeAfter) closeModal();
   };
 
-  const handleAddDriverLog = async (entry: {
-    employee_id: string;
-    vehicle_id: string;
-    start_time: string | null;
-    end_time: string | null;
-  }): Promise<boolean> => {
-    if (!openDate) return false;
+  const handleAddDriverLog = async (
+    date: Date,
+    entry: {
+      employee_id: string;
+      vehicle_id: string;
+      start_time: string | null;
+      end_time: string | null;
+    },
+  ): Promise<boolean> => {
     const ownerSecret = getOrPromptOwnerSecret(
       "Enter the owner passphrase to add a driver log entry:",
     );
@@ -820,7 +907,7 @@ function TeamPage() {
 
     setAddingDriverLog(true);
     setDriverLogError(null);
-    const result = await saveDriverLog({ ...entry, date: dateKey(openDate) }, ownerSecret);
+    const result = await saveDriverLog({ ...entry, date: dateKey(date) }, ownerSecret);
     setAddingDriverLog(false);
 
     if (!result.success) {
@@ -898,7 +985,30 @@ function TeamPage() {
       </div>
 
       <div style={{ maxWidth: 960, margin: "0 auto", padding: 20 }}>
-        {/* Month navigation */}
+        {/* View toggle */}
+        <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+          {(["day", "week", "month"] as ViewMode[]).map((vm) => (
+            <button
+              key={vm}
+              onClick={() => setViewMode(vm)}
+              style={{
+                padding: "6px 14px",
+                borderRadius: 6,
+                border: `1px solid ${viewMode === vm ? C.gold : "#C8D0DB"}`,
+                background: viewMode === vm ? C.gold : "#fff",
+                color: viewMode === vm ? C.navy : C.slate,
+                fontWeight: 700,
+                fontSize: 12,
+                cursor: "pointer",
+                textTransform: "capitalize",
+              }}
+            >
+              {vm}
+            </button>
+          ))}
+        </div>
+
+        {/* Prev/next navigation */}
         <div
           style={{
             display: "flex",
@@ -908,7 +1018,7 @@ function TeamPage() {
           }}
         >
           <button
-            onClick={goPrevMonth}
+            onClick={goPrev}
             style={{
               padding: "7px 14px",
               borderRadius: 6,
@@ -922,11 +1032,9 @@ function TeamPage() {
           >
             ← Prev
           </button>
-          <div style={{ fontWeight: 800, fontSize: 16, color: C.navy }}>
-            {MONTH_LABELS[monthAnchor.getMonth()]} {monthAnchor.getFullYear()}
-          </div>
+          <div style={{ fontWeight: 800, fontSize: 16, color: C.navy }}>{viewLabel}</div>
           <button
-            onClick={goNextMonth}
+            onClick={goNext}
             style={{
               padding: "7px 14px",
               borderRadius: 6,
@@ -946,7 +1054,7 @@ function TeamPage() {
           <div style={{ fontSize: 12, color: C.slateL, padding: 20, textAlign: "center" }}>
             Loading calendar…
           </div>
-        ) : (
+        ) : viewMode === "month" ? (
           <div
             style={{
               background: "#fff",
@@ -997,12 +1105,73 @@ function TeamPage() {
                       inMonth={inMonth}
                       attendance={attendanceByDate.get(key) ?? []}
                       driverLogs={driverLogsByDate.get(key) ?? []}
-                      onClick={() => setOpenDate(date)}
+                      onClick={() => openDay(date)}
                     />
                   );
                 })}
               </div>
             ))}
+          </div>
+        ) : viewMode === "week" ? (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(7, 1fr)",
+              gap: 8,
+            }}
+          >
+            {weekDates.map((date) => {
+              const key = dateKey(date);
+              return (
+                <DayCell
+                  key={key}
+                  date={date}
+                  inMonth
+                  richer
+                  attendance={attendanceByDate.get(key) ?? []}
+                  driverLogs={driverLogsByDate.get(key) ?? []}
+                  onClick={() => openDay(date)}
+                />
+              );
+            })}
+          </div>
+        ) : (
+          <div
+            style={{
+              background: "#fff",
+              border: "1px solid #DDE3EA",
+              borderRadius: 10,
+              overflow: "hidden",
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
+            <div
+              style={{
+                background: C.navyMid,
+                color: C.gold,
+                fontWeight: 700,
+                fontSize: 13,
+                padding: "12px 16px",
+              }}
+            >
+              {viewLabel}
+            </div>
+            <DayDetail
+              key={dateKey(anchorDate)}
+              employees={employees}
+              vehicles={vehicles}
+              existing={attendanceByDate.get(dateKey(anchorDate)) ?? []}
+              saving={savingAttendance}
+              error={saveError}
+              driverLogs={driverLogsByDate.get(dateKey(anchorDate)) ?? []}
+              addingDriverLog={addingDriverLog}
+              removingDriverLogId={removingDriverLogId}
+              driverLogError={driverLogError}
+              onSave={(entries) => handleSaveAttendance(anchorDate, entries, false)}
+              onAddDriverLog={(entry) => handleAddDriverLog(anchorDate, entry)}
+              onRemoveDriverLog={handleRemoveDriverLog}
+            />
           </div>
         )}
       </div>
@@ -1019,8 +1188,8 @@ function TeamPage() {
           addingDriverLog={addingDriverLog}
           removingDriverLogId={removingDriverLogId}
           driverLogError={driverLogError}
-          onSave={handleSaveAttendance}
-          onAddDriverLog={handleAddDriverLog}
+          onSave={(entries) => handleSaveAttendance(openDate, entries, true)}
+          onAddDriverLog={(entry) => handleAddDriverLog(openDate, entry)}
           onRemoveDriverLog={handleRemoveDriverLog}
           onClose={closeModal}
         />
