@@ -1166,7 +1166,7 @@ function BuyTab({ scope, quoteRef, onPrintBuy }: { scope: ScopeLine[]; inputs: I
   );
 }
 
-function BuildTab({ labour }: { labour: LabourLine[] }) {
+function BuildTab({ labour, allocatedEmployees }: { labour: LabourLine[]; allocatedEmployees?: { id: string; name: string }[] }) {
   const labTotal=labour.reduce((s,l)=>s+l.cost,0);
   const labHours=labour.reduce((s,l)=>s+l.hours,0);
   return (
@@ -1178,6 +1178,12 @@ function BuildTab({ labour }: { labour: LabourLine[] }) {
             <div style={{color:c.gold?C.gold:"#fff",fontWeight:700,fontSize:c.gold?20:15}}>{c.v}</div>
           </div>))}
       </div>
+      {/* Passive display of employees allocated on Quote/Invoice (Brief 2 snapshot data).
+          Adjacent to, not inside, the Labour Breakdown card — no cost coupling. */}
+      {allocatedEmployees && allocatedEmployees.length>0 &&
+        <div style={{margin:"0 16px 8px",fontSize:11,color:C.slateL}}>
+          Crew: {allocatedEmployees.map(e=>e.name).join(", ")}
+        </div>}
       <SectionHeader>Labour Breakdown</SectionHeader>
       <div style={{overflowX:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:500}}>
@@ -2494,7 +2500,7 @@ export default function EstimatePage() {
         <div style={{background:C.white,borderRadius:"0 10px 10px 10px",borderLeft:`1px solid ${UI.border}`,borderRight:`1px solid ${UI.border}`,borderBottom:`1px solid ${UI.border}`,overflow:"hidden",boxShadow:UI.cardShadow}}>
           {tab==="estimate"&&<EstimateTab scope={scope} labour={labour} inputs={effInputs} finalGrade={finalGrade} docRef={docRef} documentType={documentType} onPrintDocument={printDocument} ladder={ladder} vatRate={vatRate} isGeneratingRef={isGeneratingRef}/>}
           {tab==="buy"    &&<BuyTab scope={scope} inputs={effInputs} quoteRef={docRef} onPrintBuy={printBuy}/>}
-          {tab==="build"  &&<BuildTab labour={labour}/>}
+          {tab==="build"  &&<BuildTab labour={labour} allocatedEmployees={effInputs.allocatedEmployees}/>}
           {tab==="learn"  &&<LearnTab scope={scope} labour={labour} flags={flags} documentType={documentType}/>}
         </div>
         <div style={{marginTop:8,...T.muted,textAlign:"center"}}>{geyserAsm?"ContractorOS v2 · Geyser Assembly (Tier 2) · Vissi evidence 2022–26 · true-cost + ladder · excl. VAT":"ContractorOS v2 · Plumbing Tier 2 · Plumblink/CTM/Gelmar 2025–26 · Spon's seed SA-adjusted · excl. VAT"}</div>
