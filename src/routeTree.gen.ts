@@ -13,6 +13,8 @@ import { Route as TeamRouteImport } from './routes/team'
 import { Route as ShowcaseRouteImport } from './routes/showcase'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as PlumbingRouteImport } from './routes/plumbing'
+import { Route as InvoicesRouteImport } from './routes/invoices'
+import { Route as EstimatesRouteImport } from './routes/estimates'
 import { Route as CollectionsRouteImport } from './routes/collections'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ProductsSlugRouteImport } from './routes/products.$slug'
@@ -37,6 +39,16 @@ const PlumbingRoute = PlumbingRouteImport.update({
   path: '/plumbing',
   getParentRoute: () => rootRouteImport,
 } as any)
+const InvoicesRoute = InvoicesRouteImport.update({
+  id: '/invoices',
+  path: '/invoices',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EstimatesRoute = EstimatesRouteImport.update({
+  id: '/estimates',
+  path: '/estimates',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CollectionsRoute = CollectionsRouteImport.update({
   id: '/collections',
   path: '/collections',
@@ -56,6 +68,8 @@ const ProductsSlugRoute = ProductsSlugRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/collections': typeof CollectionsRoute
+  '/estimates': typeof EstimatesRoute
+  '/invoices': typeof InvoicesRoute
   '/plumbing': typeof PlumbingRoute
   '/profile': typeof ProfileRoute
   '/showcase': typeof ShowcaseRoute
@@ -65,6 +79,8 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/collections': typeof CollectionsRoute
+  '/estimates': typeof EstimatesRoute
+  '/invoices': typeof InvoicesRoute
   '/plumbing': typeof PlumbingRoute
   '/profile': typeof ProfileRoute
   '/showcase': typeof ShowcaseRoute
@@ -75,6 +91,8 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/collections': typeof CollectionsRoute
+  '/estimates': typeof EstimatesRoute
+  '/invoices': typeof InvoicesRoute
   '/plumbing': typeof PlumbingRoute
   '/profile': typeof ProfileRoute
   '/showcase': typeof ShowcaseRoute
@@ -86,6 +104,8 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/collections'
+    | '/estimates'
+    | '/invoices'
     | '/plumbing'
     | '/profile'
     | '/showcase'
@@ -95,6 +115,8 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/collections'
+    | '/estimates'
+    | '/invoices'
     | '/plumbing'
     | '/profile'
     | '/showcase'
@@ -104,6 +126,8 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/collections'
+    | '/estimates'
+    | '/invoices'
     | '/plumbing'
     | '/profile'
     | '/showcase'
@@ -114,6 +138,8 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CollectionsRoute: typeof CollectionsRoute
+  EstimatesRoute: typeof EstimatesRoute
+  InvoicesRoute: typeof InvoicesRoute
   PlumbingRoute: typeof PlumbingRoute
   ProfileRoute: typeof ProfileRoute
   ShowcaseRoute: typeof ShowcaseRoute
@@ -151,6 +177,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PlumbingRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/invoices': {
+      id: '/invoices'
+      path: '/invoices'
+      fullPath: '/invoices'
+      preLoaderRoute: typeof InvoicesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/estimates': {
+      id: '/estimates'
+      path: '/estimates'
+      fullPath: '/estimates'
+      preLoaderRoute: typeof EstimatesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/collections': {
       id: '/collections'
       path: '/collections'
@@ -178,6 +218,8 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CollectionsRoute: CollectionsRoute,
+  EstimatesRoute: EstimatesRoute,
+  InvoicesRoute: InvoicesRoute,
   PlumbingRoute: PlumbingRoute,
   ProfileRoute: ProfileRoute,
   ShowcaseRoute: ShowcaseRoute,

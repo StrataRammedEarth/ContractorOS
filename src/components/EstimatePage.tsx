@@ -2381,7 +2381,7 @@ export default function EstimatePage() {
           reference,
           version: 1,
           document_type: documentType,
-          status: 'final',
+          status: 'draft',
           snapshot,
           invoice_meta: invoiceMeta2 ?? {},
         });
