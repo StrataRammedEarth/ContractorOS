@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useSettings } from "@/lib/settings-context";
 import { supabase } from "@/lib/supabase-client";
+import { DocumentIcon, ClipboardDollarIcon } from "@/components/nav-icons";
+import { HamburgerButton, NavDrawer } from "@/components/NavDrawer";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -69,29 +71,8 @@ function Logo() {
 }
 
 // ─── ICONS (inline SVG, white line icons on the navy badge) ──────────────────
-function DocumentIcon() {
-  return (
-    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff"
-      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <path d="M14 2v6h6" />
-      <line x1="8" y1="13" x2="16" y2="13" />
-      <line x1="8" y1="17" x2="16" y2="17" />
-      <line x1="8" y1="9" x2="10" y2="9" />
-    </svg>
-  );
-}
-function ClipboardDollarIcon() {
-  return (
-    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff"
-      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
-      <rect x="8" y="2" width="8" height="4" rx="1" />
-      <path d="M12 11v6" />
-      <path d="M13.8 12.2a1.6 1.6 0 0 0-1.8-.9c-1 .1-1.5.7-1.5 1.4 0 .8.7 1.1 1.5 1.3.8.2 1.5.5 1.5 1.3 0 .7-.5 1.3-1.5 1.4a1.6 1.6 0 0 1-1.8-.9" />
-    </svg>
-  );
-}
+// DocumentIcon / ClipboardDollarIcon now live in @/components/nav-icons so the
+// drawer's Quotes/Invoices shortcuts can reuse the exact same glyphs.
 function ArrowIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.navy}
@@ -289,11 +270,14 @@ function RecentQuotesPanel({ organizationId }: { organizationId: string }) {
 
 function Home() {
   const { profileComplete, settings } = useSettings();
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   return (
     <div
       style={{ fontFamily: "'Inter',system-ui,sans-serif", background: C.bg, minHeight: "100vh" }}
     >
+      <NavDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} active="dashboard" />
+
       {/* Header */}
       <div style={{ background: C.navy, borderBottom: `3px solid ${C.gold}` }}>
         <div
@@ -307,36 +291,7 @@ function Home() {
           }}
         >
           <Logo />
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <Link
-              to="/team"
-              style={{
-                padding: "7px 14px",
-                borderRadius: 6,
-                border: `1px solid ${C.gold}50`,
-                color: C.gold,
-                fontSize: 12,
-                fontWeight: 600,
-                textDecoration: "none",
-              }}
-            >
-              🗓 Team
-            </Link>
-            <Link
-              to="/profile"
-              style={{
-                padding: "7px 14px",
-                borderRadius: 6,
-                border: `1px solid ${C.gold}50`,
-                color: C.gold,
-                fontSize: 12,
-                fontWeight: 600,
-                textDecoration: "none",
-              }}
-            >
-              ⚙ Profile &amp; Settings
-            </Link>
-          </div>
+          <HamburgerButton onClick={() => setDrawerOpen(true)} />
         </div>
       </div>
 
@@ -432,39 +387,6 @@ function Home() {
             Recent quotes
           </div>
           <RecentQuotesPanel organizationId={settings.organizationId} />
-        </div>
-
-        <div style={{ marginTop: 18, display: "flex", gap: 12 }}>
-          <Link
-            to="/team"
-            style={{
-              padding: "8px 16px",
-              borderRadius: 6,
-              border: "1px solid #C8D0DB",
-              background: "#fff",
-              color: C.slate,
-              fontSize: 12,
-              fontWeight: 600,
-              textDecoration: "none",
-            }}
-          >
-            🗓 Team
-          </Link>
-          <Link
-            to="/profile"
-            style={{
-              padding: "8px 16px",
-              borderRadius: 6,
-              border: "1px solid #C8D0DB",
-              background: "#fff",
-              color: C.slate,
-              fontSize: 12,
-              fontWeight: 600,
-              textDecoration: "none",
-            }}
-          >
-            ⚙ Profile &amp; Settings
-          </Link>
         </div>
       </div>
     </div>
