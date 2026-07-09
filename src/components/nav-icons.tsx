@@ -76,3 +76,26 @@ export function HamburgerIcon({ size = 20, color = "#fff", strokeWidth = 1.8 }: 
     </svg>
   );
 }
+
+// Select toggle — checkbox glyph, used by the /estimates and /invoices list
+// pages to enter bulk-select mode.
+export function CheckboxIcon({ size = 18, color = "#fff", strokeWidth = 1.8 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color}
+      strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="3" width="18" height="18" rx="3" />
+      <polyline points="8 12 11 15 16 9" />
+    </svg>
+  );
+}
+
+// Search — magnifying glass, used in the list-page search box.
+export function SearchIcon({ size = 16, color = "#8FA3B8", strokeWidth = 2 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color}
+      strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="11" cy="11" r="7" />
+      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
+  );
+}

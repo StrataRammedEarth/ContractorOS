@@ -126,21 +126,11 @@ export function NavDrawer({
             <GearIcon size={22} color={active === "profile" ? C.gold : "#C9D4DE"} />
             Profile &amp; Settings
           </Link>
-          <Link
-            to="/plumbing"
-            search={{ doc: "quote" }}
-            onClick={onClose}
-            style={itemStyle(active === "quotes")}
-          >
+          <Link to="/estimates" onClick={onClose} style={itemStyle(active === "quotes")}>
             <DocumentIcon size={22} color={active === "quotes" ? C.gold : "#C9D4DE"} />
             Quotes
           </Link>
-          <Link
-            to="/plumbing"
-            search={{ doc: "invoice" }}
-            onClick={onClose}
-            style={itemStyle(active === "invoices")}
-          >
+          <Link to="/invoices" onClick={onClose} style={itemStyle(active === "invoices")}>
             <ClipboardDollarIcon size={22} color={active === "invoices" ? C.gold : "#C9D4DE"} />
             Invoices
           </Link>
