@@ -10,7 +10,7 @@ import {
   type InvoiceMeta, type DocumentType,
 } from "@/lib/invoice-document";
 import { useSettings, DEFAULT_SETTINGS, type OrgSettings } from "@/lib/settings-context";
-import { supabase, loadEmployees, type Employee } from "@/lib/supabase-client";
+import { saveEstimate, loadEmployees, type Employee } from "@/lib/supabase-client";
 import {
   fetchFixtureTemplates, fetchTemplateRows, fetchCandidateMaterials, fetchMaterialByCode,
   type FixtureTemplate,
@@ -394,22 +394,6 @@ function applyLadder(mat: number, lab: number, rates: LadderRates = DEFAULT_LADD
   const margin    = afterCont * (rates.marginPct / 100);
   const sell      = afterCont + margin;
   return { prime, waste, direct, risk, afterRisk, cont, afterCont, margin, sell };
-}
-
-// ─── DOCUMENT REF ─────────────────────────────────────────────────────────────
-// Generate the next document reference atomically from the DB.
-async function nextDocumentRef(orgId: string, type: DocumentType): Promise<string> {
-  const { data, error } = await supabase.rpc('next_document_reference', {
-    p_org_id: orgId,
-    p_document_type: type
-  });
-
-  if (error || !data) {
-    console.error('Failed to generate document reference:', error?.message);
-    throw new Error(`Failed to generate document reference: ${error?.message || 'Unknown error'}`);
-  }
-
-  return data as string;
 }
 
 // ─── ENGINE ───────────────────────────────────────────────────────────────────
@@ -2332,85 +2316,73 @@ export default function EstimatePage() {
   const labTotal=labour.reduce((s,l)=>s+l.cost,0);
   const sell=applyLadder(matTotal,labTotal,ladder).sell;
 
-  // Save document to DB for persistence
-  const saveDocumentToDB = async (reference: string) => {
-    try {
-      // Per-section snapshot (Brief C-2 Step 0.6) — a faithful, reconstructable
-      // record of what was actually quoted (which sections were active and each
-      // active section's real input data), not just totals as before. This is
-      // write-only: no code path reads this shape back into the editor.
-      const activeSectionKeys = (Object.keys(activeSections) as (keyof ActiveSections)[]).filter(k=>activeSections[k]);
-      const snapshot = {
-        projectName: effInputs.projectName,
-        clientName: effInputs.clientName,
-        allocatedEmployees: (effInputs.allocatedEmployees ?? []).map(e => ({ id: e.id, name: e.name })),
-        afterHours: effInputs.afterHours ?? false,
-        activeSections: activeSectionKeys,
-        waterSupply: activeSections.waterSupply ? {
-          supplyLines: inputs.supplyLines ?? [],
-          supplyFittings: inputs.supplyFittings ?? [],
-        } : null,
-        drainage: activeSections.drainage ? {
-          drainLines: inputs.drainLines ?? [],
-          drainageFittings: inputs.drainageFittings ?? [],
-          trenching: inputs.trenching,
-          templates: (inputs.fittingTemplates ?? []).filter(t=>t.scope==='system'),
-        } : null,
-        geyser: activeSections.geyser ? {
-          ...geyser,
-          templates: (inputs.fittingTemplates ?? []).filter(t=>t.scope==='geyser'),
-        } : null,
-        fixtures: activeSections.fixtures ? {
-          fixtureLines: inputs.fixtureLines ?? [],
-          templates: (inputs.fittingTemplates ?? []).filter(t=>t.scope==='fixture'),
-        } : null,
-        points: inputs.points,
-        totals: {
-          material: matTotal,
-          labour: labTotal,
-          sellExclVat: sell,
-        },
-      };
+  // Save document to DB for persistence. estimate_versions has RLS requiring
+  // auth.uid(), and this app has no signed-in sessions, so the save goes
+  // through the save-estimate edge function (service role) rather than a
+  // direct client insert — same pattern as employees/vehicles/attendance.
+  // The edge function also mints the canonical reference server-side, so it
+  // is returned here rather than generated separately beforehand.
+  const saveDocumentToDB = async (): Promise<string | null> => {
+    // Per-section snapshot (Brief C-2 Step 0.6) — a faithful, reconstructable
+    // record of what was actually quoted (which sections were active and each
+    // active section's real input data), not just totals as before. This is
+    // write-only: no code path reads this shape back into the editor.
+    const activeSectionKeys = (Object.keys(activeSections) as (keyof ActiveSections)[]).filter(k=>activeSections[k]);
+    const snapshot = {
+      projectName: effInputs.projectName,
+      clientName: effInputs.clientName,
+      allocatedEmployees: (effInputs.allocatedEmployees ?? []).map(e => ({ id: e.id, name: e.name })),
+      afterHours: effInputs.afterHours ?? false,
+      activeSections: activeSectionKeys,
+      waterSupply: activeSections.waterSupply ? {
+        supplyLines: inputs.supplyLines ?? [],
+        supplyFittings: inputs.supplyFittings ?? [],
+      } : null,
+      drainage: activeSections.drainage ? {
+        drainLines: inputs.drainLines ?? [],
+        drainageFittings: inputs.drainageFittings ?? [],
+        trenching: inputs.trenching,
+        templates: (inputs.fittingTemplates ?? []).filter(t=>t.scope==='system'),
+      } : null,
+      geyser: activeSections.geyser ? {
+        ...geyser,
+        templates: (inputs.fittingTemplates ?? []).filter(t=>t.scope==='geyser'),
+      } : null,
+      fixtures: activeSections.fixtures ? {
+        fixtureLines: inputs.fixtureLines ?? [],
+        templates: (inputs.fittingTemplates ?? []).filter(t=>t.scope==='fixture'),
+      } : null,
+      points: inputs.points,
+      totals: {
+        material: matTotal,
+        labour: labTotal,
+        sellExclVat: sell,
+      },
+    };
 
-      const invoiceMeta2 = documentType === "invoice" ? invoiceMeta : undefined;
+    const invoiceMeta2 = documentType === "invoice" ? invoiceMeta : undefined;
 
-      const { error } = await supabase
-        .from('estimate_versions')
-        .insert({
-          organization_id: settings.organizationId,
-          reference,
-          version: 1,
-          document_type: documentType,
-          status: 'draft',
-          snapshot,
-          invoice_meta: invoiceMeta2 ?? {},
-        });
-
-      if (error) {
-        console.error('Save failed:', error);
-        // Non-blocking — show toast but don't interrupt download
-        return false;
-      }
-      return true;
-    } catch (err) {
-      console.error('Save error:', err);
-      return false;
+    const result = await saveEstimate(snapshot, effInputs.projectName, effInputs.clientName, documentType, (invoiceMeta2 ?? {}) as Record<string, unknown>);
+    if (!result.success || !result.estimate) {
+      console.error('Save failed:', result.error);
+      return null;
     }
+    return result.estimate.reference;
   };
 
-  // Generate reference and print document
+  // Save (if not already saved) and print document
   const printDocument = async () => {
+    setIsGeneratingRef(true);
     try {
-      // Generate reference if not already done
       let currentRef = docRef;
       if (!currentRef) {
-        setIsGeneratingRef(true);
-        currentRef = await nextDocumentRef(settings.organizationId, documentType);
+        currentRef = await saveDocumentToDB();
+        if (!currentRef) {
+          alert(`Failed to save ${documentType}. Please check your connection and try again.`);
+          return;
+        }
         setDocRef(currentRef);
       }
-
-      // Save to DB (non-blocking)
-      await saveDocumentToDB(currentRef);
 
       // Generate and download the document
       if (documentType === "invoice") {
@@ -2419,7 +2391,8 @@ export default function EstimatePage() {
         printQuotePDF(effInputs,scope,labour,currentRef,settings);
       }
     } catch (err) {
-      console.error('Failed to generate reference:', err);
+      console.error('Failed to generate document:', err);
+      alert(`Failed to generate ${documentType}. Please try again.`);
     } finally {
       setIsGeneratingRef(false);
     }

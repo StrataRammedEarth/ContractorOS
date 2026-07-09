@@ -203,11 +203,11 @@ export async function validateEstimate(
 // ─── SAVE ─────────────────────────────────────────────────────────────────────
 
 export async function saveEstimate(
-  estimateData: Partial<EstimateData>,
+  estimateData: Record<string, unknown>,
   projectName: string,
   clientName: string,
-  trade = "plumbing",
-  status: "draft" | "submitted" | "approved" = "draft",
+  documentType: "quote" | "invoice" = "quote",
+  invoiceMeta: Record<string, unknown> = {},
 ): Promise<SaveResult> {
   try {
     const res = await fetch(`${supabaseUrl}/functions/v1/save-estimate`, {
@@ -217,17 +217,55 @@ export async function saveEstimate(
         estimate_data: estimateData,
         project_name: projectName,
         client_name: clientName,
-        trade,
-        status,
+        document_type: documentType,
+        invoice_meta: invoiceMeta,
       }),
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    if (!data.success) return { success: false, error: data.error };
+    if (!res.ok || !data.success) return { success: false, error: data.error ?? `HTTP ${res.status}` };
     console.log(`✅ Quote saved as ${data.estimate.reference}`);
     return { success: true, estimate: data.estimate };
   } catch (err) {
     return { success: false, error: String(err) };
+  }
+}
+
+// ─── ESTIMATE / INVOICE LISTS ──────────────────────────────────────────────────
+// estimate_versions has RLS requiring auth.uid(), and this app has no signed-in
+// sessions yet, so reads go through the get-estimates edge function, same as
+// employees/vehicles/attendance/driver_logs above.
+
+export interface EstimateVersionRow {
+  id: string;
+  reference: string;
+  status: string;
+  document_type: "quote" | "invoice";
+  snapshot: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export async function loadEstimates(
+  documentType?: "quote" | "invoice",
+  limit?: number,
+): Promise<EstimateVersionRow[]> {
+  try {
+    const params = new URLSearchParams();
+    if (documentType) params.set("document_type", documentType);
+    if (limit) params.set("limit", String(limit));
+    const qs = params.toString();
+    const res = await fetch(`${supabaseUrl}/functions/v1/get-estimates${qs ? `?${qs}` : ""}`, {
+      headers: edgeHeaders(),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    const data = await res.json();
+    if (!data.success) {
+      console.warn("⚠️ Failed to load estimates:", data.error);
+      return [];
+    }
+    return data.estimates ?? [];
+  } catch (err) {
+    console.error("❌ Error loading estimates:", err);
+    return [];
   }
 }
 
