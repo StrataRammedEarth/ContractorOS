@@ -18,6 +18,8 @@ import { Route as EstimatesRouteImport } from './routes/estimates'
 import { Route as CollectionsRouteImport } from './routes/collections'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ProductsSlugRouteImport } from './routes/products.$slug'
+import { Route as InvoicesIdRouteImport } from './routes/invoices.$id'
+import { Route as EstimatesIdRouteImport } from './routes/estimates.$id'
 
 const TeamRoute = TeamRouteImport.update({
   id: '/team',
@@ -64,39 +66,55 @@ const ProductsSlugRoute = ProductsSlugRouteImport.update({
   path: '/products/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
+const InvoicesIdRoute = InvoicesIdRouteImport.update({
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => InvoicesRoute,
+} as any)
+const EstimatesIdRoute = EstimatesIdRouteImport.update({
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => EstimatesRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/collections': typeof CollectionsRoute
-  '/estimates': typeof EstimatesRoute
-  '/invoices': typeof InvoicesRoute
+  '/estimates': typeof EstimatesRouteWithChildren
+  '/invoices': typeof InvoicesRouteWithChildren
   '/plumbing': typeof PlumbingRoute
   '/profile': typeof ProfileRoute
   '/showcase': typeof ShowcaseRoute
   '/team': typeof TeamRoute
+  '/estimates/$id': typeof EstimatesIdRoute
+  '/invoices/$id': typeof InvoicesIdRoute
   '/products/$slug': typeof ProductsSlugRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/collections': typeof CollectionsRoute
-  '/estimates': typeof EstimatesRoute
-  '/invoices': typeof InvoicesRoute
+  '/estimates': typeof EstimatesRouteWithChildren
+  '/invoices': typeof InvoicesRouteWithChildren
   '/plumbing': typeof PlumbingRoute
   '/profile': typeof ProfileRoute
   '/showcase': typeof ShowcaseRoute
   '/team': typeof TeamRoute
+  '/estimates/$id': typeof EstimatesIdRoute
+  '/invoices/$id': typeof InvoicesIdRoute
   '/products/$slug': typeof ProductsSlugRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/collections': typeof CollectionsRoute
-  '/estimates': typeof EstimatesRoute
-  '/invoices': typeof InvoicesRoute
+  '/estimates': typeof EstimatesRouteWithChildren
+  '/invoices': typeof InvoicesRouteWithChildren
   '/plumbing': typeof PlumbingRoute
   '/profile': typeof ProfileRoute
   '/showcase': typeof ShowcaseRoute
   '/team': typeof TeamRoute
+  '/estimates/$id': typeof EstimatesIdRoute
+  '/invoices/$id': typeof InvoicesIdRoute
   '/products/$slug': typeof ProductsSlugRoute
 }
 export interface FileRouteTypes {
@@ -110,6 +128,8 @@ export interface FileRouteTypes {
     | '/profile'
     | '/showcase'
     | '/team'
+    | '/estimates/$id'
+    | '/invoices/$id'
     | '/products/$slug'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -121,6 +141,8 @@ export interface FileRouteTypes {
     | '/profile'
     | '/showcase'
     | '/team'
+    | '/estimates/$id'
+    | '/invoices/$id'
     | '/products/$slug'
   id:
     | '__root__'
@@ -132,14 +154,16 @@ export interface FileRouteTypes {
     | '/profile'
     | '/showcase'
     | '/team'
+    | '/estimates/$id'
+    | '/invoices/$id'
     | '/products/$slug'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CollectionsRoute: typeof CollectionsRoute
-  EstimatesRoute: typeof EstimatesRoute
-  InvoicesRoute: typeof InvoicesRoute
+  EstimatesRoute: typeof EstimatesRouteWithChildren
+  InvoicesRoute: typeof InvoicesRouteWithChildren
   PlumbingRoute: typeof PlumbingRoute
   ProfileRoute: typeof ProfileRoute
   ShowcaseRoute: typeof ShowcaseRoute
@@ -212,14 +236,52 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProductsSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/invoices/$id': {
+      id: '/invoices/$id'
+      path: '/$id'
+      fullPath: '/invoices/$id'
+      preLoaderRoute: typeof InvoicesIdRouteImport
+      parentRoute: typeof InvoicesRoute
+    }
+    '/estimates/$id': {
+      id: '/estimates/$id'
+      path: '/$id'
+      fullPath: '/estimates/$id'
+      preLoaderRoute: typeof EstimatesIdRouteImport
+      parentRoute: typeof EstimatesRoute
+    }
   }
 }
+
+interface EstimatesRouteChildren {
+  EstimatesIdRoute: typeof EstimatesIdRoute
+}
+
+const EstimatesRouteChildren: EstimatesRouteChildren = {
+  EstimatesIdRoute: EstimatesIdRoute,
+}
+
+const EstimatesRouteWithChildren = EstimatesRoute._addFileChildren(
+  EstimatesRouteChildren,
+)
+
+interface InvoicesRouteChildren {
+  InvoicesIdRoute: typeof InvoicesIdRoute
+}
+
+const InvoicesRouteChildren: InvoicesRouteChildren = {
+  InvoicesIdRoute: InvoicesIdRoute,
+}
+
+const InvoicesRouteWithChildren = InvoicesRoute._addFileChildren(
+  InvoicesRouteChildren,
+)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CollectionsRoute: CollectionsRoute,
-  EstimatesRoute: EstimatesRoute,
-  InvoicesRoute: InvoicesRoute,
+  EstimatesRoute: EstimatesRouteWithChildren,
+  InvoicesRoute: InvoicesRouteWithChildren,
   PlumbingRoute: PlumbingRoute,
   ProfileRoute: ProfileRoute,
   ShowcaseRoute: ShowcaseRoute,

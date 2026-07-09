@@ -2314,7 +2314,8 @@ export default function EstimatePage() {
 
   const matTotal=scope.reduce((s,l)=>s+l.total,0);
   const labTotal=labour.reduce((s,l)=>s+l.cost,0);
-  const sell=applyLadder(matTotal,labTotal,ladder).sell;
+  const ladderBreakdown=applyLadder(matTotal,labTotal,ladder);
+  const sell=ladderBreakdown.sell;
 
   // Save document to DB for persistence. estimate_versions has RLS requiring
   // auth.uid(), and this app has no signed-in sessions, so the save goes
@@ -2358,6 +2359,14 @@ export default function EstimatePage() {
         labour: labTotal,
         sellExclVat: sell,
       },
+      // Frozen at save time so the detail view never re-derives from
+      // current-day catalogue prices or current organization_settings
+      // ladder percentages — both can change after the quote was issued.
+      materialLines: scope.map(l => ({
+        id: l.id, code: l.code, description: l.description, qty: l.qty,
+        unit: l.unit, unitPrice: l.unitPrice, total: l.total, conf: l.conf,
+      })),
+      ladder: { rates: ladder, breakdown: ladderBreakdown },
     };
 
     const invoiceMeta2 = documentType === "invoice" ? invoiceMeta : undefined;

@@ -269,6 +269,27 @@ export async function loadEstimates(
   }
 }
 
+export async function loadEstimateById(id: string): Promise<EstimateVersionRow | null> {
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/get-estimates?id=${encodeURIComponent(id)}`, {
+      headers: edgeHeaders(),
+    });
+    if (!res.ok) {
+      if (res.status === 404) return null;
+      throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    }
+    const data = await res.json();
+    if (!data.success) {
+      console.warn("⚠️ Failed to load estimate:", data.error);
+      return null;
+    }
+    return data.estimate ?? null;
+  } catch (err) {
+    console.error("❌ Error loading estimate:", err);
+    return null;
+  }
+}
+
 // ─── EMPLOYEES ────────────────────────────────────────────────────────────────
 // employees has RLS requiring auth.uid(), and this app has no signed-in
 // sessions yet, so reads/writes go through service-role edge functions
