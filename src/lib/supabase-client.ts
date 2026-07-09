@@ -136,6 +136,7 @@ export interface AttendanceRecord {
   date: string;
   status: AttendanceStatus;
   note: string | null;
+  arrival_time: string | null;
   created_at: string;
 }
 
@@ -485,7 +486,12 @@ export function clearStoredOwnerSecret(): void {
 
 export async function saveAttendance(
   date: string,
-  entries: { employee_id: string; status: AttendanceStatus; note?: string | null }[],
+  entries: {
+    employee_id: string;
+    status: AttendanceStatus;
+    note?: string | null;
+    arrival_time?: string | null;
+  }[],
   ownerSecret: string,
 ): Promise<{ success: boolean; error?: string; unauthorized?: boolean }> {
   try {

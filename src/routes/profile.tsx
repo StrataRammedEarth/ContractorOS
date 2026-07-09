@@ -1116,6 +1116,17 @@ function ProfilePage() {
                 onChange={(e) => setNum("hoursPerDay", e.target.value)}
               />
             </div>
+            <div>
+              <Label hint="used by the attendance report to flag late arrivals">
+                Scheduled start time
+              </Label>
+              <input
+                type="time"
+                style={inputStyle()}
+                value={form.scheduledStartTime}
+                onChange={(e) => set("scheduledStartTime", e.target.value)}
+              />
+            </div>
           </div>
           <div
             style={{
