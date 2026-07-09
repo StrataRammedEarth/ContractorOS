@@ -242,7 +242,9 @@ export interface EstimateVersionRow {
   status: string;
   document_type: "quote" | "invoice";
   snapshot: Record<string, unknown> | null;
+  invoice_meta: Record<string, unknown> | null;
   created_at: string;
+  updated_at: string;
 }
 
 export async function loadEstimates(
@@ -509,6 +511,32 @@ export async function saveAttendance(
       };
     }
     return { success: true };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+export async function updateEstimateStatus(
+  id: string,
+  status: string,
+  dueDate: string | undefined,
+  ownerSecret: string,
+): Promise<{ success: boolean; error?: string; unauthorized?: boolean; estimate?: EstimateVersionRow }> {
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/update-estimate-status`, {
+      method: "POST",
+      headers: edgeHeaders(),
+      body: JSON.stringify({ id, status, due_date: dueDate ?? null, owner_secret: ownerSecret }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      return {
+        success: false,
+        error: data.error ?? `HTTP ${res.status}`,
+        unauthorized: res.status === 401,
+      };
+    }
+    return { success: true, estimate: data.estimate };
   } catch (err) {
     return { success: false, error: String(err) };
   }

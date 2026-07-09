@@ -20,7 +20,8 @@ function EstimatesPage() {
         { label: "Draft", status: "draft" },
         { label: "Sent", status: "sent" },
         { label: "Accepted", status: "accepted" },
-        { label: "Declined", status: "declined" },
+        { label: "Final", status: "final" },
+        { label: "Archived", status: "archived" },
       ]}
       searchPlaceholder="Search estimates by reference, project, or client…"
       emptyIcon={<EmptyEstimateIcon />}
