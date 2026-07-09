@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { Fragment, useEffect, useMemo, useState, type CSSProperties } from "react";
 import {
   loadAttendance,
   loadDriverLogs,
@@ -18,6 +18,7 @@ import {
   type Vehicle,
 } from "@/lib/supabase-client";
 import { useSettings } from "@/lib/settings-context";
+import { ClockIcon, ClipboardDollarIcon } from "@/components/nav-icons";
 
 export const Route = createFileRoute("/team")({
   head: () => ({ meta: [{ title: "Planner — ContractorOS" }] }),
@@ -815,6 +816,51 @@ function buildEmployeeReports(
   });
 }
 
+// Column order for the report table: Employee, then the five non-present
+// statuses, then Late, then Present (the "days worked" figure the wage calc
+// uses), then Salary — Present sits immediately before Salary rather than in
+// STATUS_OPTIONS's original position. Layout-only ordering; no data change.
+const REPORT_STATUS_COLUMNS: AttendanceStatus[] = [
+  "absent",
+  "on_leave",
+  "sick",
+  "public_holiday",
+  "half_day",
+];
+
+// Small colored dot matching STATUS_COLORS — the app's existing per-status
+// visual marker (see AttendanceBadge in the calendar view above). Reused here
+// as the column-header "icon" rather than introducing a new icon set: no
+// person/per-status icon set exists anywhere else in the codebase to draw on
+// (nav-icons.tsx only has Document/ClipboardDollar/Clock/Gear/Dashboard/
+// Hamburger/Checkbox/Search — Clock and ClipboardDollar below are reused
+// where they actually fit; a dedicated icon per status was not invented).
+function Dot({ color }: { color: string }) {
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        width: 7,
+        height: 7,
+        borderRadius: "50%",
+        background: color,
+        marginRight: 5,
+      }}
+    />
+  );
+}
+
+const reportTh: CSSProperties = {
+  padding: "8px 10px",
+  fontWeight: 700,
+  whiteSpace: "nowrap",
+};
+const reportTd: CSSProperties = {
+  padding: "10px 10px",
+  color: C.navy,
+  whiteSpace: "nowrap",
+};
+
 function MonthlyReportView({
   employees,
   attendance,
@@ -873,106 +919,154 @@ function MonthlyReportView({
         reference only, not a final payslip. Late = arrival after{" "}
         <strong>{scheduledStartTime}</strong> (scheduled start, set in Profile &amp; Settings).
       </div>
-      {reports.map(({ employee, counts, lateCount, wageEstimate, exceptions }) => {
-        const expanded = expandedId === employee.id;
-        return (
-          <div key={employee.id} style={{ borderBottom: "1px solid #EEF1F5" }}>
-            <div
-              onClick={() => setExpandedId(expanded ? null : employee.id)}
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <thead>
+            <tr
               style={{
-                padding: "12px 16px",
-                cursor: "pointer",
-                display: "flex",
-                flexWrap: "wrap",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 10,
+                textAlign: "center",
+                color: C.muted,
+                fontSize: 10,
+                textTransform: "uppercase",
+                borderBottom: "1px solid #DDE3EA",
               }}
             >
-              <div style={{ fontWeight: 700, fontSize: 13, color: C.navy, minWidth: 140 }}>
-                {expanded ? "▾" : "▸"} {employee.name}
-              </div>
-              <div
-                style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 11, color: C.slate }}
-              >
-                {STATUS_OPTIONS.map((s) => (
-                  <span key={s}>
-                    <span style={{ color: STATUS_COLORS[s], fontWeight: 700 }}>{counts[s]}</span>{" "}
-                    {STATUS_LABELS[s]}
-                  </span>
-                ))}
-                <span>
-                  <span style={{ color: lateCount > 0 ? C.red : C.slate, fontWeight: 700 }}>
-                    {lateCount}
-                  </span>{" "}
-                  Late
-                </span>
-              </div>
-              <div
-                style={{
-                  fontSize: 12,
-                  fontWeight: 700,
-                  color: C.navy,
-                  minWidth: 90,
-                  textAlign: "right",
-                }}
-              >
-                {wageEstimate != null ? `~${fmtRand(wageEstimate)}` : "—"}
-              </div>
-            </div>
-            {expanded && (
-              <div style={{ padding: "0 16px 14px 16px" }}>
-                {exceptions.length === 0 ? (
-                  <div style={{ fontSize: 12, color: C.slateL }}>
-                    No absences, sick days, or late arrivals this month.
-                  </div>
-                ) : (
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                    <thead>
-                      <tr
-                        style={{
-                          textAlign: "left",
-                          color: C.muted,
-                          fontSize: 10,
-                          textTransform: "uppercase",
-                        }}
+              <th style={{ ...reportTh, textAlign: "left" }}>Employee</th>
+              {REPORT_STATUS_COLUMNS.map((s) => (
+                <th key={s} style={reportTh}>
+                  <Dot color={STATUS_COLORS[s]} />
+                  {STATUS_LABELS[s]}
+                </th>
+              ))}
+              <th style={reportTh}>
+                <ClockIcon size={12} color={C.red} strokeWidth={2} />
+                <span style={{ marginLeft: 4 }}>Late</span>
+              </th>
+              <th style={reportTh}>
+                <Dot color={STATUS_COLORS.present} />
+                {STATUS_LABELS.present}
+              </th>
+              <th style={{ ...reportTh, textAlign: "right" }}>
+                <ClipboardDollarIcon size={12} color={C.navy} strokeWidth={2} />
+                <span style={{ marginLeft: 4 }}>Salary</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {reports.map(({ employee, counts, lateCount, wageEstimate, exceptions }) => {
+              const expanded = expandedId === employee.id;
+              return (
+                <Fragment key={employee.id}>
+                  <tr
+                    onClick={() => setExpandedId(expanded ? null : employee.id)}
+                    style={{ borderTop: "1px solid #EEF1F5", cursor: "pointer" }}
+                  >
+                    <td style={{ ...reportTd, fontWeight: 700 }}>
+                      {expanded ? "▾" : "▸"} {employee.name}
+                    </td>
+                    {REPORT_STATUS_COLUMNS.map((s) => (
+                      <td key={s} style={{ ...reportTd, textAlign: "center" }}>
+                        {counts[s]}
+                      </td>
+                    ))}
+                    <td
+                      style={{
+                        ...reportTd,
+                        textAlign: "center",
+                        color: lateCount > 0 ? C.red : C.navy,
+                        fontWeight: lateCount > 0 ? 700 : 400,
+                      }}
+                    >
+                      {lateCount}
+                    </td>
+                    <td style={{ ...reportTd, textAlign: "center", fontWeight: 700 }}>
+                      {counts.present}
+                    </td>
+                    <td style={{ ...reportTd, textAlign: "right", fontWeight: 700 }}>
+                      {wageEstimate != null ? `~${fmtRand(wageEstimate)}` : "—"}
+                    </td>
+                  </tr>
+                  {expanded && (
+                    <tr>
+                      <td
+                        colSpan={REPORT_STATUS_COLUMNS.length + 3}
+                        style={{ padding: "0 10px 14px 10px" }}
                       >
-                        <th style={{ padding: "4px 6px" }}>Date</th>
-                        <th style={{ padding: "4px 6px" }}>Status</th>
-                        <th style={{ padding: "4px 6px" }}>Arrival</th>
-                        <th style={{ padding: "4px 6px" }}>Note</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {exceptions.map((r) => (
-                        <tr key={r.id} style={{ borderTop: "1px solid #F1F4F8" }}>
-                          <td style={{ padding: "4px 6px", color: C.navy, whiteSpace: "nowrap" }}>
-                            {new Date(`${r.date}T00:00:00`).toLocaleDateString("en-ZA", {
-                              weekday: "short",
-                              day: "numeric",
-                              month: "short",
-                            })}
-                          </td>
-                          <td style={{ padding: "4px 6px", whiteSpace: "nowrap" }}>
-                            <span style={{ color: STATUS_COLORS[r.status], fontWeight: 700 }}>
-                              {STATUS_LABELS[r.status]}
-                            </span>
-                            {r.late && <span style={{ color: C.red, marginLeft: 6 }}>· Late</span>}
-                          </td>
-                          <td style={{ padding: "4px 6px", color: C.slate, whiteSpace: "nowrap" }}>
-                            {r.arrival_time ? r.arrival_time.slice(0, 5) : "—"}
-                          </td>
-                          <td style={{ padding: "4px 6px", color: C.slate }}>{r.note ?? "—"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            )}
-          </div>
-        );
-      })}
+                        {exceptions.length === 0 ? (
+                          <div style={{ fontSize: 12, color: C.slateL }}>
+                            No absences, sick days, or late arrivals this month.
+                          </div>
+                        ) : (
+                          <table
+                            style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}
+                          >
+                            <thead>
+                              <tr
+                                style={{
+                                  textAlign: "left",
+                                  color: C.muted,
+                                  fontSize: 10,
+                                  textTransform: "uppercase",
+                                }}
+                              >
+                                <th style={{ padding: "4px 6px" }}>Date</th>
+                                <th style={{ padding: "4px 6px" }}>Status</th>
+                                <th style={{ padding: "4px 6px" }}>Arrival</th>
+                                <th style={{ padding: "4px 6px" }}>Note</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {exceptions.map((r) => (
+                                <tr key={r.id} style={{ borderTop: "1px solid #F1F4F8" }}>
+                                  <td
+                                    style={{
+                                      padding: "4px 6px",
+                                      color: C.navy,
+                                      whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    {new Date(`${r.date}T00:00:00`).toLocaleDateString("en-ZA", {
+                                      weekday: "short",
+                                      day: "numeric",
+                                      month: "short",
+                                    })}
+                                  </td>
+                                  <td style={{ padding: "4px 6px", whiteSpace: "nowrap" }}>
+                                    <span
+                                      style={{ color: STATUS_COLORS[r.status], fontWeight: 700 }}
+                                    >
+                                      {STATUS_LABELS[r.status]}
+                                    </span>
+                                    {r.late && (
+                                      <span style={{ color: C.red, marginLeft: 6 }}>· Late</span>
+                                    )}
+                                  </td>
+                                  <td
+                                    style={{
+                                      padding: "4px 6px",
+                                      color: C.slate,
+                                      whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    {r.arrival_time ? r.arrival_time.slice(0, 5) : "—"}
+                                  </td>
+                                  <td style={{ padding: "4px 6px", color: C.slate }}>
+                                    {r.note ?? "—"}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
