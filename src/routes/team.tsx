@@ -19,7 +19,7 @@ import {
 } from "@/lib/supabase-client";
 
 export const Route = createFileRoute("/team")({
-  head: () => ({ meta: [{ title: "Team — ContractorOS" }] }),
+  head: () => ({ meta: [{ title: "Planner — ContractorOS" }] }),
   component: TeamPage,
 });
 
@@ -979,7 +979,7 @@ function TeamPage() {
           >
             ← Back
           </Link>
-          <div style={{ color: C.gold, fontWeight: 900, fontSize: 16 }}>Team</div>
+          <div style={{ color: C.gold, fontWeight: 900, fontSize: 16 }}>Planner</div>
           <span style={{ width: 40 }} />
         </div>
       </div>

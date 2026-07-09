@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { Link, getRouteApi } from "@tanstack/react-router";
+import { GearIcon } from "@/components/nav-icons";
 import {
   buildGeyserReplacement, buildElementRepair, buildNewInstallation, fetchGeyserPricing,
   type GeyserAssembly, type GeyserSize, type GeyserBrand, type GeyserJobType, type GeyserPricingData,
@@ -2436,7 +2437,7 @@ export default function EstimatePage() {
         <div style={{flex:1,marginLeft:4,minWidth:0}}>
           {showTabs&&<div style={{color:C.slateL,fontSize:12}}>{effInputs.projectName}</div>}
         </div>
-        <Link to="/profile" title="Profile & Settings" style={{color:C.gold,fontSize:12,fontWeight:600,textDecoration:"none",border:`1px solid ${C.gold}50`,borderRadius:6,padding:"5px 10px",whiteSpace:"nowrap"}}>⚙ Settings</Link>
+        <Link to="/profile" title="Profile & Settings" style={{display:"inline-flex",alignItems:"center",gap:6,color:C.gold,fontSize:12,fontWeight:600,textDecoration:"none",border:`1px solid ${C.gold}50`,borderRadius:6,padding:"5px 10px",whiteSpace:"nowrap"}}><GearIcon size={14} color={C.gold} strokeWidth={2} /> Settings</Link>
         {showTabs
           ? <div style={{display:"flex",gap:12,alignItems:"center"}}>
               <div style={{textAlign:"right"}}>
