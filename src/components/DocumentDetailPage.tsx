@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { loadEstimateById, type EstimateVersionRow } from "@/lib/supabase-client";
+import {
+  loadEstimateById,
+  updateEstimateStatus,
+  clearStoredOwnerSecret,
+  type EstimateVersionRow,
+} from "@/lib/supabase-client";
+import { StatusToggle, getOrPromptOwnerSecret } from "@/components/StatusToggle";
 import type { DocumentType } from "@/lib/invoice-document";
 
 // ─── COLOUR THEME (shared navy / gold tokens — matches DocumentListPage / index) ──
@@ -128,14 +134,14 @@ export function DocumentDetailPage({ documentType, id }: { documentType: Documen
               <div style={{ fontWeight: 800, color: C.navy, fontSize: 16 }}>{snapshot.clientName || "Unnamed client"}</div>
               <div style={{ color: C.slateL, fontSize: 13, marginTop: 2 }}>{snapshot.projectName || "Unnamed project"}</div>
             </div>
-            <div
-              style={{
-                background: `${C.gold}26`, color: C.navy, padding: "3px 10px", borderRadius: 4,
-                fontSize: 10, fontWeight: 700, textTransform: "capitalize", whiteSpace: "nowrap",
-              }}
-            >
-              {row.status}
-            </div>
+            <StatusToggle
+              documentType={documentType}
+              id={row.id}
+              status={row.status}
+              onChanged={(patch) =>
+                setRow((prev) => (prev ? { ...prev, ...patch } : prev))
+              }
+            />
           </div>
           <div style={{ display: "flex", gap: 16, marginTop: 12, fontSize: 12, color: C.slate }}>
             <div><span style={{ color: C.muted }}>Ref: </span><span style={{ fontFamily: "monospace" }}>{row.reference}</span></div>
@@ -146,6 +152,14 @@ export function DocumentDetailPage({ documentType, id }: { documentType: Documen
               <span style={{ color: C.muted }}>Crew: </span>
               {snapshot.allocatedEmployees.map((e) => e.name).join(", ")}
             </div>
+          )}
+          {documentType === "invoice" && (
+            <DueDateField
+              id={row.id}
+              status={row.status}
+              invoiceMeta={row.invoice_meta}
+              onChanged={(patch) => setRow((prev) => (prev ? { ...prev, ...patch } : prev))}
+            />
           )}
         </div>
 
@@ -225,6 +239,93 @@ export function DocumentDetailPage({ documentType, id }: { documentType: Documen
           {vatPct}% VAT not shown — this view reflects the material and labour costs frozen at save time only.
         </div>
       </div>
+    </div>
+  );
+}
+
+type StatusPatch = Pick<EstimateVersionRow, "status" | "invoice_meta" | "updated_at">;
+
+function DueDateField({
+  id,
+  status,
+  invoiceMeta,
+  onChanged,
+}: {
+  id: string;
+  status: string;
+  invoiceMeta: Record<string, unknown> | null;
+  onChanged: (patch: StatusPatch) => void;
+}) {
+  const currentDueDate = typeof invoiceMeta?.dueDate === "string" ? invoiceMeta.dueDate : "";
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(currentDueDate);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async () => {
+    if (!value) return;
+    const ownerSecret = getOrPromptOwnerSecret("Enter the owner passphrase to change the due date:");
+    if (!ownerSecret) return;
+
+    setSaving(true);
+    setError(null);
+    const result = await updateEstimateStatus(id, status, value, ownerSecret);
+    setSaving(false);
+
+    if (!result.success || !result.estimate) {
+      if (result.unauthorized) {
+        clearStoredOwnerSecret();
+        setError("Incorrect owner passphrase.");
+      } else {
+        setError(result.error ?? "Failed to update due date.");
+      }
+      return;
+    }
+    onChanged(result.estimate);
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <div style={{ marginTop: 8, fontSize: 12, color: "#4A6080", display: "flex", alignItems: "center", gap: 6 }}>
+        <span style={{ color: "#8FA3B8" }}>Due: </span>
+        <input
+          type="date"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          style={{ fontSize: 12, padding: "3px 6px", border: "1px solid #DDE3EA", borderRadius: 4 }}
+        />
+        <button
+          type="button"
+          disabled={saving}
+          onClick={save}
+          style={{ fontSize: 11, fontWeight: 700, color: "#0D1B2A", background: "none", border: "none", cursor: saving ? "default" : "pointer" }}
+        >
+          Save
+        </button>
+        <button
+          type="button"
+          onClick={() => { setEditing(false); setValue(currentDueDate); setError(null); }}
+          style={{ fontSize: 11, color: "#8FA3B8", background: "none", border: "none", cursor: "pointer" }}
+        >
+          Cancel
+        </button>
+        {error && <span style={{ fontSize: 10, color: "#C0392B" }}>{error}</span>}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 8, fontSize: 12, color: "#4A6080" }}>
+      <span style={{ color: "#8FA3B8" }}>Due: </span>
+      {currentDueDate ? formatDate(currentDueDate) : "—"}{" "}
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        style={{ fontSize: 11, color: "#0D1B2A", fontWeight: 700, background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}
+      >
+        Edit
+      </button>
     </div>
   );
 }

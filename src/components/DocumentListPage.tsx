@@ -3,6 +3,7 @@ import { Link, type LinkProps } from "@tanstack/react-router";
 import { loadEstimates } from "@/lib/supabase-client";
 import { DocumentIcon, ClipboardDollarIcon, CheckboxIcon, SearchIcon } from "@/components/nav-icons";
 import { HamburgerButton, NavDrawer, type DrawerActiveKey } from "@/components/NavDrawer";
+import { StatusToggle } from "@/components/StatusToggle";
 import type { DocumentType } from "@/lib/invoice-document";
 
 // ─── COLOUR THEME (shared navy / gold tokens — matches index.tsx) ─────────────
@@ -369,22 +370,17 @@ export function DocumentListPage({
                     <div style={{ color: C.muted, fontSize: 10, marginTop: 2 }}>
                       {formatDate(row.created_at)}
                     </div>
-                    <div
-                      style={{
-                        display: "inline-block",
-                        background: `${C.gold}26`,
-                        color: C.navy,
-                        padding: "2px 8px",
-                        borderRadius: 4,
-                        fontSize: 9,
-                        fontWeight: 700,
-                        textTransform: "capitalize",
-                        whiteSpace: "nowrap",
-                        marginTop: 4,
+                    <StatusToggle
+                      documentType={documentType}
+                      id={row.id}
+                      status={row.status}
+                      style={{ marginTop: 4 }}
+                      onChanged={(patch) => {
+                        setRows((prev) =>
+                          prev.map((r) => (r.id === row.id ? { ...r, status: patch.status } : r)),
+                        );
                       }}
-                    >
-                      {row.status}
-                    </div>
+                    />
                   </div>
                 </>
               );

@@ -17,10 +17,10 @@ function InvoicesPage() {
       newButtonLabel="New Invoice"
       pills={[
         { label: "All", status: null },
-        { label: "Unpaid", status: "unpaid" },
-        { label: "Partial", status: "partial" },
+        { label: "Draft", status: "draft" },
+        { label: "Issued", status: "issued" },
         { label: "Paid", status: "paid" },
-        { label: "Overdue", status: "overdue" },
+        { label: "Archived", status: "archived" },
       ]}
       searchPlaceholder="Search invoices by reference, project, or client…"
       emptyIcon={<EmptyInvoiceIcon />}
