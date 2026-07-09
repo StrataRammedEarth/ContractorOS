@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, type LinkProps } from "@tanstack/react-router";
-import { useSettings } from "@/lib/settings-context";
-import { supabase } from "@/lib/supabase-client";
+import { loadEstimates } from "@/lib/supabase-client";
 import { DocumentIcon, ClipboardDollarIcon, CheckboxIcon, SearchIcon } from "@/components/nav-icons";
 import { HamburgerButton, NavDrawer, type DrawerActiveKey } from "@/components/NavDrawer";
 import type { DocumentType } from "@/lib/invoice-document";
@@ -61,7 +60,6 @@ export function DocumentListPage({
   emptyCtaTo: LinkProps["to"];
   emptyCtaSearch?: Record<string, unknown>;
 }) {
-  const { settings } = useSettings();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
   const [activePill, setActivePill] = useState<string | null>(null);
@@ -73,38 +71,22 @@ export function DocumentListPage({
     let cancelled = false;
     const fetchRows = async () => {
       setLoading(true);
-      const { data, error } = await supabase
-        .from("estimate_versions")
-        .select("id, reference, status, snapshot, created_at")
-        .eq("organization_id", settings.organizationId)
-        .eq("document_type", documentType)
-        .order("created_at", { ascending: false });
-
+      const estimates = await loadEstimates(documentType);
       if (cancelled) return;
-      if (error) {
-        console.error(`Failed to fetch ${documentType}s:`, error);
-        setRows([]);
-      } else {
-        setRows(
-          (data ?? []).map(
-            (row: {
-              id: string;
-              reference: string;
-              status: string;
-              created_at: string;
-              snapshot: { projectName?: string; clientName?: string; totals?: { sellExclVat?: number } } | null;
-            }) => ({
-              id: row.id,
-              reference: row.reference,
-              status: row.status,
-              created_at: row.created_at,
-              project_name: row.snapshot?.projectName ?? null,
-              client_name: row.snapshot?.clientName ?? null,
-              sell_price: row.snapshot?.totals?.sellExclVat ?? null,
-            }),
-          ),
-        );
-      }
+      setRows(
+        estimates.map((row) => {
+          const snapshot = row.snapshot as { projectName?: string; clientName?: string; totals?: { sellExclVat?: number } } | null;
+          return {
+            id: row.id,
+            reference: row.reference,
+            status: row.status,
+            created_at: row.created_at,
+            project_name: snapshot?.projectName ?? null,
+            client_name: snapshot?.clientName ?? null,
+            sell_price: snapshot?.totals?.sellExclVat ?? null,
+          };
+        }),
+      );
       setLoading(false);
     };
 
@@ -112,7 +94,7 @@ export function DocumentListPage({
     return () => {
       cancelled = true;
     };
-  }, [documentType, settings.organizationId]);
+  }, [documentType]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();

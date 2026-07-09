@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useSettings } from "@/lib/settings-context";
-import { supabase } from "@/lib/supabase-client";
+import { loadEstimates } from "@/lib/supabase-client";
 import { DocumentIcon, ClipboardDollarIcon } from "@/components/nav-icons";
 import { HamburgerButton, NavDrawer } from "@/components/NavDrawer";
 
@@ -163,42 +163,29 @@ interface RecentQuote {
   created_at: string;
 }
 
-function RecentQuotesPanel({ organizationId }: { organizationId: string }) {
+function RecentQuotesPanel() {
   const [quotes, setQuotes] = useState<RecentQuote[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchQuotes = async () => {
-      try {
-        const { data, error } = await supabase
-          .from('estimate_versions')
-          .select('reference, document_type, snapshot, created_at')
-          .eq('organization_id', organizationId)
-          .order('created_at', { ascending: false })
-          .limit(5);
-
-        if (error) {
-          console.error('Failed to fetch quotes:', error);
-          setQuotes([]);
-        } else if (data) {
-          const formatted: RecentQuote[] = data.map((row: any) => ({
-            reference: row.reference,
-            document_type: row.document_type,
-            project_name: row.snapshot?.projectName || 'Unnamed project',
-            sell_price: row.snapshot?.totals?.sellExclVat,
-            created_at: row.created_at,
-          }));
-          setQuotes(formatted);
-        }
-      } catch (err) {
-        console.error('Error fetching quotes:', err);
-      } finally {
-        setLoading(false);
-      }
+      const estimates = await loadEstimates(undefined, 5);
+      const formatted: RecentQuote[] = estimates.map((row) => {
+        const snapshot = row.snapshot as { projectName?: string; totals?: { sellExclVat?: number } } | null;
+        return {
+          reference: row.reference,
+          document_type: row.document_type,
+          project_name: snapshot?.projectName || 'Unnamed project',
+          sell_price: snapshot?.totals?.sellExclVat,
+          created_at: row.created_at,
+        };
+      });
+      setQuotes(formatted);
+      setLoading(false);
     };
 
     fetchQuotes();
-  }, [organizationId]);
+  }, []);
 
   if (loading) {
     return (
@@ -269,7 +256,7 @@ function RecentQuotesPanel({ organizationId }: { organizationId: string }) {
 }
 
 function Home() {
-  const { profileComplete, settings } = useSettings();
+  const { profileComplete } = useSettings();
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   return (
@@ -386,7 +373,7 @@ function Home() {
           >
             Recent quotes
           </div>
-          <RecentQuotesPanel organizationId={settings.organizationId} />
+          <RecentQuotesPanel />
         </div>
       </div>
     </div>
