@@ -18,6 +18,16 @@ const C = {
   amber: "#E67E22",
 };
 
+const columnHeaderStyle: React.CSSProperties = {
+  color: C.slateL,
+  fontSize: 10,
+  fontWeight: 700,
+  textTransform: "uppercase",
+  letterSpacing: 0.4,
+};
+const cellTextStyle: React.CSSProperties = { minWidth: 0 };
+const ellipsis: React.CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
+
 interface DocumentRow {
   id: string;
   reference: string;
@@ -295,47 +305,77 @@ export function DocumentListPage({
               overflow: "hidden",
             }}
           >
+            {/* Column headers */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: selectMode ? "22px 1.1fr 1.1fr 0.9fr 0.8fr" : "1.1fr 1.1fr 0.9fr 0.8fr",
+                gap: 10,
+                padding: "8px 18px",
+                background: C.bg,
+                borderBottom: "1px solid #DDE3EA",
+              }}
+            >
+              {selectMode && <div />}
+              <div style={columnHeaderStyle}>Client</div>
+              <div style={columnHeaderStyle}>Job</div>
+              <div style={columnHeaderStyle}>Reference #</div>
+              <div style={{ ...columnHeaderStyle, textAlign: "right" }}>Price</div>
+            </div>
+
             {filtered.map((row) => (
               <div
                 key={row.id}
                 style={{
+                  display: "grid",
+                  gridTemplateColumns: selectMode ? "22px 1.1fr 1.1fr 0.9fr 0.8fr" : "1.1fr 1.1fr 0.9fr 0.8fr",
+                  gap: 10,
+                  alignItems: "center",
                   padding: "14px 18px",
                   borderBottom: "1px solid #EEF0F5",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 12,
                 }}
               >
                 {selectMode && (
                   <input type="checkbox" style={{ width: 16, height: 16, cursor: "pointer" }} />
                 )}
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 700, color: C.navy, fontSize: 14 }}>{row.reference}</div>
-                  <div style={{ color: C.slateL, fontSize: 12, marginTop: 2 }}>
+                <div style={cellTextStyle}>
+                  <div style={{ fontWeight: 700, color: C.navy, fontSize: 13, ...ellipsis }}>
+                    {row.client_name ?? "Unnamed client"}
+                  </div>
+                </div>
+                <div style={cellTextStyle}>
+                  <div style={{ color: C.slateL, fontSize: 12, ...ellipsis }}>
                     {row.project_name ?? "Unnamed project"}
                   </div>
                 </div>
-                <div style={{ textAlign: "right" }}>
-                  <div style={{ color: C.gold, fontWeight: 700, fontSize: 14 }}>
-                    {formatPrice(row.sell_price)}
-                  </div>
-                  <div style={{ color: C.muted, fontSize: 11, marginTop: 2 }}>
-                    {formatDate(row.created_at)}
+                <div style={cellTextStyle}>
+                  <div style={{ color: C.navy, fontSize: 12, fontFamily: "monospace", ...ellipsis }}>
+                    {row.reference}
                   </div>
                 </div>
-                <div
-                  style={{
-                    background: `${C.gold}26`,
-                    color: C.navy,
-                    padding: "3px 10px",
-                    borderRadius: 4,
-                    fontSize: 10,
-                    fontWeight: 700,
-                    textTransform: "capitalize",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {row.status}
+                <div style={{ textAlign: "right", minWidth: 0 }}>
+                  <div style={{ color: C.gold, fontWeight: 700, fontSize: 13 }}>
+                    {formatPrice(row.sell_price)}
+                  </div>
+                  <div style={{ color: C.muted, fontSize: 10, marginTop: 2 }}>
+                    {formatDate(row.created_at)}
+                  </div>
+                  <div
+                    style={{
+                      display: "inline-block",
+                      background: `${C.gold}26`,
+                      color: C.navy,
+                      padding: "2px 8px",
+                      borderRadius: 4,
+                      fontSize: 9,
+                      fontWeight: 700,
+                      textTransform: "capitalize",
+                      whiteSpace: "nowrap",
+                      marginTop: 4,
+                    }}
+                  >
+                    {row.status}
+                  </div>
                 </div>
               </div>
             ))}
