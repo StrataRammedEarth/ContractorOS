@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { DocumentListPage, EmptyInvoiceIcon } from "@/components/DocumentListPage";
 
-export const Route = createFileRoute("/invoices")({
+export const Route = createFileRoute("/invoices/")({
   head: () => ({
     meta: [{ title: "Invoices — ContractorOS" }],
   }),
