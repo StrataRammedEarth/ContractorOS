@@ -36,6 +36,10 @@ interface DocumentRow {
   project_name: string | null;
   client_name: string | null;
   sell_price: number | null;
+  // Rows saved before the current snapshot format (no saved_at stamp) can't be
+  // reconstructed by the detail view — they're excluded from click-through
+  // rather than shown broken or misleadingly incomplete.
+  viewable: boolean;
 }
 
 export interface FilterPill {
@@ -85,7 +89,7 @@ export function DocumentListPage({
       if (cancelled) return;
       setRows(
         estimates.map((row) => {
-          const snapshot = row.snapshot as { projectName?: string; clientName?: string; totals?: { sellExclVat?: number } } | null;
+          const snapshot = row.snapshot as { projectName?: string; clientName?: string; totals?: { sellExclVat?: number }; saved_at?: string } | null;
           return {
             id: row.id,
             reference: row.reference,
@@ -94,6 +98,7 @@ export function DocumentListPage({
             project_name: snapshot?.projectName ?? null,
             client_name: snapshot?.clientName ?? null,
             sell_price: snapshot?.totals?.sellExclVat ?? null,
+            viewable: typeof snapshot?.saved_at === "string",
           };
         }),
       );
@@ -323,62 +328,85 @@ export function DocumentListPage({
               <div style={{ ...columnHeaderStyle, textAlign: "right" }}>Price</div>
             </div>
 
-            {filtered.map((row) => (
-              <div
-                key={row.id}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: selectMode ? "22px 1.1fr 1.1fr 0.9fr 0.8fr" : "1.1fr 1.1fr 0.9fr 0.8fr",
-                  gap: 10,
-                  alignItems: "center",
-                  padding: "14px 18px",
-                  borderBottom: "1px solid #EEF0F5",
-                }}
-              >
-                {selectMode && (
-                  <input type="checkbox" style={{ width: 16, height: 16, cursor: "pointer" }} />
-                )}
-                <div style={cellTextStyle}>
-                  <div style={{ fontWeight: 700, color: C.navy, fontSize: 13, ...ellipsis }}>
-                    {row.client_name ?? "Unnamed client"}
+            {filtered.map((row) => {
+              const rowGridStyle: React.CSSProperties = {
+                display: "grid",
+                gridTemplateColumns: selectMode ? "22px 1.1fr 1.1fr 0.9fr 0.8fr" : "1.1fr 1.1fr 0.9fr 0.8fr",
+                gap: 10,
+                alignItems: "center",
+                padding: "14px 18px",
+                borderBottom: "1px solid #EEF0F5",
+              };
+              const content = (
+                <>
+                  {selectMode && (
+                    <input type="checkbox" style={{ width: 16, height: 16, cursor: "pointer" }} />
+                  )}
+                  <div style={cellTextStyle}>
+                    <div style={{ fontWeight: 700, color: C.navy, fontSize: 13, ...ellipsis }}>
+                      {row.client_name ?? "Unnamed client"}
+                    </div>
                   </div>
-                </div>
-                <div style={cellTextStyle}>
-                  <div style={{ color: C.slateL, fontSize: 12, ...ellipsis }}>
-                    {row.project_name ?? "Unnamed project"}
+                  <div style={cellTextStyle}>
+                    <div style={{ color: C.slateL, fontSize: 12, ...ellipsis }}>
+                      {row.project_name ?? "Unnamed project"}
+                    </div>
+                    {!row.viewable && (
+                      <div style={{ color: C.muted, fontSize: 10, marginTop: 1, fontStyle: "italic" }}>
+                        legacy format — not viewable
+                      </div>
+                    )}
                   </div>
-                </div>
-                <div style={cellTextStyle}>
-                  <div style={{ color: C.navy, fontSize: 12, fontFamily: "monospace", ...ellipsis }}>
-                    {row.reference}
+                  <div style={cellTextStyle}>
+                    <div style={{ color: C.navy, fontSize: 12, fontFamily: "monospace", ...ellipsis }}>
+                      {row.reference}
+                    </div>
                   </div>
-                </div>
-                <div style={{ textAlign: "right", minWidth: 0 }}>
-                  <div style={{ color: C.gold, fontWeight: 700, fontSize: 13 }}>
-                    {formatPrice(row.sell_price)}
+                  <div style={{ textAlign: "right", minWidth: 0 }}>
+                    <div style={{ color: C.gold, fontWeight: 700, fontSize: 13 }}>
+                      {formatPrice(row.sell_price)}
+                    </div>
+                    <div style={{ color: C.muted, fontSize: 10, marginTop: 2 }}>
+                      {formatDate(row.created_at)}
+                    </div>
+                    <div
+                      style={{
+                        display: "inline-block",
+                        background: `${C.gold}26`,
+                        color: C.navy,
+                        padding: "2px 8px",
+                        borderRadius: 4,
+                        fontSize: 9,
+                        fontWeight: 700,
+                        textTransform: "capitalize",
+                        whiteSpace: "nowrap",
+                        marginTop: 4,
+                      }}
+                    >
+                      {row.status}
+                    </div>
                   </div>
-                  <div style={{ color: C.muted, fontSize: 10, marginTop: 2 }}>
-                    {formatDate(row.created_at)}
-                  </div>
-                  <div
-                    style={{
-                      display: "inline-block",
-                      background: `${C.gold}26`,
-                      color: C.navy,
-                      padding: "2px 8px",
-                      borderRadius: 4,
-                      fontSize: 9,
-                      fontWeight: 700,
-                      textTransform: "capitalize",
-                      whiteSpace: "nowrap",
-                      marginTop: 4,
-                    }}
+                </>
+              );
+
+              if (!selectMode && row.viewable) {
+                return (
+                  <Link
+                    key={row.id}
+                    to={documentType === "invoice" ? "/invoices/$id" : "/estimates/$id"}
+                    params={{ id: row.id }}
+                    style={{ ...rowGridStyle, textDecoration: "none", color: "inherit" }}
                   >
-                    {row.status}
-                  </div>
+                    {content}
+                  </Link>
+                );
+              }
+              return (
+                <div key={row.id} style={{ ...rowGridStyle, opacity: row.viewable ? 1 : 0.7 }}>
+                  {content}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
