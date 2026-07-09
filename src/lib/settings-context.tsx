@@ -31,6 +31,9 @@ export interface OrgSettings {
   calloutFee?: number;
   travelRatePerKm?: number;
   afterHoursMultiplier: number;
+  // Scheduled start time (HH:MM, org-wide) — used by the attendance report to
+  // flag a marked arrival_time as late.
+  scheduledStartTime: string;
 
   // Document settings
   quoteValidityDays: number;
@@ -55,6 +58,7 @@ export const DEFAULT_SETTINGS: OrgSettings = {
   assistantDayRate: 260,
   hoursPerDay: 8,
   afterHoursMultiplier: 1.5,
+  scheduledStartTime: "07:00",
   quoteValidityDays: 30,
   invoicePaymentDays: 7,
   quotePrefix: "PLB",
