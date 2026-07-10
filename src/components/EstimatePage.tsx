@@ -741,8 +741,6 @@ function printQuotePDF(inp: Inputs, scope: ScopeLine[], labour: LabourLine[], qu
   const assumptions = g
     ? [
         `Asset: ${g.size}L geyser, ${g.jobType==="burst_replacement"?`${g.brand} B-rated (5yr warranty)`:g.jobType==="new_installation"?`${g.brand} B-rated (5yr warranty), new connection`:"element/thermostat repair"}`,
-        g.size===200?"200L pricing interpolated — no direct quote evidence":"",
-        g.size===250?"250L evidence stale (2022) — reverify before client issue":"",
       ].filter(Boolean)
     : [
         `Supply: ${(inp.supplyLines ?? []).filter(l=>l.metres>0).map(l=>`${l.metres}m ${l.type} ${l.diameter}mm`).join(", ") || "none"}`,
