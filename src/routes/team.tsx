@@ -858,7 +858,7 @@ function Dot({ color }: { color: string }) {
 
 const reportTh: CSSProperties = {
   padding: "8px 10px",
-  fontWeight: 700,
+  fontWeight: 800,
   whiteSpace: "nowrap",
 };
 const reportTd: CSSProperties = {
@@ -873,17 +873,32 @@ function MonthlyReportView({
   scheduledStartTime,
   hoursPerDay,
   loading,
+  viewLabel,
 }: {
   employees: Employee[];
   attendance: AttendanceRecord[];
   scheduledStartTime: string;
   hoursPerDay: number;
   loading: boolean;
+  viewLabel: string;
 }) {
   const reports = useMemo(
     () => buildEmployeeReports(employees, attendance, scheduledStartTime, hoursPerDay),
     [employees, attendance, scheduledStartTime, hoursPerDay],
   );
+  const totals = useMemo(() => {
+    const statusTotals = REPORT_STATUS_COLUMNS.reduce(
+      (acc, s) => {
+        acc[s] = reports.reduce((sum, r) => sum + r.counts[s], 0);
+        return acc;
+      },
+      {} as Record<AttendanceStatus, number>,
+    );
+    const lateTotal = reports.reduce((sum, r) => sum + r.lateCount, 0);
+    const presentTotal = reports.reduce((sum, r) => sum + r.counts.present, 0);
+    const salaryTotal = reports.reduce((sum, r) => sum + (r.wageEstimate ?? 0), 0);
+    return { statusTotals, lateTotal, presentTotal, salaryTotal };
+  }, [reports]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   if (loading) {
@@ -913,6 +928,19 @@ function MonthlyReportView({
     >
       <div
         style={{
+          background: C.navy,
+          color: C.gold,
+          padding: "14px 16px",
+          fontWeight: 900,
+          fontSize: 16,
+          textAlign: "center",
+          letterSpacing: 0.3,
+        }}
+      >
+        {viewLabel} Staff Report
+      </div>
+      <div
+        style={{
           padding: "10px 16px",
           fontSize: 11,
           color: C.slate,
@@ -931,8 +959,8 @@ function MonthlyReportView({
             <tr
               style={{
                 textAlign: "center",
-                color: C.muted,
-                fontSize: 10,
+                color: C.navy,
+                fontSize: 11,
                 textTransform: "uppercase",
                 borderBottom: "1px solid #DDE3EA",
               }}
@@ -1070,6 +1098,29 @@ function MonthlyReportView({
                 </Fragment>
               );
             })}
+            <tr
+              style={{
+                borderTop: `2px solid ${C.navy}`,
+                background: C.bg,
+                fontWeight: 800,
+              }}
+            >
+              <td style={{ ...reportTd, fontWeight: 800 }}>Total</td>
+              {REPORT_STATUS_COLUMNS.map((s) => (
+                <td key={s} style={{ ...reportTd, textAlign: "center", fontWeight: 800 }}>
+                  {totals.statusTotals[s]}
+                </td>
+              ))}
+              <td style={{ ...reportTd, textAlign: "center", fontWeight: 800 }}>
+                {totals.lateTotal}
+              </td>
+              <td style={{ ...reportTd, textAlign: "center", fontWeight: 800 }}>
+                {totals.presentTotal}
+              </td>
+              <td style={{ ...reportTd, textAlign: "right", fontWeight: 800 }}>
+                ~{fmtRand(totals.salaryTotal)}
+              </td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -1487,6 +1538,7 @@ function TeamPage() {
             scheduledStartTime={settings.scheduledStartTime}
             hoursPerDay={settings.hoursPerDay}
             loading={reportLoading}
+            viewLabel={viewLabel}
           />
         ) : loading ? (
           <div style={{ fontSize: 12, color: C.slateL, padding: 20, textAlign: "center" }}>
