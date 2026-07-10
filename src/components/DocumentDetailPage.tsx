@@ -8,6 +8,8 @@ import {
 } from "@/lib/supabase-client";
 import { StatusToggle, getOrPromptOwnerSecret } from "@/components/StatusToggle";
 import type { DocumentType } from "@/lib/invoice-document";
+import { aggregateBuyList, groupByCategory } from "@/lib/buy-list";
+import { lowestGrade } from "@/lib/grades";
 
 // ─── COLOUR THEME (shared navy / gold tokens — matches DocumentListPage / index) ──
 const C = {
@@ -34,13 +36,13 @@ interface MaterialLine {
   conf: string;
   // Stamped server-side at save time from plumblink_materials.section /
   // sub_category (verbatim catalogue taxonomy, not job-section headings).
-  // null for lines with no matching material_code. Not yet rendered — see
-  // Brief 2 for Buy tab category grouping.
+  // null for lines with no matching material_code (e.g. every line on a
+  // fixed-composition Geyser job) — grouped under "Uncategorized" below.
   category?: string | null;
   subCategory?: string | null;
   // Stamped alongside category/subCategory: "Plumblink" for a
   // plumblink_materials match, else the library_records supplier value for a
-  // library_records match, else null. Not yet rendered — see Brief 2.
+  // library_records match, else null.
   supplier?: string | null;
 }
 
@@ -132,6 +134,17 @@ export function DocumentDetailPage({ documentType, id }: { documentType: Documen
   const ladder = snapshot.ladder;
   const vatPct = 15; // display only — VAT rate isn't frozen per-record, so incl-VAT figures aren't shown here.
 
+  // Same merge behaviour as the live estimate's Buy tab (aggregateBuyList),
+  // applied to the frozen snapshot lines — same-code lines collapse into one
+  // row before grouping, so a merge can never straddle a category/subCategory
+  // boundary (every merged code shares one category/subCategory pair).
+  const buyLines = aggregateBuyList(
+    lines.map((l) => ({ ...l, supplier: l.supplier ?? "" })),
+    lowestGrade,
+  ) as (MaterialLine & { sourceCount: number; supplier: string })[];
+  const categoryGroups = groupByCategory(buyLines);
+  const procurementTotal = buyLines.reduce((s, l) => s + l.total, 0);
+
   return (
     <div style={{ fontFamily: "'Inter',system-ui,sans-serif", background: C.bg, minHeight: "100vh" }}>
       <Header listTo={listTo} listLabel={listLabel} />
@@ -212,33 +225,58 @@ export function DocumentDetailPage({ documentType, id }: { documentType: Documen
           </div>
         )}
 
-        {/* Material lines */}
-        <SectionHeader>Material Lines{lines.length > 0 ? ` — ${lines.length} items` : ""}</SectionHeader>
-        {lines.length > 0 ? (
-          <div style={{ overflowX: "auto", marginBottom: 16 }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, minWidth: 600, background: C.panel }}>
-              <thead>
-                <tr style={{ background: C.navyLt, color: C.muted }}>
-                  {["Code", "Description", "Qty", "Unit", "Unit Price", "Total", "Grade"].map((h) => (
-                    <th key={h} style={{ padding: "6px 10px", textAlign: "left", fontWeight: 600, fontSize: 10 }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {lines.map((l, i) => (
-                  <tr key={l.id ?? `${l.code}-${i}`} style={{ background: i % 2 === 0 ? C.offWhite : "#fff", borderBottom: "1px solid #E8EDF2" }}>
-                    <td style={{ padding: "6px 10px", fontFamily: "monospace", fontSize: 10, color: C.slate }}>{l.code}</td>
-                    <td style={{ padding: "6px 10px", color: C.navy }}>{l.description}</td>
-                    <td style={{ padding: "6px 10px", textAlign: "right" }}>{l.qty}</td>
-                    <td style={{ padding: "6px 10px", color: C.slateL }}>{l.unit}</td>
-                    <td style={{ padding: "6px 10px", textAlign: "right" }}>{fmt(l.unitPrice)}</td>
-                    <td style={{ padding: "6px 10px", textAlign: "right", fontWeight: 600 }}>{fmt(l.total)}</td>
-                    <td style={{ padding: "6px 10px", color: C.slateL }}>{l.conf}</td>
-                  </tr>
+        {/* Material lines — grouped Buy list (category → subCategory), Brief 2 */}
+        <SectionHeader>Material Lines{buyLines.length > 0 ? ` — ${buyLines.length} items` : ""}</SectionHeader>
+        {buyLines.length > 0 ? (
+          <>
+            <div style={{ background: `linear-gradient(90deg,${C.navyMid},${C.navy})`, padding: "12px 20px", borderRadius: 8, marginBottom: 12, border: `1px solid ${C.gold}30` }}>
+              <div style={{ color: C.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Procurement Total (excl. VAT)</div>
+              <div style={{ color: C.gold, fontSize: 22, fontWeight: 900 }}>{fmt(procurementTotal)}</div>
+            </div>
+            {categoryGroups.map((group) => (
+              <div key={group.category} style={{ marginBottom: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 2px", color: C.navy, fontWeight: 800, fontSize: 13 }}>
+                  <span>{group.category}</span>
+                  <span>{fmt(group.total)}</span>
+                </div>
+                {group.subGroups.map((sub) => (
+                  <div key={sub.subCategory} style={{ marginBottom: 8 }}>
+                    <div style={{ background: C.navyMid, color: C.gold, fontSize: 10, fontWeight: 700, letterSpacing: 0.8, textTransform: "uppercase", padding: "5px 12px", display: "flex", justifyContent: "space-between" }}>
+                      <span>{sub.subCategory}</span><span>{fmt(sub.total)}</span>
+                    </div>
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, minWidth: 600, background: C.panel }}>
+                        <thead>
+                          <tr style={{ background: "#F0F4F8", color: C.slateL }}>
+                            {["Code", "Description", "Supplier", "Qty", "Unit", "Unit Price", "Total", "Grade"].map((h) => (
+                              <th key={h} style={{ padding: "6px 10px", textAlign: "left", fontWeight: 600, fontSize: 10 }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sub.lines.map((l, i) => (
+                            <tr key={l.id ?? `${l.code}-${i}`} style={{ background: i % 2 === 0 ? C.offWhite : "#fff", borderBottom: "1px solid #E8EDF2" }}>
+                              <td style={{ padding: "6px 10px", fontFamily: "monospace", fontSize: 10, color: C.slate }}>{l.code}</td>
+                              <td style={{ padding: "6px 10px", color: C.navy }}>
+                                {l.description}
+                                {l.sourceCount > 1 && <span style={{ color: C.slateL, fontWeight: 600 }}> · ×{l.sourceCount} lines merged</span>}
+                              </td>
+                              <td style={{ padding: "6px 10px", color: C.slateL }}>{l.supplier || "—"}</td>
+                              <td style={{ padding: "6px 10px", textAlign: "right" }}>{l.qty}</td>
+                              <td style={{ padding: "6px 10px", color: C.slateL }}>{l.unit}</td>
+                              <td style={{ padding: "6px 10px", textAlign: "right" }}>{fmt(l.unitPrice)}</td>
+                              <td style={{ padding: "6px 10px", textAlign: "right", fontWeight: 600 }}>{fmt(l.total)}</td>
+                              <td style={{ padding: "6px 10px", color: C.slateL }}>{l.conf}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </div>
+            ))}
+          </>
         ) : (
           <div style={{ background: "#FEF5E7", border: "1px solid #E67E2240", borderRadius: 6, padding: "10px 16px", marginBottom: 16, fontSize: 11, color: C.navy }}>
             ⚠ Line-item detail not available for this record — only totals were captured at save time.

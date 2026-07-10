@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { aggregateBuyList, isAggregatable, type BuyListSource } from './buy-list';
+import { aggregateBuyList, groupByCategory, isAggregatable, UNCATEGORIZED, type BuyListSource } from './buy-list';
 
 // Mirrors the app's grade ranking closely enough for the merge tests.
 const RANK: Record<string, number> = { Sourced: 4, Assumption: 2, Placeholder: 1 };
@@ -111,5 +111,64 @@ describe('aggregateBuyList', () => {
     const before = lines.reduce((s, l) => s + l.total, 0);
     const after = aggregateBuyList(lines, lowestGrade).reduce((s, l) => s + l.total, 0);
     expect(after).toBe(before);
+  });
+});
+
+interface CatLine {
+  category?: string | null;
+  subCategory?: string | null;
+  total: number;
+}
+
+describe('groupByCategory', () => {
+  it('groups by category then subCategory, sorted alphabetically', () => {
+    const groups = groupByCategory<CatLine>([
+      { category: 'Valves', subCategory: 'Valves', total: 10 },
+      { category: 'PVC Fittings', subCategory: 'PVC Pressure Fittings', total: 20 },
+      { category: 'PVC Fittings', subCategory: 'PVC Pressure Fittings', total: 5 },
+    ]);
+
+    expect(groups.map((g) => g.category)).toEqual(['PVC Fittings', 'Valves']);
+    expect(groups[0].subGroups).toHaveLength(1);
+    expect(groups[0].subGroups[0].lines).toHaveLength(2);
+    expect(groups[0].total).toBe(25);
+    expect(groups[1].total).toBe(10);
+  });
+
+  it('buckets null category/subCategory under Uncategorized, sorted last', () => {
+    const groups = groupByCategory<CatLine>([
+      { category: null, subCategory: null, total: 100 },
+      { category: 'Valves', subCategory: 'Valves', total: 10 },
+    ]);
+
+    expect(groups.map((g) => g.category)).toEqual(['Valves', UNCATEGORIZED]);
+    expect(groups[1].subGroups[0].subCategory).toBe(UNCATEGORIZED);
+    expect(groups[1].total).toBe(100);
+  });
+
+  it('handles the all-null case cleanly — Uncategorized as the only group present', () => {
+    const groups = groupByCategory<CatLine>([
+      { category: null, subCategory: null, total: 4173.04 },
+      { category: null, subCategory: null, total: 668.7 },
+      { category: null, subCategory: null, total: 199.13 },
+    ]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].category).toBe(UNCATEGORIZED);
+    expect(groups[0].subGroups).toHaveLength(1);
+    expect(groups[0].subGroups[0].lines).toHaveLength(3);
+    expect(groups[0].total).toBeCloseTo(5040.87);
+  });
+
+  it('never merges across category/subCategory boundaries even for the same total shape', () => {
+    const groups = groupByCategory<CatLine>([
+      { category: 'A', subCategory: 'A1', total: 1 },
+      { category: 'A', subCategory: 'A2', total: 1 },
+      { category: 'B', subCategory: 'A1', total: 1 },
+    ]);
+
+    expect(groups).toHaveLength(2);
+    const a = groups.find((g) => g.category === 'A')!;
+    expect(a.subGroups.map((s) => s.subCategory)).toEqual(['A1', 'A2']);
   });
 });
