@@ -666,16 +666,37 @@ function SectionHeader({ children }: { children: React.ReactNode }) {
 // SectionHeader banners and marginBottom unchanged — this just adds one more
 // layer around the group so a user scanning a multi-section page can see at a
 // glance where one section's cards end and the next begins.
-function SectionGroup({ label, children }: { label: string; children: React.ReactNode }) {
+function SectionGroup({ label, subHeadings, children }: {
+  label: string;
+  subHeadings: string[];
+  children: React.ReactNode;
+}) {
+  const [collapsed, setCollapsed] = useState(false);
   return (
     <div style={{ position:"relative", border:`2px solid ${C.gold}`, borderRadius:12,
-      padding:`${S.lg}px ${S.md}px 2px`, marginTop:30, marginBottom:S.xl }}>
+      padding:`${S.lg}px ${S.md}px ${collapsed ? S.lg : 2}px`, marginTop:30, marginBottom:S.xl }}>
       <div style={{ position:"absolute", top:-13, left:16, background:UI.pageBg,
         padding:"0 10px", fontSize:12.5, fontWeight:800, color:C.goldDim,
         textTransform:"uppercase", letterSpacing:0.8 }}>
         {label}
       </div>
-      {children}
+      <button
+        onClick={() => setCollapsed(c => !c)}
+        aria-expanded={!collapsed}
+        aria-label={collapsed ? `Expand ${label}` : `Collapse ${label}`}
+        style={{ position:"absolute", top:-15, right:16, background:UI.pageBg,
+          border:`1px solid ${C.gold}`, borderRadius:6, color:C.goldDim,
+          fontSize:11, fontWeight:700, padding:"3px 9px", cursor:"pointer",
+          display:"flex", alignItems:"center", gap:5 }}>
+        {collapsed ? "▸ Expand" : "▾ Collapse"}
+      </button>
+      {collapsed ? (
+        <div style={{ display:"flex", flexDirection:"column", gap:6, marginTop:6 }}>
+          {subHeadings.map((h) => <SectionHeader key={h}>{h}</SectionHeader>)}
+        </div>
+      ) : (
+        children
+      )}
     </div>
   );
 }
@@ -2705,7 +2726,7 @@ export default function EstimatePage() {
         </div>
 
         {activeSections.waterSupply&&(
-        <SectionGroup label="Water Supply">
+        <SectionGroup label="Water Supply" subHeadings={["Water Supply", "Supply Fittings"]}>
         {pipeSection("supply","Water Supply", null)}
         <StandaloneFittingSection title="Supply Fittings" use="supply"
           rows={inputs.supplyFittings ?? []} catalogue={catalogue} catalogueLoading={catalogueLoading}
@@ -2715,7 +2736,7 @@ export default function EstimatePage() {
         )}
 
         {activeSections.drainage&&(
-        <SectionGroup label="Drainage">
+        <SectionGroup label="Drainage" subHeadings={["Drainage", "Drainage Fittings", "Drainage Templates"]}>
         {pipeSection("drainage","Drainage",
           <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",marginTop:10,paddingTop:10,borderTop:"1px solid #EDF0F5"}}>
             <input type="checkbox" checked={inputs.trenching} onChange={e=>setInp("trenching",e.target.checked)} style={{width:16,height:16}}/>
@@ -2743,7 +2764,7 @@ export default function EstimatePage() {
         )}
 
         {activeSections.fixtures&&(
-        <SectionGroup label="Fixtures">
+        <SectionGroup label="Fixtures" subHeadings={["Fixtures", "Fixtures and Fittings Replacement Templates"]}>
         <div style={cardStyle}>
           <SectionHeader>Fixtures</SectionHeader>
           <div style={{padding:S.xl}}>
@@ -2834,7 +2855,7 @@ export default function EstimatePage() {
         )}
 
         {activeSections.geyser&&(
-        <SectionGroup label="Geyser">
+        <SectionGroup label="Geyser" subHeadings={["Geyser Job Specs", "3.3.2 General Repairs — itemized fitting templates"]}>
         <div style={cardStyle}>
           <SectionHeader>Geyser Job Specs</SectionHeader>
           <div style={{padding:S.xl}}>
