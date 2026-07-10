@@ -1813,13 +1813,28 @@ function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, 
     if (!combo) return;
     tpl.rows.forEach(r => {
       if (r.fittingType === 'Pressure Control Valve') {
-        // section/sub_category are NULL in plumblink_materials for every PCV/VB
-        // code (confirmed live, Step 0) — explicit null, not a missed lookup.
-        onUpdateRow(tpl.instanceId, r.id, x => ({ ...x, materialCode: combo.pcv.materialCode, description: combo.pcv.description, unitPrice: combo.pcv.unitPrice, category: null, subCategory: null }));
+        onUpdateRow(tpl.instanceId, r.id, x => ({ ...x, materialCode: combo.pcv.materialCode, description: combo.pcv.description, unitPrice: combo.pcv.unitPrice }));
       } else if (r.fittingType === 'Vacuum Breaker') {
-        onUpdateRow(tpl.instanceId, r.id, x => ({ ...x, materialCode: combo.vb.materialCode, description: combo.vb.description, unitPrice: combo.vb.unitPrice, category: null, subCategory: null }));
+        onUpdateRow(tpl.instanceId, r.id, x => ({ ...x, materialCode: combo.vb.materialCode, description: combo.vb.description, unitPrice: combo.vb.unitPrice }));
       }
     });
+    // Category/sub-category (Brief 3b-quick backfilled real section/sub_category
+    // onto all 6 PCV/VB codes in plumblink_materials) come from a live point
+    // lookup, not the shared `catalogue` prop — fetchCascadeCatalogue filters to
+    // application in {Drainage, Supply}, so Geyser rows never appear in it
+    // regardless of how plumblink_materials is populated. fetchMaterialByCode is
+    // the same unfiltered lookup TemplateProductSelect already uses for these
+    // rows' initial default-price resolution.
+    Promise.all([fetchMaterialByCode(combo.pcv.materialCode), fetchMaterialByCode(combo.vb.materialCode)])
+      .then(([pcvMat, vbMat]) => {
+        tpl.rows.forEach(r => {
+          if (r.fittingType === 'Pressure Control Valve' && r.materialCode === combo.pcv.materialCode) {
+            onUpdateRow(tpl.instanceId, r.id, x => ({ ...x, category: pcvMat?.section ?? null, subCategory: pcvMat?.sub_category ?? null }));
+          } else if (r.fittingType === 'Vacuum Breaker' && r.materialCode === combo.vb.materialCode) {
+            onUpdateRow(tpl.instanceId, r.id, x => ({ ...x, category: vbMat?.section ?? null, subCategory: vbMat?.sub_category ?? null }));
+          }
+        });
+      });
   };
   // Bug fix: a freshly-applied instance's PCV/VB rows load with materialCode set
   // (from default_material_code) but description/unitPrice blank — these rows are
