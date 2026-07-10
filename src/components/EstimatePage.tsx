@@ -706,8 +706,6 @@ const ladderFrom = (s: OrgSettings): LadderRates =>
   ({ wastePct: s.wastePct, riskPct: s.riskPct, contingencyPct: s.contingencyPct, marginPct: s.marginPct });
 const crewRateFrom = (s: OrgSettings): number =>
   s.hoursPerDay > 0 ? (s.plumberDayRate + s.assistantDayRate) / s.hoursPerDay : CREW_RATE_HR;
-const ladderLabel = (s: OrgSettings): string =>
-  `${s.wastePct}% waste, ${s.riskPct}% risk, ${s.contingencyPct}% contingency, ${s.marginPct}% markup`;
 const businessFrom = (s: OrgSettings): string => s.businessName.trim() || "[Your Plumbing Business]";
 
 // ─── PDF GENERATORS ───────────────────────────────────────────────────────────
@@ -735,20 +733,14 @@ function printQuotePDF(inp: Inputs, scope: ScopeLine[], labour: LabourLine[], qu
         (g.jobType==="burst_replacement"||g.jobType==="new_installation")?`<div class="scope-item"><strong>Brand:</strong> ${g.brand} (B-rated, 5yr warranty)</div>`:"",
         g.jobType==="element_repair"?`<div class="scope-item"><strong>Solar geyser:</strong> ${g.solar?"Yes — thermostat retained":"No"}</div>`:"",
         ...scope.map(l=>`<div class="scope-item"><strong>${l.qty}× ${l.description}</strong></div>`),
-        `<div class="scope-item"><strong>Commercial rules:</strong> ${ladderLabel(cfg)}</div>`,
       ].filter(Boolean).join("")
-    : `${(inp.supplyLines ?? []).filter(l=>l.metres>0).map(l=>`<div class="scope-item"><strong>Supply:</strong> ${l.metres}m ${l.type} ${l.diameter?l.diameter+"mm":""}</div>`).join("")}<div class="scope-item"><strong>Water points:</strong> ${inp.points}</div>${(inp.drainLines ?? []).filter(l=>l.metres>0).map(l=>`<div class="scope-item"><strong>Drainage:</strong> ${l.metres}m ${l.type} ${l.diameter?l.diameter+"mm":""}</div>`).join("")}${fixtureLines.map(l=>`<div class="scope-item"><strong>${l}</strong></div>`).join("")}${fittingLines.map(l=>`<div class="scope-item"><strong>${l}</strong></div>`).join("")}<div class="scope-item"><strong>Commercial rules:</strong> ${ladderLabel(cfg)}</div>`;
+    : `${(inp.supplyLines ?? []).filter(l=>l.metres>0).map(l=>`<div class="scope-item"><strong>Supply:</strong> ${l.metres}m ${l.type} ${l.diameter?l.diameter+"mm":""}</div>`).join("")}<div class="scope-item"><strong>Water points:</strong> ${inp.points}</div>${(inp.drainLines ?? []).filter(l=>l.metres>0).map(l=>`<div class="scope-item"><strong>Drainage:</strong> ${l.metres}m ${l.type} ${l.diameter?l.diameter+"mm":""}</div>`).join("")}${fixtureLines.map(l=>`<div class="scope-item"><strong>${l}</strong></div>`).join("")}${fittingLines.map(l=>`<div class="scope-item"><strong>${l}</strong></div>`).join("")}`;
   const scopeIntro = g
     ? `Supply and installation of a ${g.size}L ${g.jobType==="burst_replacement"?`${g.brand} geyser replacement assembly`:g.jobType==="new_installation"?`${g.brand} geyser new installation (new supply/drain/electrical point)`:"geyser element / thermostat repair"} as set out below.`
     : "Supply and installation of plumbing connection assemblies as set out below.";
   const assumptions = g
     ? [
         `Asset: ${g.size}L geyser, ${g.jobType==="burst_replacement"?`${g.brand} B-rated (5yr warranty)`:g.jobType==="new_installation"?`${g.brand} B-rated (5yr warranty), new connection`:"element/thermostat repair"}`,
-        "Commercial rules: ${ladderLabel(cfg)}",
-        "Geyser unit + kit costs back-derived (Assumption) — confirm buy-prices [VR-07, VR-08]",
-        g.jobType==="new_installation"
-          ? "New Point connection labour is a single sell-side quote line, not a true-cost breakdown (Assumption, unconfirmed) — not client-issuable until confirmed"
-          : "Labour block crew-derived (Assumption) — confirm vs actual crew hours [VR-09]",
         g.size===200?"200L pricing interpolated — no direct quote evidence":"",
         g.size===250?"250L evidence stale (2022) — reverify before client issue":"",
       ].filter(Boolean)
@@ -757,9 +749,6 @@ function printQuotePDF(inp: Inputs, scope: ScopeLine[], labour: LabourLine[], qu
         `Water points: ${inp.points}`,
         `Drainage: ${(inp.drainLines ?? []).filter(l=>l.metres>0).map(l=>`${l.metres}m ${l.type} ${l.diameter}mm`).join(", ") || "none"}`,
         `Trenching: ${inp.trenching?"Yes":"No"}`,
-        "Pipe rates per-metre from pack price (Plumblink 2026, excl VAT)",
-        "Commercial rules: ${ladderLabel(cfg)}",
-        "SA productivity factor: ×1.20 on Spon's UK constants (Assumption VR-05)",
       ];
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
 <title>${quoteRef} — Plumbing Quotation</title>
@@ -770,7 +759,7 @@ function printQuotePDF(inp: Inputs, scope: ScopeLine[], labour: LabourLine[], qu
 <div class="gold-bar"></div>
 <div class="parties"><div class="party"><div class="party-label">From</div><h3>${biz}</h3><p>${cfg.vatNumber?`VAT no. ${cfg.vatNumber}`:"Not VAT registered"}</p><p>${[cfg.contactName,cfg.phone,cfg.email].filter(Boolean).join(" · ")||"Phone · Email"}</p></div><div class="party"><div class="party-label">To</div><h3>${inp.projectName||"Project"}</h3><p>${inp.clientName||"Client name &amp; site address"}</p></div></div>
 <div class="section-bar">Scope of Work</div><div class="scope-box"><p style="font-size:11px;color:#4A6080;line-height:1.6">${scopeIntro}</p><div class="scope-grid">${scopeGrid}</div></div>
-<div class="section-bar">Pricing</div><table><thead><tr><th>Description</th><th style="text-align:right">Amount (excl VAT)</th></tr></thead><tbody><tr><td>Materials &amp; Supply<div class="sub">${g?"Geyser unit, valves, tray, vacuum breakers, consumables":"Pipe, fittings, connection assemblies, consumables"}</div></td><td>${fmtN(mat)}</td></tr><tr><td>Labour &amp; Installation<div class="sub">${g?(g.jobType==="burst_replacement"?"Remove old geyser, install &amp; commission new assembly":g.jobType==="new_installation"?"New Point connection (supply/drain/electrical) &amp; install":"Element / thermostat repair labour"):"Pipework, point make-off, fixture connection"}</div></td><td>${fmtN(lab)}</td></tr><tr><td>Project allowances &amp; margin<div class="sub">Waste, risk, contingency &amp; markup</div></td><td>${fmtN(allow)}</td></tr></tbody></table>
+<div class="section-bar">Pricing</div><table><thead><tr><th>Description</th><th style="text-align:right">Amount (excl VAT)</th></tr></thead><tbody><tr><td>Materials &amp; Supply<div class="sub">${g?"Geyser unit, valves, tray, vacuum breakers, consumables":"Pipe, fittings, connection assemblies, consumables"}</div></td><td>${fmtN(mat)}</td></tr><tr><td>Labour, Installation &amp; Project Costs<div class="sub">${g?(g.jobType==="burst_replacement"?"Remove old geyser, install &amp; commission new assembly":g.jobType==="new_installation"?"New Point connection (supply/drain/electrical) &amp; install":"Element / thermostat repair labour"):"Pipework, point make-off, fixture connection"}</div></td><td>${fmtN(lab+allow)}</td></tr></tbody></table>
 <div class="totals"><div class="total-row"><span>Subtotal (excl VAT)</span><span>R ${fmtN(ld.sell)}</span></div><div class="total-row"><span>VAT @ ${cfg.vatRatePct}%</span><span>R ${fmtN(vat)}</span></div></div>
 <div class="total-final"><span>Total Due</span><span>R ${fmtN(total)}</span></div>
 <div class="bottom-grid"><div class="bottom-box"><h4>Assumptions</h4>${assumptions.map(a=>`<div>— ${a}</div>`).join("")}</div><div class="bottom-box"><h4>Exclusions &amp; Terms</h4><div>— Builder's work, tiling, electrical and making-good excluded.</div><div>— 50% deposit on acceptance; balance on completion.</div><div>— Quote valid ${cfg.quoteValidityDays} days; subject to site confirmation.</div>${cfg.termsConditions?`<div>— ${cfg.termsConditions}</div>`:""}</div></div>
