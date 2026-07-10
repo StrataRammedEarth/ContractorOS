@@ -32,6 +32,12 @@ interface MaterialLine {
   unitPrice: number;
   total: number;
   conf: string;
+  // Stamped server-side at save time from plumblink_materials.section /
+  // sub_category (verbatim catalogue taxonomy, not job-section headings).
+  // null for lines with no matching material_code. Not yet rendered — see
+  // Brief 2 for Buy tab category grouping.
+  category?: string | null;
+  subCategory?: string | null;
 }
 
 interface LadderBreakdown {
