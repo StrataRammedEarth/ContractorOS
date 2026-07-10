@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { Link, getRouteApi } from "@tanstack/react-router";
-import { GearIcon } from "@/components/nav-icons";
+import { HamburgerButton, NavDrawer } from "@/components/NavDrawer";
 import {
   buildGeyserReplacement, buildElementRepair, buildNewInstallation, fetchGeyserPricing,
   type GeyserAssembly, type GeyserSize, type GeyserBrand, type GeyserJobType, type GeyserPricingData,
@@ -2096,6 +2096,7 @@ export default function EstimatePage() {
   const [screen, setScreen] = useState<"entry"|"scan"|"review"|"output">("entry");
   const [tab,    setTab]    = useState("estimate");
   const [inputs, setInputs] = useState<Inputs>(DEFAULT);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   // Active employees for the "Employees Allocated" picker (Brief 2). Fetched
   // once — same org-resolution path as the Settings page's Employee Details
@@ -2414,23 +2415,20 @@ export default function EstimatePage() {
 
   const AppHeader = ({ showTabs }: { showTabs: boolean }) => (
     <div style={{background:C.navy,borderBottom:`3px solid ${C.gold}`,position:"sticky",top:0,zIndex:100}}>
+      <NavDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        active={documentType === "invoice" ? "invoices" : "quotes"}
+      />
       <div style={{maxWidth:960,margin:"0 auto",padding:"12px 20px",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+        <HamburgerButton onClick={() => setDrawerOpen(true)} />
         <Link to="/" style={{textDecoration:"none"}}><Logo/></Link>
         <div style={{flex:1,marginLeft:4,minWidth:0}}>
           {showTabs&&<div style={{color:C.slateL,fontSize:12}}>{effInputs.projectName}</div>}
         </div>
-        <Link to="/profile" title="Profile & Settings" style={{display:"inline-flex",alignItems:"center",gap:6,color:C.gold,fontSize:12,fontWeight:600,textDecoration:"none",border:`1px solid ${C.gold}50`,borderRadius:6,padding:"5px 10px",whiteSpace:"nowrap"}}><GearIcon size={14} color={C.gold} strokeWidth={2} /> Settings</Link>
         {showTabs
-          ? <div style={{display:"flex",gap:12,alignItems:"center"}}>
-              <div style={{textAlign:"right"}}>
-                <div style={{color:C.muted,fontSize:10,letterSpacing:0.5}}>{documentType==="invoice"?"AMOUNT DUE incl. VAT":"SELL PRICE excl. VAT"}</div>
-                <div style={{color:C.gold,fontWeight:900,fontSize:20}}>{fmt(documentType==="invoice"?sell*(1+vatRate):sell)}</div>
-                <div style={{color:C.slateL,fontSize:10}}>{documentType==="invoice"?"🧾 ":"📄 "}{docRef || (isGeneratingRef ? "Generating..." : "Pending")}</div>
-              </div>
-              <GradePill grade={finalGrade}/>
-              <button onClick={()=>{setScreen("entry");setTab("estimate");}}
-                style={{padding:"5px 12px",borderRadius:6,border:`1px solid ${C.gold}50`,background:"transparent",color:C.gold,cursor:"pointer",fontSize:11,fontWeight:600}}>← Edit</button>
-            </div>
+          ? <button onClick={()=>{setScreen("entry");setTab("estimate");}}
+              style={{padding:"5px 12px",borderRadius:6,border:`1px solid ${C.gold}50`,background:"transparent",color:C.gold,cursor:"pointer",fontSize:11,fontWeight:600}}>← Edit</button>
           : <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
               {["Estimate","Buy","Build","Learn"].map(t=>(
                 <span key={t} style={{background:`${C.gold}22`,color:C.gold,fontSize:10,padding:"2px 7px",borderRadius:4,fontWeight:700}}>{t}</span>))}
