@@ -30,6 +30,7 @@ const C = {
   navy: "#0D1B2A",
   navyMid: "#152436",
   gold: "#F5A623",
+  goldPale: "#FDF3DC",
   slate: "#4A6080",
   slateL: "#6B859E",
   muted: "#8FA3B8",
@@ -1074,6 +1075,42 @@ function MonthlyReportView({
   );
 }
 
+// Toggle-button look shared by the Calendar/Reports and Day/Week/Month
+// pairs — the same dashed-gold "actionable" style as EstimatePage's
+// addLineBtn (cream fill, dashed gold border, navy text) for the inactive
+// state, with a solid-gold fill for the active/selected option so the two
+// read as clearly distinct states.
+const toggleBtnBase: CSSProperties = {
+  padding: "6px 14px",
+  borderRadius: 6,
+  fontWeight: 700,
+  fontSize: 12,
+  cursor: "pointer",
+  textTransform: "capitalize",
+};
+const toggleBtnInactive: CSSProperties = {
+  ...toggleBtnBase,
+  border: `1px dashed ${C.gold}`,
+  background: C.goldPale,
+  color: C.navy,
+};
+const toggleBtnActive: CSSProperties = {
+  ...toggleBtnBase,
+  border: `1px solid ${C.gold}`,
+  background: C.gold,
+  color: C.navy,
+};
+const navBtn: CSSProperties = {
+  padding: "7px 14px",
+  borderRadius: 6,
+  border: "1px solid #C8D0DB",
+  background: "#fff",
+  color: C.slate,
+  fontWeight: 700,
+  fontSize: 13,
+  cursor: "pointer",
+};
+
 type ViewMode = "day" | "week" | "month";
 type PageMode = "calendar" | "reports";
 
@@ -1392,29 +1429,6 @@ function TeamPage() {
       </div>
 
       <div style={{ maxWidth: 960, margin: "0 auto", padding: 20 }}>
-        {/* Calendar / Reports toggle */}
-        <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-          {(["calendar", "reports"] as PageMode[]).map((pm) => (
-            <button
-              key={pm}
-              onClick={() => setPageMode(pm)}
-              style={{
-                padding: "6px 14px",
-                borderRadius: 6,
-                border: `1px solid ${pageMode === pm ? C.gold : "#C8D0DB"}`,
-                background: pageMode === pm ? C.gold : "#fff",
-                color: pageMode === pm ? C.navy : C.slate,
-                fontWeight: 700,
-                fontSize: 12,
-                cursor: "pointer",
-                textTransform: "capitalize",
-              }}
-            >
-              {pm}
-            </button>
-          ))}
-        </div>
-
         {/* View toggle (Calendar only — Reports is always monthly) */}
         {pageMode === "calendar" && (
           <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
@@ -1422,17 +1436,7 @@ function TeamPage() {
               <button
                 key={vm}
                 onClick={() => setViewMode(vm)}
-                style={{
-                  padding: "6px 14px",
-                  borderRadius: 6,
-                  border: `1px solid ${viewMode === vm ? C.gold : "#C8D0DB"}`,
-                  background: viewMode === vm ? C.gold : "#fff",
-                  color: viewMode === vm ? C.navy : C.slate,
-                  fontWeight: 700,
-                  fontSize: 12,
-                  cursor: "pointer",
-                  textTransform: "capitalize",
-                }}
+                style={viewMode === vm ? toggleBtnActive : toggleBtnInactive}
               >
                 {vm}
               </button>
@@ -1440,46 +1444,38 @@ function TeamPage() {
           </div>
         )}
 
-        {/* Prev/next navigation */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: 14,
-          }}
-        >
-          <button
-            onClick={goPrev}
+        {/* Month label, with Prev / Calendar-Reports toggle / Next below it */}
+        <div style={{ marginBottom: 14 }}>
+          <div
             style={{
-              padding: "7px 14px",
-              borderRadius: 6,
-              border: "1px solid #C8D0DB",
-              background: "#fff",
-              color: C.slate,
-              fontWeight: 700,
-              fontSize: 13,
-              cursor: "pointer",
+              textAlign: "center",
+              fontWeight: 800,
+              fontSize: 16,
+              color: C.navy,
+              marginBottom: 8,
             }}
           >
-            ← Prev
-          </button>
-          <div style={{ fontWeight: 800, fontSize: 16, color: C.navy }}>{viewLabel}</div>
-          <button
-            onClick={goNext}
-            style={{
-              padding: "7px 14px",
-              borderRadius: 6,
-              border: "1px solid #C8D0DB",
-              background: "#fff",
-              color: C.slate,
-              fontWeight: 700,
-              fontSize: 13,
-              cursor: "pointer",
-            }}
-          >
-            Next →
-          </button>
+            {viewLabel}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <button onClick={goPrev} style={navBtn}>
+              ← Prev
+            </button>
+            <div style={{ display: "flex", gap: 6 }}>
+              {(["calendar", "reports"] as PageMode[]).map((pm) => (
+                <button
+                  key={pm}
+                  onClick={() => setPageMode(pm)}
+                  style={pageMode === pm ? toggleBtnActive : toggleBtnInactive}
+                >
+                  {pm}
+                </button>
+              ))}
+            </div>
+            <button onClick={goNext} style={navBtn}>
+              Next →
+            </button>
+          </div>
         </div>
 
         {pageMode === "reports" ? (
