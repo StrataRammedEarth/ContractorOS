@@ -84,16 +84,18 @@ function ArrowIcon() {
 }
 
 // ─── DOCUMENT-TYPE CARD ──────────────────────────────────────────────────────
-// Whole card is the click target → /plumbing?doc=<quote|invoice>. Navy circular
+// Whole card is the click target → the doc's list page. Navy circular
 // icon badge, gold left-border accent, decorative gold arrow on the right.
 function DocumentCard({
-  doc,
+  to,
+  search,
   heading,
   subtext,
   ariaLabel,
   icon,
 }: {
-  doc: "quote" | "invoice";
+  to: string;
+  search?: Record<string, string>;
   heading: string;
   subtext: string;
   ariaLabel: string;
@@ -101,8 +103,8 @@ function DocumentCard({
 }) {
   return (
     <Link
-      to="/plumbing"
-      search={{ doc }}
+      to={to}
+      search={search}
       aria-label={ariaLabel}
       className="doc-card"
       style={{
@@ -324,9 +326,9 @@ function Home() {
           </div>
         )}
 
-        {/* Document-type cards — the only choice the home page makes:
-            Quote vs Invoice. Each carries that choice to the plumbing
-            workflow page via the ?doc search param. */}
+        {/* Document-type cards — route to the Quotes/Invoices list pages,
+            where the user can view existing documents or start a new one
+            via the "+ New Estimate" / "+ New Invoice" button. */}
         <div
           style={{
             display: "grid",
@@ -336,17 +338,17 @@ function Home() {
           }}
         >
           <DocumentCard
-            doc="quote"
+            to="/estimates"
             heading="Quote"
             subtext="New quote"
-            ariaLabel="Create new quote"
+            ariaLabel="View quotes"
             icon={<DocumentIcon />}
           />
           <DocumentCard
-            doc="invoice"
+            to="/invoices"
             heading="Invoice"
             subtext="New job"
-            ariaLabel="Create new invoice"
+            ariaLabel="View invoices"
             icon={<ClipboardDollarIcon />}
           />
         </div>
