@@ -31,6 +31,7 @@ import {
   fetchCascadeCatalogue, distinctApplications, distinctSizes, distinctFittingTypes, matchingProducts,
 } from "@/lib/product-cascade";
 import { aggregateBuyList } from "@/lib/buy-list";
+import { GRADES, lowestGrade } from "@/lib/grades";
 
 // ─── SUPABASE (for the scan-drawing edge function) ────────────────────────────
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? "";
@@ -130,16 +131,7 @@ const backNavBtn: React.CSSProperties = {
 // header + data rows share the same class so their columns line up.
 
 // ─── CONFIDENCE GRADES ────────────────────────────────────────────────────────
-const GRADES: Record<string, { rank: number; color: string; bg: string }> = {
-  Locked:      { rank:6, color:"#0D1B2A", bg:"#E8EDF2" },
-  Validated:   { rank:5, color:"#27AE60", bg:"#EBF9EE" },
-  Sourced:     { rank:4, color:"#2E86AB", bg:"#E8F4F8" },
-  Derived:     { rank:3, color:"#8E44AD", bg:"#F5EEF8" },
-  Assumption:  { rank:2, color:"#E67E22", bg:"#FEF5E7" },
-  Placeholder: { rank:1, color:"#E74C3C", bg:"#FDEDEC" },
-};
-const lowestGrade = (...gs: string[]) =>
-  gs.reduce((m, g) => (GRADES[g]?.rank < GRADES[m]?.rank ? g : m), "Validated");
+// Shared with DocumentDetailPage's Buy list — see src/lib/grades.ts.
 
 // ─── MATERIAL LIBRARY ─────────────────────────────────────────────────────────
 const LIBRARY: Record<string, { desc: string; unit: string; price: number; conf: string; supplier: string }> = {
