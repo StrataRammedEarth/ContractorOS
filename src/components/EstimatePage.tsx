@@ -68,6 +68,7 @@ const T: Record<string, React.CSSProperties> = {
   total:      { fontSize:13, fontWeight:700, color:C.navy },
   secondary:  { fontSize:11, color:C.slateL },
   muted:      { fontSize:10, color:C.muted },
+  heroTotal:  { fontSize:36, fontWeight:900, color:C.gold },
 };
 
 // White section card: consistent radius, hairline border, subtle elevation and
@@ -644,6 +645,10 @@ const ladderLabel = (s: OrgSettings): string =>
 const businessFrom = (s: OrgSettings): string => s.businessName.trim() || "[Your Plumbing Business]";
 
 // ─── PDF GENERATORS ───────────────────────────────────────────────────────────
+// Deliberate second surface: these embed their own frozen CSS (Helvetica Neue,
+// literal hex values) instead of the C/T tokens above. Printed quotes/buy lists
+// are downloaded/emailed to clients and shouldn't shift if the in-app palette
+// changes later — treat this palette as frozen, not drift.
 function printQuotePDF(inp: Inputs, scope: ScopeLine[], labour: LabourLine[], quoteRef: string, cfg: OrgSettings = DEFAULT_SETTINGS) {
   const mat   = scope.reduce((s,l)=>s+l.total,0);
   const lab   = labour.reduce((s,l)=>s+l.cost,0);
@@ -955,7 +960,7 @@ function ScopeModal({ scope, labour, inputs, onConfirm, onBack }: { scope: Scope
         <div style={{padding:"20px 24px",maxHeight:"60vh",overflowY:"auto"}}>
           {inputs._scanNotes&&<div style={{background:"#FEF5E7",border:`1px solid ${C.amber}50`,borderRadius:6,padding:"8px 12px",marginBottom:12,fontSize:11,color:C.navy}}>📐 <strong>From scan:</strong> {inputs._scanNotes}</div>}
           <ul style={{paddingLeft:18,fontSize:13,color:C.navy,lineHeight:2}}>{items.map((item,i)=><li key={i}>{item}</li>)}</ul>
-          <div style={{background:"#F0F4F8",borderRadius:6,padding:"12px 16px",marginTop:14,display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,fontSize:12}}>
+          <div style={{background:UI.pageBg,borderRadius:6,padding:"12px 16px",marginTop:14,display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,fontSize:12}}>
             <div><div style={{color:C.slateL}}>Est. material</div><div style={{fontWeight:700,color:C.navy,fontSize:15}}>{fmt(mat)}</div></div>
             <div><div style={{color:C.slateL}}>Est. labour</div><div style={{fontWeight:700,color:C.navy,fontSize:15}}>{fmt(lab)}</div></div>
           </div>
@@ -986,7 +991,7 @@ function EstimateTab({ scope, labour, inputs, finalGrade, docRef, documentType, 
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:16}}>
           <div>
             <div style={{color:C.muted,fontSize:11,letterSpacing:1,textTransform:"uppercase"}}>Sell Price (excl. VAT)</div>
-            <div style={{color:C.gold,fontSize:36,fontWeight:900,letterSpacing:-1}}>{fmt(ld.sell)}</div>
+            <div style={{...T.heroTotal,letterSpacing:-1}}>{fmt(ld.sell)}</div>
             <div style={{color:C.slateL,fontSize:12,marginTop:4}}>{fmt(ld.sell*(1+vatRate))} incl. {vatPct}% VAT</div>
             <div style={{color:C.muted,fontSize:11,marginTop:2}}>{documentType==="invoice"?"Invoice":"Quote"} ref: {refDisplay}</div>
           </div>
@@ -1029,7 +1034,7 @@ function EstimateTab({ scope, labour, inputs, finalGrade, docRef, documentType, 
               <th key={h} style={{padding:"6px 10px",textAlign:"left",fontWeight:600,fontSize:10}}>{h}</th>))}
           </tr></thead>
           <tbody>{scope.map((l,i)=>(
-            <tr key={l.id} style={{background:i%2===0?C.offWhite:"#fff",borderBottom:"1px solid #E8EDF2"}}>
+            <tr key={l.id} style={{background:i%2===0?C.offWhite:"#fff",borderBottom:`1px solid ${UI.borderRow}`}}>
               <td style={{padding:"6px 10px",fontFamily:"monospace",fontSize:10,color:C.slate}}>{l.code}</td>
               <td style={{padding:"6px 10px",color:C.navy}}>{l.description}</td>
               <td style={{padding:"6px 10px",textAlign:"right"}}>{l.qty}</td>
@@ -1062,7 +1067,7 @@ function BuyTab({ scope, quoteRef, onPrintBuy }: { scope: ScopeLine[]; inputs: I
       <div style={{background:`linear-gradient(90deg,${C.navyMid},${C.navy})`,padding:"12px 20px",borderRadius:8,margin:16,display:"flex",justifyContent:"space-between",alignItems:"center",border:`1px solid ${C.gold}30`}}>
         <div>
           <div style={{color:C.muted,fontSize:11,textTransform:"uppercase",letterSpacing:1}}>Procurement Total (excl. VAT)</div>
-          <div style={{color:C.gold,fontSize:26,fontWeight:900}}>{fmt(total)}</div>
+          <div style={T.heroTotal}>{fmt(total)}</div>
           <div style={{color:C.slateL,fontSize:11}}>{fmt(total*1.15)} incl. VAT · {buyLines.length} lines</div>
         </div>
         <button onClick={onPrintBuy} style={{padding:"8px 18px",borderRadius:6,border:"none",background:C.gold,color:C.navy,cursor:"pointer",fontWeight:700,fontSize:12}}>⬇ Download Buy List</button>
@@ -1076,12 +1081,12 @@ function BuyTab({ scope, quoteRef, onPrintBuy }: { scope: ScopeLine[]; inputs: I
             </div>
             <div style={{overflowX:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:500}}>
-                <thead><tr style={{background:"#F0F4F8",color:C.slateL}}>
+                <thead><tr style={{background:UI.pageBg,color:C.slateL}}>
                   {["Code","Description","Qty","Unit","Unit Price","Total","Conf."].map(h=>(
                     <th key={h} style={{padding:"6px 10px",textAlign:"left",fontWeight:600,fontSize:10}}>{h}</th>))}
                 </tr></thead>
                 <tbody>{items.map((l,i)=>(
-                  <tr key={`${l.code}-${i}`} style={{background:i%2===0?C.offWhite:"#fff",borderBottom:"1px solid #E8EDF2"}}>
+                  <tr key={`${l.code}-${i}`} style={{background:i%2===0?C.offWhite:"#fff",borderBottom:`1px solid ${UI.borderRow}`}}>
                     <td style={{padding:"6px 10px",fontFamily:"monospace",fontSize:10,color:C.slateL}}>{l.code}</td>
                     <td style={{padding:"6px 10px",color:C.navy}}>{l.description}{l.sourceCount>1&&<span style={{color:C.slateL,fontWeight:600}}> · ×{l.sourceCount} lines merged</span>}</td>
                     <td style={{padding:"6px 10px",textAlign:"right",fontWeight:600}}>{l.qty}</td>
@@ -1118,12 +1123,12 @@ function BuildTab({ labour }: { labour: LabourLine[] }) {
       <SectionHeader>Labour Breakdown</SectionHeader>
       <div style={{overflowX:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:500}}>
-          <thead><tr style={{background:"#F0F4F8",color:C.slateL}}>
+          <thead><tr style={{background:UI.pageBg,color:C.slateL}}>
             {["Task","Hours","Rate/hr","Cost","Grade","Derivation"].map(h=>(
               <th key={h} style={{padding:"6px 10px",textAlign:"left",fontWeight:600,fontSize:10}}>{h}</th>))}
           </tr></thead>
           <tbody>{labour.map((l,i)=>(
-            <tr key={l.id} style={{background:i%2===0?C.offWhite:"#fff",borderBottom:"1px solid #E8EDF2"}}>
+            <tr key={l.id} style={{background:i%2===0?C.offWhite:"#fff",borderBottom:`1px solid ${UI.borderRow}`}}>
               <td style={{padding:"6px 10px",color:C.navy}}>{l.description}</td>
               <td style={{padding:"6px 10px",textAlign:"right"}}>{l.hours.toFixed(2)}</td>
               <td style={{padding:"6px 10px",textAlign:"right"}}>{fmt(l.rate)}</td>
@@ -1190,11 +1195,11 @@ function LearnTab({ scope, labour, flags=[], documentType="quote" }: { scope: Sc
       <SectionHeader>Validation Register</SectionHeader>
       <div style={{overflowX:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:420}}>
-          <thead><tr style={{background:"#F0F4F8"}}>
+          <thead><tr style={{background:UI.pageBg}}>
             {["ID","Description","Grade","Closes when"].map(h=>(<th key={h} style={{padding:"6px 10px",textAlign:"left",fontWeight:600,color:C.slateL,fontSize:10}}>{h}</th>))}
           </tr></thead>
           <tbody>{openVR.map((v,i)=>(
-            <tr key={v.id} style={{background:i%2===0?C.offWhite:"#fff",borderBottom:"1px solid #E8EDF2"}}>
+            <tr key={v.id} style={{background:i%2===0?C.offWhite:"#fff",borderBottom:`1px solid ${UI.borderRow}`}}>
               <td style={{padding:"7px 10px",fontFamily:"monospace",color:C.slate,fontWeight:700}}>{v.id}</td>
               <td style={{padding:"7px 10px",color:C.navy}}>{v.desc}</td>
               <td style={{padding:"7px 10px"}}><GradePill grade={v.grade}/></td>
@@ -1206,11 +1211,11 @@ function LearnTab({ scope, labour, flags=[], documentType="quote" }: { scope: Sc
       <SectionHeader>Derivation Audit — all lines</SectionHeader>
       <div style={{overflowX:"auto"}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:10,minWidth:380}}>
-          <thead><tr style={{background:"#F0F4F8"}}>
+          <thead><tr style={{background:UI.pageBg}}>
             {["ID","Description","Derivation","Grade"].map(h=>(<th key={h} style={{padding:"5px 10px",textAlign:"left",fontWeight:600,color:C.slateL}}>{h}</th>))}
           </tr></thead>
           <tbody>{[...scope,...labour].map((l,i)=>(
-            <tr key={l.id} style={{background:i%2===0?C.offWhite:"#fff",borderBottom:"1px solid #EDF0F5"}}>
+            <tr key={l.id} style={{background:i%2===0?C.offWhite:"#fff",borderBottom:`1px solid ${UI.borderRow}`}}>
               <td style={{padding:"5px 10px",fontFamily:"monospace",color:C.slateL}}>{l.id}</td>
               <td style={{padding:"5px 10px",color:C.navy}}>{l.description}</td>
               <td style={{padding:"5px 10px",color:C.slateL,fontStyle:"italic"}}>{l.derivation}</td>
@@ -2221,7 +2226,7 @@ export default function EstimatePage() {
 
         {jobMode==="plumbing"&&(<>
         {pipeSection("supply","Water Supply",
-          <div style={{display:"flex",alignItems:"center",gap:8,marginTop:10,paddingTop:10,borderTop:"1px solid #EDF0F5"}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginTop:10,paddingTop:10,borderTop:`1px solid ${UI.borderRow}`}}>
             <label style={{fontSize:11,color:C.slateL,fontWeight:600}}>Points (make-offs)</label>
             <input type="number" min={0} value={inputs.points}
               onChange={e=>setInp("points",Math.max(0,parseInt(e.target.value)||0))}
@@ -2230,7 +2235,7 @@ export default function EstimatePage() {
           </div>)}
 
         {pipeSection("drainage","Drainage",
-          <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",marginTop:10,paddingTop:10,borderTop:"1px solid #EDF0F5"}}>
+          <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",marginTop:10,paddingTop:10,borderTop:`1px solid ${UI.borderRow}`}}>
             <input type="checkbox" checked={inputs.trenching} onChange={e=>setInp("trenching",e.target.checked)} style={{width:16,height:16}}/>
             <span style={{fontSize:13,color:C.navy}}>Include trench excavation labour (across drainage lines)</span>
           </label>)}
