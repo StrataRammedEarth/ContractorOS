@@ -23,6 +23,13 @@ export interface TemplateRowInstance {
   materialCode: string | null;    // linked catalog code; null = no product resolved yet
   description: string;             // resolved PRODUCT description; '' until a product is picked/resolved
   productRole: string | null;     // template's human-readable row purpose (display only, not a product)
+  // Buy-list grouping (Brief 2b) — plumblink_materials.section/sub_category for
+  // the resolved product, carried through untouched by anything downstream of
+  // selectMaterial. null whenever no product is resolved, or the resolved
+  // product's row has no section/sub_category populated (e.g. Geyser-application
+  // rows, confirmed null in the live catalogue).
+  category: string | null;
+  subCategory: string | null;
   unitPrice: number;
   quantityBasis: number;          // fixture count (scope='fixture') or run length in metres (scope='system')
   defaultQty: number;             // fixture_template_rows.default_qty; 1 for Custom rows
@@ -53,6 +60,8 @@ export function initialRowInstance(row: FixtureTemplateRow, quantityBasis: numbe
     // enabling its checkbox. product_role is carried separately for display.
     description: '',
     productRole: row.product_role,
+    category: null,
+    subCategory: null,
     unitPrice: 0, // resolved once the linked material's price is looked up (Phase 5)
     quantityBasis,
     defaultQty: row.default_qty,
@@ -75,6 +84,8 @@ export function createCustomRowInstance(quantityBasis: number): TemplateRowInsta
     materialCode: null,
     description: '',
     productRole: null,
+    category: null,
+    subCategory: null,
     unitPrice: 0,
     quantityBasis,
     defaultQty: 1,
@@ -100,6 +111,8 @@ export function createCatalogRowInstance(quantityBasis: number): TemplateRowInst
     materialCode: null,
     description: '',
     productRole: null,
+    category: null,
+    subCategory: null,
     unitPrice: 0,
     quantityBasis,
     defaultQty: 1,
@@ -207,13 +220,15 @@ export function setChecked(row: TemplateRowInstance, checked: boolean): Template
 // case) — so touched flips to true here even without a separate checkbox click.
 export function selectMaterial(
   row: TemplateRowInstance,
-  material: { materialCode: string; description: string; unitPrice: number }
+  material: { materialCode: string; description: string; unitPrice: number; category?: string | null; subCategory?: string | null }
 ): TemplateRowInstance {
   return {
     ...row,
     materialCode: material.materialCode,
     description: material.description,
     unitPrice: material.unitPrice,
+    category: material.category ?? null,
+    subCategory: material.subCategory ?? null,
     touched: row.checked ? true : row.touched,
   };
 }
@@ -224,6 +239,8 @@ export function setManualProduct(row: TemplateRowInstance, description: string, 
     materialCode: null,
     description,
     unitPrice,
+    category: null,
+    subCategory: null,
     touched: row.checked ? true : row.touched,
   };
 }
@@ -232,30 +249,30 @@ export function setManualProduct(row: TemplateRowInstance, description: string, 
 // of it in the fixture cascade's Application → Fitting Type → Size → Product
 // chain, so a stale selection can never survive an upstream change.
 export function setApplication(row: TemplateRowInstance, application: string): TemplateRowInstance {
-  return { ...row, application, fittingType: '', nominalSize: null, materialCode: null, description: '', unitPrice: 0, touched: true };
+  return { ...row, application, fittingType: '', nominalSize: null, materialCode: null, description: '', unitPrice: 0, category: null, subCategory: null, touched: true };
 }
 
 // Fitting Type precedes Size in the fixture cascade, so changing it clears Size
 // (and the product) downstream.
 export function setFittingType(row: TemplateRowInstance, fittingType: string): TemplateRowInstance {
-  return { ...row, fittingType, nominalSize: null, materialCode: null, description: '', unitPrice: 0, touched: true };
+  return { ...row, fittingType, nominalSize: null, materialCode: null, description: '', unitPrice: 0, category: null, subCategory: null, touched: true };
 }
 
 // Size is the last step before Product in the fixture cascade — it clears only
 // the resolved product, never the upstream Fitting Type.
 export function setSize(row: TemplateRowInstance, size: string | null): TemplateRowInstance {
-  return { ...row, nominalSize: size, materialCode: null, description: '', unitPrice: 0, touched: true };
+  return { ...row, nominalSize: size, materialCode: null, description: '', unitPrice: 0, category: null, subCategory: null, touched: true };
 }
 
 // Standalone-section setters — the Supply/Drainage tables run the cascade in the
 // opposite middle order (Size → Fitting Type → Product) with Application fixed,
 // so Size is upstream of Fitting Type here and clears it on change.
 export function setStandaloneSize(row: TemplateRowInstance, size: string | null): TemplateRowInstance {
-  return { ...row, nominalSize: size, fittingType: '', materialCode: null, description: '', unitPrice: 0, touched: true };
+  return { ...row, nominalSize: size, fittingType: '', materialCode: null, description: '', unitPrice: 0, category: null, subCategory: null, touched: true };
 }
 
 export function setStandaloneFittingType(row: TemplateRowInstance, fittingType: string): TemplateRowInstance {
-  return { ...row, fittingType, materialCode: null, description: '', unitPrice: 0, touched: true };
+  return { ...row, fittingType, materialCode: null, description: '', unitPrice: 0, category: null, subCategory: null, touched: true };
 }
 
 // "Suggested fittings (2 of 2 confirmed)" / "Optional fittings (0 of 6 selected)"
