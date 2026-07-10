@@ -2633,47 +2633,7 @@ export default function EstimatePage() {
           </div>
         </div>)}
 
-        {/* Job sections — independent toggles replacing the old exclusive
-            dropdown. A job can hold any combination of Water Supply, Drainage,
-            Geyser and Fixtures data concurrently. Scan Drawing stays a distinct
-            full-screen flow rather than a fifth toggle. Document type (quote vs
-            invoice) is NOT chosen here — it arrives from home. */}
-        <div style={cardStyle}>
-          <SectionHeader>Job sections</SectionHeader>
-          <div style={{padding:S.xl}}>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginBottom:10}}>
-              {([
-                {key:"waterSupply" as const, label:"Water Supply"},
-                {key:"drainage" as const, label:"Drainage"},
-                {key:"geyser" as const, label:"Geyser"},
-                {key:"fixtures" as const, label:"Fixtures"},
-              ]).map(s=>{
-                const on = activeSections[s.key];
-                return (
-                <button key={s.key} onClick={()=>toggleSection(s.key)} className="cos-toggle" aria-pressed={on} style={{
-                  display:"flex",alignItems:"center",justifyContent:"center",gap:7,
-                  padding:"11px 12px",borderRadius:8,cursor:"pointer",fontSize:12.5,fontWeight:800,
-                  border:`2px solid ${on?C.gold:UI.borderStrong}`,
-                  background:on?C.gold:C.white,color:on?C.navy:C.slate,
-                  boxShadow:on?"0 2px 8px rgba(245,166,35,0.35)":"none"}}>
-                  <span aria-hidden style={{display:"inline-flex",alignItems:"center",justifyContent:"center",
-                    width:16,height:16,borderRadius:"50%",flexShrink:0,fontSize:10,fontWeight:900,
-                    background:on?C.navy:"transparent",color:on?C.gold:"transparent",
-                    border:on?"none":`2px solid ${UI.borderStrong}`}}>{on?"✓":""}</span>
-                  {s.label}
-                </button>);
-              })}
-            </div>
-            <button onClick={()=>setScreen("scan")}
-              style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1px solid ${UI.borderStrong}`,background:C.white,color:C.slate,fontWeight:700,fontSize:12.5,cursor:"pointer"}}>
-              📐 Scan Drawing instead
-            </button>
-            <div style={{fontSize:11,color:C.muted,marginTop:8}}>
-              Enable any combination — a job can hold Water Supply, Drainage, Geyser and Fixtures data at once.
-            </div>
-          </div>
-        </div>
-
+        <SectionGroup label="Project Details" subHeadings={["Project Details"]}>
         <div style={cardStyle}>
           <SectionHeader>Project Details</SectionHeader>
           <div style={{padding:S.xl,display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
@@ -2722,6 +2682,48 @@ export default function EstimatePage() {
                 <span style={{fontSize:13,color:C.navy}}>After-hours job — applies {settings.afterHoursMultiplier}× to labour rate</span>
               </label>
             </div>)}
+          </div>
+        </div>
+        </SectionGroup>
+
+        {/* Job sections — independent toggles replacing the old exclusive
+            dropdown. A job can hold any combination of Water Supply, Drainage,
+            Geyser and Fixtures data concurrently. Scan Drawing stays a distinct
+            full-screen flow rather than a fifth toggle. Document type (quote vs
+            invoice) is NOT chosen here — it arrives from home. */}
+        <div style={cardStyle}>
+          <SectionHeader>Job sections</SectionHeader>
+          <div style={{padding:S.xl}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginBottom:10}}>
+              {([
+                {key:"waterSupply" as const, label:"Water Supply"},
+                {key:"drainage" as const, label:"Drainage"},
+                {key:"geyser" as const, label:"Geyser"},
+                {key:"fixtures" as const, label:"Fixtures"},
+              ]).map(s=>{
+                const on = activeSections[s.key];
+                return (
+                <button key={s.key} onClick={()=>toggleSection(s.key)} className="cos-toggle" aria-pressed={on} style={{
+                  display:"flex",alignItems:"center",justifyContent:"center",gap:7,
+                  padding:"11px 12px",borderRadius:8,cursor:"pointer",fontSize:12.5,fontWeight:800,
+                  border:`2px solid ${on?C.gold:UI.borderStrong}`,
+                  background:on?C.gold:C.white,color:on?C.navy:C.slate,
+                  boxShadow:on?"0 2px 8px rgba(245,166,35,0.35)":"none"}}>
+                  <span aria-hidden style={{display:"inline-flex",alignItems:"center",justifyContent:"center",
+                    width:16,height:16,borderRadius:"50%",flexShrink:0,fontSize:10,fontWeight:900,
+                    background:on?C.navy:"transparent",color:on?C.gold:"transparent",
+                    border:on?"none":`2px solid ${UI.borderStrong}`}}>{on?"✓":""}</span>
+                  {s.label}
+                </button>);
+              })}
+            </div>
+            <button onClick={()=>setScreen("scan")}
+              style={{width:"100%",padding:"10px 12px",borderRadius:8,border:`1px solid ${UI.borderStrong}`,background:C.white,color:C.slate,fontWeight:700,fontSize:12.5,cursor:"pointer"}}>
+              📐 Scan Drawing instead
+            </button>
+            <div style={{fontSize:11,color:C.muted,marginTop:8}}>
+              Enable any combination — a job can hold Water Supply, Drainage, Geyser and Fixtures data at once.
+            </div>
           </div>
         </div>
 
