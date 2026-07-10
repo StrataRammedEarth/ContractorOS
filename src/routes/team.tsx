@@ -220,7 +220,9 @@ function DayCell({
             ? date.toLocaleDateString("en-ZA", { weekday: "short", day: "numeric", month: "short" })
             : date.getDate()}
         </div>
-        <PresentCountBadge present={presentCount} total={totalEmployees} richer={richer} />
+        {attendance.length > 0 && (
+          <PresentCountBadge present={presentCount} total={totalEmployees} richer={richer} />
+        )}
       </div>
       <button
         onClick={onClick}
