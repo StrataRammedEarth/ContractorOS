@@ -994,28 +994,18 @@ function ScopeModal({ scope, labour, inputs, onConfirm, onBack }: { scope: Scope
   const mat=scope.reduce((s,l)=>s+l.total,0);
   const lab=labour.reduce((s,l)=>s+l.cost,0);
   const g=inputs._geyser;
-  const items = g
+  const summaryNotes = g
     ? [
         g.jobType==="burst_replacement"
           ? `${g.size}L ${g.brand} B-rated geyser — remove & replace`
           : g.jobType==="new_installation"
           ? `${g.size}L ${g.brand} B-rated geyser — new installation`
           : `${g.size}L geyser — element / thermostat repair`,
-        ...scope.map(l=>`${l.qty}× ${l.description}`),
-        `Labour: ${fmt(lab)} (${g.jobType==="burst_replacement"?"fixed crew block":g.jobType==="new_installation"?"New Point connection, flat rate":"flat-rate repair"})`,
         g.solar?"Solar geyser — thermostat not replaced":null,
       ].filter(Boolean)
     : [
-        ...((inputs.supplyLines ?? []).filter(l=>l.metres>0)
-          .map(l=>`${l.metres}m ${l.type} ${l.diameter?l.diameter+"mm ":""}supply${l.source==="custom"?" (custom)":""}`)),
         `${inputs.points} plumbing points (make-offs)`,
-        ...((inputs.drainLines ?? []).filter(l=>l.metres>0)
-          .map(l=>`${l.metres}m ${l.type} ${l.diameter?l.diameter+"mm ":""}drainage${l.source==="custom"?" (custom)":""}`)),
         inputs.trenching?"Trench excavation included":"No trenching",
-        ...((inputs.fixtureLines ?? []).filter(l=>l.quantity>0)
-          .map(l=>`${l.quantity}× ${l.description || l.type}${l.source==="custom"?" (custom)":""}`)),
-        ...([...(inputs.supplyFittings ?? []), ...(inputs.drainageFittings ?? [])].filter(r=>isPriced(r))
-          .map(r=>`${resolvedQty(r)}× ${r.description || r.fittingType}${r.nominalSize?` ${r.nominalSize}`:""}`)),
       ].filter(Boolean);
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(13,27,42,0.88)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999,padding:20}}>
@@ -1026,7 +1016,59 @@ function ScopeModal({ scope, labour, inputs, onConfirm, onBack }: { scope: Scope
         </div>
         <div style={{padding:"20px 24px",maxHeight:"60vh",overflowY:"auto"}}>
           {inputs._scanNotes&&<div style={{background:"#FEF5E7",border:`1px solid ${C.amber}50`,borderRadius:6,padding:"8px 12px",marginBottom:12,fontSize:11,color:C.navy}}>📐 <strong>From scan:</strong> {inputs._scanNotes}</div>}
-          <ul style={{paddingLeft:18,fontSize:13,color:C.navy,lineHeight:2}}>{items.map((item,i)=><li key={i}>{item}</li>)}</ul>
+          {summaryNotes.length>0&&(
+            <ul style={{paddingLeft:18,fontSize:13,color:C.navy,lineHeight:1.8,marginBottom:16}}>{summaryNotes.map((item,i)=><li key={i}>{item}</li>)}</ul>
+          )}
+          {scope.length>0&&(
+            <div style={{marginBottom:16}}>
+              <div style={{fontWeight:800,fontSize:13,color:C.navy,marginBottom:6}}>Materials</div>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                <thead>
+                  <tr style={{textAlign:"left",color:C.slateL,fontSize:10,textTransform:"uppercase",borderBottom:"1px solid #E0E5EC"}}>
+                    <th style={{padding:"4px 6px",fontWeight:700}}>Item</th>
+                    <th style={{padding:"4px 6px",fontWeight:700,textAlign:"center"}}>Qty</th>
+                    <th style={{padding:"4px 6px",fontWeight:700,textAlign:"right"}}>Unit Price</th>
+                    <th style={{padding:"4px 6px",fontWeight:700,textAlign:"right"}}>Line Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {scope.map(l=>(
+                    <tr key={l.id} style={{borderBottom:"1px solid #F1F4F8"}}>
+                      <td style={{padding:"6px 6px",color:C.navy}}>{l.description}</td>
+                      <td style={{padding:"6px 6px",textAlign:"center",color:C.navy}}>{l.qty} {l.unit}</td>
+                      <td style={{padding:"6px 6px",textAlign:"right",color:C.navy}}>{fmt(l.unitPrice)}</td>
+                      <td style={{padding:"6px 6px",textAlign:"right",color:C.navy,fontWeight:700}}>{fmt(l.total)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {labour.length>0&&(
+            <div style={{marginBottom:16}}>
+              <div style={{fontWeight:800,fontSize:13,color:C.navy,marginBottom:6}}>Labour</div>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                <thead>
+                  <tr style={{textAlign:"left",color:C.slateL,fontSize:10,textTransform:"uppercase",borderBottom:"1px solid #E0E5EC"}}>
+                    <th style={{padding:"4px 6px",fontWeight:700}}>Task</th>
+                    <th style={{padding:"4px 6px",fontWeight:700,textAlign:"center"}}>Hours</th>
+                    <th style={{padding:"4px 6px",fontWeight:700,textAlign:"right"}}>Rate/hr</th>
+                    <th style={{padding:"4px 6px",fontWeight:700,textAlign:"right"}}>Cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {labour.map(l=>(
+                    <tr key={l.id} style={{borderBottom:"1px solid #F1F4F8"}}>
+                      <td style={{padding:"6px 6px",color:C.navy}}>{l.description}</td>
+                      <td style={{padding:"6px 6px",textAlign:"center",color:C.navy}}>{l.hours.toFixed(2)}</td>
+                      <td style={{padding:"6px 6px",textAlign:"right",color:C.navy}}>{fmt(l.rate)}</td>
+                      <td style={{padding:"6px 6px",textAlign:"right",color:C.navy,fontWeight:700}}>{fmt(l.cost)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
           <div style={{background:"#F0F4F8",borderRadius:6,padding:"12px 16px",marginTop:14,display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,fontSize:12}}>
             <div><div style={{color:C.slateL}}>Est. material</div><div style={{fontWeight:700,color:C.navy,fontSize:15}}>{fmt(mat)}</div></div>
             <div><div style={{color:C.slateL}}>Est. labour</div><div style={{fontWeight:700,color:C.navy,fontSize:15}}>{fmt(lab)}</div></div>
