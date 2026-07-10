@@ -277,8 +277,8 @@ function Home() {
             justifyContent: "space-between",
           }}
         >
-          <Logo />
           <HamburgerButton onClick={() => setDrawerOpen(true)} />
+          <Logo />
         </div>
       </div>
 
