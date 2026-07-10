@@ -38,6 +38,10 @@ interface MaterialLine {
   // Brief 2 for Buy tab category grouping.
   category?: string | null;
   subCategory?: string | null;
+  // Stamped alongside category/subCategory: "Plumblink" for a
+  // plumblink_materials match, else the library_records supplier value for a
+  // library_records match, else null. Not yet rendered — see Brief 2.
+  supplier?: string | null;
 }
 
 interface LadderBreakdown {
