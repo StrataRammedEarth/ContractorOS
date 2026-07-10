@@ -127,16 +127,25 @@ function buildMonthGrid(monthAnchor: Date): { date: Date; inMonth: boolean }[][]
   return weeks;
 }
 
-function AttendanceBadge({ record, richer }: { record: AttendanceRecord; richer?: boolean }) {
-  const color = STATUS_COLORS[record.status];
-  const label = STATUS_LABELS[record.status] ?? record.status;
-  const name = record.employee_name ?? "Unknown";
-  const displayText = richer ? `${name} — ${label}` : name.split(" ")[0];
+// Present-count summary for a day cell — collapses the per-employee badge list
+// into a single indicator, reusing the same green/amber/red convention as
+// AttendanceBadge's per-status colors rather than inventing a new palette.
+function PresentCountBadge({
+  present,
+  total,
+  richer,
+}: {
+  present: number;
+  total: number;
+  richer?: boolean;
+}) {
+  if (total === 0) return null;
+  const color = present === 0 ? C.red : present === total ? C.green : C.gold;
   return (
     <div
-      title={`${name} — ${label}`}
+      title={`${present} of ${total} present`}
       style={{
-        display: "flex",
+        display: "inline-flex",
         alignItems: "center",
         gap: 4,
         background: `${color}1A`,
@@ -144,11 +153,9 @@ function AttendanceBadge({ record, richer }: { record: AttendanceRecord; richer?
         borderRadius: 4,
         padding: richer ? "3px 7px" : "1px 5px",
         fontSize: richer ? 12 : 10,
+        fontWeight: 700,
         color: C.navy,
-        marginBottom: richer ? 4 : 2,
-        overflow: "hidden",
         whiteSpace: "nowrap",
-        textOverflow: "ellipsis",
       }}
     >
       <span
@@ -160,30 +167,7 @@ function AttendanceBadge({ record, richer }: { record: AttendanceRecord; richer?
           background: color,
         }}
       />
-      <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{displayText}</span>
-    </div>
-  );
-}
-
-function DriverLogEntry({ log, richer }: { log: DriverLog; richer?: boolean }) {
-  const parts = [log.vehicle_registration ?? "Unknown vehicle", log.employee_name].filter(Boolean);
-  if (richer && (log.start_time || log.end_time)) {
-    parts.push(`${log.start_time ?? "?"}–${log.end_time ?? "?"}`);
-  }
-  const label = parts.join(" · ");
-  return (
-    <div
-      title={label}
-      style={{
-        fontSize: richer ? 12 : 10,
-        color: C.slate,
-        marginBottom: richer ? 4 : 2,
-        overflow: "hidden",
-        whiteSpace: "nowrap",
-        textOverflow: "ellipsis",
-      }}
-    >
-      🚚 {label}
+      {present}/{total}
     </div>
   );
 }
@@ -192,22 +176,23 @@ function DayCell({
   date,
   inMonth,
   attendance,
-  driverLogs,
+  totalEmployees,
   richer,
   onClick,
 }: {
   date: Date;
   inMonth: boolean;
   attendance: AttendanceRecord[];
-  driverLogs: DriverLog[];
+  totalEmployees: number;
   richer?: boolean;
   onClick: () => void;
 }) {
   const isToday = dateKey(date) === dateKey(new Date());
+  const presentCount = attendance.filter(
+    (a) => a.status === "present" || a.status === "half_day",
+  ).length;
   return (
     <div
-      onClick={onClick}
-      title="Click to mark attendance"
       style={{
         minHeight: richer ? 220 : 92,
         border: "1px solid #DDE3EA",
@@ -215,27 +200,45 @@ function DayCell({
         padding: richer ? 10 : 6,
         background: inMonth ? "#fff" : "#F7F9FB",
         opacity: inMonth ? 1 : 0.55,
-        cursor: "pointer",
+        display: "flex",
+        flexDirection: "column",
+        gap: richer ? 8 : 4,
       }}
     >
       <div
+        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 4 }}
+      >
+        <div
+          style={{
+            fontSize: richer ? 13 : 11,
+            fontWeight: isToday ? 800 : 600,
+            color: isToday ? C.gold : inMonth ? C.navy : C.muted,
+          }}
+        >
+          {richer
+            ? date.toLocaleDateString("en-ZA", { weekday: "short", day: "numeric", month: "short" })
+            : date.getDate()}
+        </div>
+        <PresentCountBadge present={presentCount} total={totalEmployees} richer={richer} />
+      </div>
+      <button
+        onClick={onClick}
+        title="View team attendance & driver logs for this day"
         style={{
-          fontSize: richer ? 13 : 11,
-          fontWeight: isToday ? 800 : 600,
-          color: isToday ? C.gold : inMonth ? C.navy : C.muted,
-          marginBottom: richer ? 8 : 4,
+          marginTop: "auto",
+          alignSelf: "flex-start",
+          padding: richer ? "6px 10px" : "3px 6px",
+          borderRadius: 6,
+          border: "1px solid #C8D0DB",
+          background: "#fff",
+          color: C.navy,
+          fontWeight: 700,
+          fontSize: richer ? 12 : 10,
+          cursor: "pointer",
         }}
       >
-        {richer
-          ? date.toLocaleDateString("en-ZA", { weekday: "short", day: "numeric", month: "short" })
-          : date.getDate()}
-      </div>
-      {attendance.map((a) => (
-        <AttendanceBadge key={a.id} record={a} richer={richer} />
-      ))}
-      {driverLogs.map((l) => (
-        <DriverLogEntry key={l.id} log={l} richer={richer} />
-      ))}
+        Team
+      </button>
     </div>
   );
 }
@@ -1541,7 +1544,7 @@ function TeamPage() {
                       date={date}
                       inMonth={inMonth}
                       attendance={attendanceByDate.get(key) ?? []}
-                      driverLogs={driverLogsByDate.get(key) ?? []}
+                      totalEmployees={employees.length}
                       onClick={() => openDay(date)}
                     />
                   );
@@ -1566,7 +1569,7 @@ function TeamPage() {
                   inMonth
                   richer
                   attendance={attendanceByDate.get(key) ?? []}
-                  driverLogs={driverLogsByDate.get(key) ?? []}
+                  totalEmployees={employees.length}
                   onClick={() => openDay(date)}
                 />
               );
