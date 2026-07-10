@@ -30,7 +30,7 @@ import type { PlumblinkMaterial } from "@/lib/product-filter";
 import {
   fetchCascadeCatalogue, distinctApplications, distinctSizes, distinctFittingTypes, matchingProducts,
 } from "@/lib/product-cascade";
-import { aggregateBuyList } from "@/lib/buy-list";
+import { aggregateBuyList, groupByCategory } from "@/lib/buy-list";
 import { GRADES, lowestGrade } from "@/lib/grades";
 
 // ─── SUPABASE (for the scan-drawing edge function) ────────────────────────────
@@ -271,6 +271,13 @@ interface Inputs {
 interface ScopeLine {
   id: string; code: string; description: string; qty: number; unit: string;
   unitPrice: number; conf: string; total: number; supplier: string; derivation: string; mode: string;
+  // Buy-list grouping (Brief 2b) — plumblink_materials.section/sub_category (or
+  // the geyser-assembly builders_materials/geyser_components equivalent), where
+  // known. null for lines with no live catalogue match (LIBRARY/PIPE_LOOKUP/
+  // geyser PCV-VB fallback codes) — these group under Uncategorized in BuyTab,
+  // same convention as DocumentDetailPage's saved-document view.
+  category?: string | null;
+  subCategory?: string | null;
 }
 interface LabourLine {
   id: string; description: string; hours: number; rate: number; cost: number; conf: string; derivation: string;
@@ -511,6 +518,7 @@ function buildScope(inp: Inputs, opts: { invoiceStrict?: boolean } = {}): ScopeL
         qty, unit:"ea", unitPrice: r.unitPrice, conf: grade,
         total: resolvedTotal(r),
         supplier: r.materialCode ? "Plumblink" : "Custom",
+        category: r.category, subCategory: r.subCategory,
         derivation: `${qty} × R${r.unitPrice.toFixed(2)} (${sectionLabel} fitting · ${grade})`,
         mode:"Supply",
       });
@@ -542,6 +550,7 @@ function buildScope(inp: Inputs, opts: { invoiceStrict?: boolean } = {}): ScopeL
         qty, unit:"ea", unitPrice: r.unitPrice, conf: grade,
         total: resolvedTotal(r),
         supplier: r.materialCode ? "Plumblink" : "Custom",
+        category: r.category, subCategory: r.subCategory,
         derivation: `${qty} × R${r.unitPrice.toFixed(2)} (${tpl.templateName} · ${rowState(r)} · ${grade})`,
         mode:"Supply",
       });
@@ -594,6 +603,8 @@ function geyserToScope(asm: GeyserAssembly): ScopeLine[] {
     conf: l.grade,
     total: l.total,
     supplier,
+    category: l.category ?? null,
+    subCategory: l.subCategory ?? null,
     derivation: `${l.writingMode} · true cost excl. margin`,
     mode: l.writingMode,
   }));
@@ -1146,9 +1157,12 @@ function EstimateTab({ scope, labour, inputs, finalGrade, docRef, documentType, 
 function BuyTab({ scope, quoteRef, onPrintBuy }: { scope: ScopeLine[]; inputs: Inputs; quoteRef: string | null; onPrintBuy: () => void }) {
   // Collapse identical material codes into one procurement line (summed qty);
   // custom lines stay separate. Procurement total is unchanged by aggregation.
-  const buyLines = aggregateBuyList(scope, lowestGrade);
-  const bySupplier: Record<string, typeof buyLines> = {};
-  buyLines.forEach(l=>{const s=l.supplier||"Other";if(!bySupplier[s])bySupplier[s]=[];bySupplier[s].push(l);});
+  // Same-code lines always share one category/subCategory pair (category is
+  // derived from the code's catalogue lookup), so a merge can never straddle a
+  // category/subCategory boundary — same guarantee DocumentDetailPage.tsx's
+  // saved-document Buy list relies on.
+  const buyLines = aggregateBuyList(scope, lowestGrade) as (ScopeLine & { sourceCount: number })[];
+  const categoryGroups = groupByCategory(buyLines);
   const total=buyLines.reduce((s,l)=>s+l.total,0);
   return (
     <div>
@@ -1160,36 +1174,42 @@ function BuyTab({ scope, quoteRef, onPrintBuy }: { scope: ScopeLine[]; inputs: I
         </div>
         <button onClick={onPrintBuy} style={primaryBtn}>⬇ Download Buy List</button>
       </div>
-      {Object.entries(bySupplier).map(([sup,items])=>{
-        const st=items.reduce((s,l)=>s+l.total,0);
-        return (
-          <div key={sup}>
-            <div style={{background:C.navyMid,color:C.gold,fontSize:11,fontWeight:700,letterSpacing:0.8,textTransform:"uppercase",padding:"6px 16px",display:"flex",justifyContent:"space-between"}}>
-              <span>{sup} ({items.length})</span><span>{fmt(st)}</span>
-            </div>
-            <div style={{overflowX:"auto"}}>
-              <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:500}}>
-                <thead><tr style={{background:"#F0F4F8",color:C.slateL}}>
-                  {["Code","Description","Qty","Unit","Unit Price","Total","Conf."].map(h=>(
-                    <th key={h} style={{padding:"6px 10px",textAlign:"left",fontWeight:600,fontSize:10}}>{h}</th>))}
-                </tr></thead>
-                <tbody>{items.map((l,i)=>(
-                  <tr key={`${l.code}-${i}`} style={{background:i%2===0?C.offWhite:"#fff",borderBottom:"1px solid #E8EDF2"}}>
-                    <td style={{padding:"6px 10px",fontFamily:"monospace",fontSize:10,color:C.slateL}}>{l.code}</td>
-                    <td style={{padding:"6px 10px",color:C.navy}}>{l.description}{l.sourceCount>1&&<span style={{color:C.slateL,fontWeight:600}}> · ×{l.sourceCount} lines merged</span>}</td>
-                    <td style={{padding:"6px 10px",textAlign:"right",fontWeight:600}}>{l.qty}</td>
-                    <td style={{padding:"6px 10px",color:C.slateL}}>{l.unit}</td>
-                    <td style={{padding:"6px 10px",textAlign:"right"}}>{fmt(l.unitPrice)}</td>
-                    <td style={{padding:"6px 10px",textAlign:"right",fontWeight:600}}>{fmt(l.total)}</td>
-                    <td style={{padding:"6px 10px"}}><GradePill grade={l.conf}/></td>
-                  </tr>))}
-                </tbody>
-              </table>
-            </div>
+      {categoryGroups.map((group) => (
+        <div key={group.category} style={{ margin:"0 16px 14px" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", padding:"4px 2px", color:C.navy, fontWeight:800, fontSize:13 }}>
+            <span>{group.category}</span>
+            <span>{fmt(group.total)}</span>
           </div>
-        );
-      })}
-      <div style={{background:"#FEF5E7",border:`1px solid ${C.amber}40`,borderRadius:6,padding:"10px 16px",margin:"0 0 8px",fontSize:11,color:C.navy}}>
+          {group.subGroups.map((sub) => (
+            <div key={sub.subCategory} style={{ marginBottom:8 }}>
+              <div style={{background:C.navyMid,color:C.gold,fontSize:10,fontWeight:700,letterSpacing:0.8,textTransform:"uppercase",padding:"5px 12px",display:"flex",justifyContent:"space-between"}}>
+                <span>{sub.subCategory}</span><span>{fmt(sub.total)}</span>
+              </div>
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:600}}>
+                  <thead><tr style={{background:"#F0F4F8",color:C.slateL}}>
+                    {["Code","Description","Supplier","Qty","Unit","Unit Price","Total","Conf."].map(h=>(
+                      <th key={h} style={{padding:"6px 10px",textAlign:"left",fontWeight:600,fontSize:10}}>{h}</th>))}
+                  </tr></thead>
+                  <tbody>{sub.lines.map((l,i)=>(
+                    <tr key={`${l.code}-${i}`} style={{background:i%2===0?C.offWhite:"#fff",borderBottom:"1px solid #E8EDF2"}}>
+                      <td style={{padding:"6px 10px",fontFamily:"monospace",fontSize:10,color:C.slateL}}>{l.code}</td>
+                      <td style={{padding:"6px 10px",color:C.navy}}>{l.description}{l.sourceCount>1&&<span style={{color:C.slateL,fontWeight:600}}> · ×{l.sourceCount} lines merged</span>}</td>
+                      <td style={{padding:"6px 10px",color:C.slateL}}>{l.supplier||"—"}</td>
+                      <td style={{padding:"6px 10px",textAlign:"right",fontWeight:600}}>{l.qty}</td>
+                      <td style={{padding:"6px 10px",color:C.slateL}}>{l.unit}</td>
+                      <td style={{padding:"6px 10px",textAlign:"right"}}>{fmt(l.unitPrice)}</td>
+                      <td style={{padding:"6px 10px",textAlign:"right",fontWeight:600}}>{fmt(l.total)}</td>
+                      <td style={{padding:"6px 10px"}}><GradePill grade={l.conf}/></td>
+                    </tr>))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))}
+        </div>
+      ))}
+      <div style={{background:"#FEF5E7",border:`1px solid ${C.amber}40`,borderRadius:6,padding:"10px 16px",margin:"0 16px 8px",fontSize:11,color:C.navy}}>
         ⚠ Procurement document — not a client quote. Confirm pack sizes and round up to whole purchasable units. Add 15% VAT at purchase.
       </div>
     </div>
@@ -1366,9 +1386,9 @@ function scanFixturesToLines(f: Fixtures): FixtureLine[] {
 // not the same as the plumber picking a product.
 function TemplateProductSelect({ row, onSelect, onManual, onResolveDefault }: {
   row: TemplateRowInstance;
-  onSelect: (m: { materialCode: string; description: string; unitPrice: number }) => void;
+  onSelect: (m: { materialCode: string; description: string; unitPrice: number; category: string | null; subCategory: string | null }) => void;
   onManual: (description: string, unitPrice: number) => void;
-  onResolveDefault: (unitPrice: number, description: string) => void;
+  onResolveDefault: (unitPrice: number, description: string, category: string | null, subCategory: string | null) => void;
 }) {
   const manualOnly = usesManualEntry(row);
   const [materials, setMaterials] = useState<PlumblinkMaterial[]>([]);
@@ -1387,7 +1407,7 @@ function TemplateProductSelect({ row, onSelect, onManual, onResolveDefault }: {
       if (row.materialCode && row.unitPrice === 0 && row.description === '') {
         let alive = true;
         fetchMaterialByCode(row.materialCode).then(m => {
-          if (alive && m) onResolveDefault(m.unit_price_excl_vat ?? 0, m.description ?? "");
+          if (alive && m) onResolveDefault(m.unit_price_excl_vat ?? 0, m.description ?? "", m.section ?? null, m.sub_category ?? null);
         });
         return () => { alive = false; };
       }
@@ -1402,7 +1422,7 @@ function TemplateProductSelect({ row, onSelect, onManual, onResolveDefault }: {
       // Seed the default material's price (Suggested rows load with unitPrice 0).
       if (row.materialCode && row.unitPrice === 0) {
         const m = ms.find(x => x.material_code === row.materialCode);
-        if (m) onResolveDefault(m.unit_price_excl_vat ?? 0, m.description ?? "");
+        if (m) onResolveDefault(m.unit_price_excl_vat ?? 0, m.description ?? "", m.section ?? null, m.sub_category ?? null);
       }
     });
     return () => { alive = false; };
@@ -1435,7 +1455,7 @@ function TemplateProductSelect({ row, onSelect, onManual, onResolveDefault }: {
       const v=e.target.value;
       if (v==="__manual__"){ setManual(true); return; }
       const m=materials.find(x=>x.material_code===v);
-      if (m) onSelect({ materialCode:m.material_code, description:m.description ?? "", unitPrice:m.unit_price_excl_vat ?? 0 });
+      if (m) onSelect({ materialCode:m.material_code, description:m.description ?? "", unitPrice:m.unit_price_excl_vat ?? 0, category:m.section ?? null, subCategory:m.sub_category ?? null });
     }} style={selStyle}>
       <option value="__select__" disabled>{materials.length? "Select product…" : "No matching products"}</option>
       {materials.map(m=><option key={m.material_code} value={m.material_code}>{productOptionLabel(m)}</option>)}
@@ -1531,7 +1551,7 @@ function CatalogFittingRow({ row, catalogue, catalogueLoading, showDivider, onUp
         onChange={e=>{
           const v=e.target.value; if(v==="__select__")return;
           const m=products.find(p=>p.material_code===v);
-          if(m) onUpdate(x=>rowSelectMaterial(x,{materialCode:m.material_code,description:m.description??"",unitPrice:m.unit_price_excl_vat??0}));
+          if(m) onUpdate(x=>rowSelectMaterial(x,{materialCode:m.material_code,description:m.description??"",unitPrice:m.unit_price_excl_vat??0,category:m.section??null,subCategory:m.sub_category??null}));
         }}
         style={{...templateSmallSelectStyle,...cellDivider(showDivider)}}>
         <option value="__select__" disabled>{products.length?"Select product…":"No matching products"}</option>
@@ -1590,7 +1610,7 @@ function StandaloneCatalogRow({ row, catalogue, catalogueLoading, showDivider, o
         onChange={e=>{
           const v=e.target.value; if(v==="__select__")return;
           const m=products.find(p=>p.material_code===v);
-          if(m) onUpdate(x=>rowSelectMaterial(x,{materialCode:m.material_code,description:m.description??"",unitPrice:m.unit_price_excl_vat??0}));
+          if(m) onUpdate(x=>rowSelectMaterial(x,{materialCode:m.material_code,description:m.description??"",unitPrice:m.unit_price_excl_vat??0,category:m.section??null,subCategory:m.sub_category??null}));
         }}
         style={{...templateSmallSelectStyle,...cellDivider(showDivider)}}>
         <option value="__select__" disabled>{products.length?"Select product…":"No matching products"}</option>
@@ -1648,7 +1668,7 @@ function StandaloneFittingSection({ title, use, rows, catalogue, catalogueLoadin
           <TemplateProductSelect row={r}
             onSelect={m=>onUpdate(use,r.id,x=>rowSelectMaterial(x,m))}
             onManual={(d,p)=>onUpdate(use,r.id,x=>rowSetManual(x,d,p))}
-            onResolveDefault={(p,d)=>onUpdate(use,r.id,x=>({...x,unitPrice:p,description:x.description||d}))}/>
+            onResolveDefault={(p,d,cat,sub)=>onUpdate(use,r.id,x=>({...x,unitPrice:p,description:x.description||d,category:cat,subCategory:sub}))}/>
         </div>
         <input type="number" min={0} step={1} value={r.defaultQty} title="Qty"
           onChange={e=>{const q=Math.max(0,parseFloat(e.target.value)||0);onUpdate(use,r.id,x=>({...x,defaultQty:q}));}}
@@ -1787,9 +1807,11 @@ function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, 
     if (!combo) return;
     tpl.rows.forEach(r => {
       if (r.fittingType === 'Pressure Control Valve') {
-        onUpdateRow(tpl.instanceId, r.id, x => ({ ...x, materialCode: combo.pcv.materialCode, description: combo.pcv.description, unitPrice: combo.pcv.unitPrice }));
+        // section/sub_category are NULL in plumblink_materials for every PCV/VB
+        // code (confirmed live, Step 0) — explicit null, not a missed lookup.
+        onUpdateRow(tpl.instanceId, r.id, x => ({ ...x, materialCode: combo.pcv.materialCode, description: combo.pcv.description, unitPrice: combo.pcv.unitPrice, category: null, subCategory: null }));
       } else if (r.fittingType === 'Vacuum Breaker') {
-        onUpdateRow(tpl.instanceId, r.id, x => ({ ...x, materialCode: combo.vb.materialCode, description: combo.vb.description, unitPrice: combo.vb.unitPrice }));
+        onUpdateRow(tpl.instanceId, r.id, x => ({ ...x, materialCode: combo.vb.materialCode, description: combo.vb.description, unitPrice: combo.vb.unitPrice, category: null, subCategory: null }));
       }
     });
   };
@@ -1860,7 +1882,7 @@ function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, 
           <TemplateProductSelect row={r}
             onSelect={m=>onUpdateRow(tpl.instanceId,r.id,x=>rowSelectMaterial(x,m))}
             onManual={(d,p)=>onUpdateRow(tpl.instanceId,r.id,x=>rowSetManual(x,d,p))}
-            onResolveDefault={(p,d)=>onUpdateRow(tpl.instanceId,r.id,x=>({...x,unitPrice:p,description:x.description||d}))}/>
+            onResolveDefault={(p,d,cat,sub)=>onUpdateRow(tpl.instanceId,r.id,x=>({...x,unitPrice:p,description:x.description||d,category:cat,subCategory:sub}))}/>
         </div>
         <input type="number" min={0} step={1} value={r.defaultQty} title="Qty per unit"
           onChange={e=>{const q=Math.max(0,parseFloat(e.target.value)||0);onUpdateRow(tpl.instanceId,r.id,x=>({...x,defaultQty:q}));}}
