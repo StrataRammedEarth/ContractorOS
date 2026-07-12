@@ -11,6 +11,7 @@ const C = {
   navy: "#0D1B2A",
   navyMid: "#152436",
   gold: "#F5A623",
+  goldDim: "#C8851A",
   slate: "#4A6080",
   slateL: "#6B859E",
   muted: "#8FA3B8",
@@ -364,7 +365,7 @@ export function DocumentListPage({
                     </div>
                   </div>
                   <div style={{ textAlign: "right", minWidth: 0 }}>
-                    <div style={{ color: C.gold, fontWeight: 700, fontSize: 13 }}>
+                    <div style={{ color: C.goldDim, fontWeight: 700, fontSize: 13 }}>
                       {formatPrice(row.sell_price)}
                     </div>
                     <div style={{ color: C.muted, fontSize: 10, marginTop: 2 }}>
