@@ -10,6 +10,7 @@ import {
   type InvoiceMeta, type DocumentType,
 } from "@/lib/invoice-document";
 import { useSettings, DEFAULT_SETTINGS, type OrgSettings } from "@/lib/settings-context";
+import { fittingTypeLabel } from "@/lib/fitting-labels";
 import {
   saveEstimate, loadEmployees, loadEstimateById, clearStoredOwnerSecret, type Employee,
 } from "@/lib/supabase-client";
@@ -533,7 +534,7 @@ function buildScope(inp: Inputs, opts: { invoiceStrict?: boolean } = {}): ScopeL
       lines.push({
         id:`${prefix}${String(ri+1).padStart(2,"0")}`,
         code: r.materialCode ?? "CUSTOM",
-        description: r.description || r.fittingType || "(fitting)",
+        description: r.description || fittingTypeLabel(r.fittingType) || "(fitting)",
         qty, unit:"ea", unitPrice: r.unitPrice, conf: grade,
         total: resolvedTotal(r),
         supplier: r.materialCode ? "Plumblink" : "Custom",
@@ -565,7 +566,7 @@ function buildScope(inp: Inputs, opts: { invoiceStrict?: boolean } = {}): ScopeL
       lines.push({
         id:`T${ti+1}-${String(ri+1).padStart(2,"0")}`,
         code: r.materialCode ?? "CUSTOM",
-        description: r.description || r.fittingType || "(fitting)",
+        description: r.description || fittingTypeLabel(r.fittingType, { fixtureType: tpl.fixtureType }) || "(fitting)",
         qty, unit:"ea", unitPrice: r.unitPrice, conf: grade,
         total: resolvedTotal(r),
         supplier: r.materialCode ? "Plumblink" : "Custom",
@@ -749,7 +750,7 @@ function printQuotePDF(inp: Inputs, scope: ScopeLine[], labour: LabourLine[], qu
     .map(l=>`${l.description || l.type}: ${l.quantity}${l.source==="custom"?" (custom)":""}`);
   const fittingLines = g ? [] : [...(inp.supplyFittings ?? []), ...(inp.drainageFittings ?? [])]
     .filter(r=>isPriced(r))
-    .map(r=>`${r.description || r.fittingType}${r.nominalSize?` ${r.nominalSize}`:""}: ${resolvedQty(r)}`);
+    .map(r=>`${r.description || fittingTypeLabel(r.fittingType)}${r.nominalSize?` ${r.nominalSize}`:""}: ${resolvedQty(r)}`);
   // Scope-of-work grid: geyser assembly vs plumbing run
   const geyserJobLabel = (jt: GeyserJobType) => jt==="burst_replacement"?"Burst geyser replacement":jt==="new_installation"?"New Installation":"Element / thermostat repair";
   const scopeGrid = g
@@ -1941,7 +1942,7 @@ function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, 
           ? <input placeholder="Fitting type" value={r.fittingType}
               onChange={e=>{const v=e.target.value;onUpdateRow(tpl.instanceId,r.id,x=>({...x,fittingType:v}));}}
               style={{...templateSmallInputStyle,opacity:rowOpacity,...cellDivider(showDivider)}}/>
-          : <span title={r.productRole ?? undefined} style={{...templateLockedTextStyle,fontWeight:600,opacity:rowOpacity,...cellDivider(showDivider)}}>{r.fittingType}</span>}
+          : <span title={r.productRole ?? undefined} style={{...templateLockedTextStyle,fontWeight:600,opacity:rowOpacity,...cellDivider(showDivider)}}>{fittingTypeLabel(r.fittingType, { fixtureType: tpl.fixtureType })}</span>}
         {editable
           ? <input placeholder="Size" value={r.nominalSize ?? ""}
               onChange={e=>{const v=e.target.value;onUpdateRow(tpl.instanceId,r.id,x=>({...x,nominalSize:v}));}}
