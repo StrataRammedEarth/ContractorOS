@@ -246,12 +246,22 @@ export function DocumentDetailPage({ documentType, id }: { documentType: Documen
               <div style={{ color: C.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: 1 }}>Procurement Total (excl. VAT)</div>
               <div style={{ color: C.gold, fontSize: 22, fontWeight: 900 }}>{fmt(procurementTotal)}</div>
             </div>
-            {categoryGroups.map((group) => (
+            {categoryGroups.map((group) => {
+              // Same-name category/sub-category (e.g. "Compression Fittings"
+              // twice) would otherwise render its heading+total once as
+              // plain text here and again in the sub-category's navy bar
+              // below — an exact visual duplicate. Keep the navy bar and
+              // skip the redundant line above it in that case only.
+              const categoryDuplicatesSoleSubGroup =
+                group.subGroups.length === 1 && group.subGroups[0].subCategory === group.category;
+              return (
               <div key={group.category} style={{ marginBottom: 14 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 2px", color: C.navy, fontWeight: 800, fontSize: 13 }}>
-                  <span>{group.category}</span>
-                  <span>{fmt(group.total)}</span>
-                </div>
+                {!categoryDuplicatesSoleSubGroup && (
+                  <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 2px", color: C.navy, fontWeight: 800, fontSize: 13 }}>
+                    <span>{group.category}</span>
+                    <span>{fmt(group.total)}</span>
+                  </div>
+                )}
                 {group.subGroups.map((sub) => (
                   <div key={sub.subCategory} style={{ marginBottom: 8 }}>
                     <div style={{ background: C.navyMid, color: C.gold, fontSize: 10, fontWeight: 700, letterSpacing: 0.8, textTransform: "uppercase", padding: "5px 12px", display: "flex", justifyContent: "space-between" }}>
@@ -288,7 +298,8 @@ export function DocumentDetailPage({ documentType, id }: { documentType: Documen
                   </div>
                 ))}
               </div>
-            ))}
+              );
+            })}
           </>
         ) : (
           <div style={{ background: "#FEF5E7", border: "1px solid #E67E2240", borderRadius: 6, padding: "10px 16px", marginBottom: 16, fontSize: 11, color: C.navy }}>

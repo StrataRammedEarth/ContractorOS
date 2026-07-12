@@ -1210,12 +1210,23 @@ function BuyTab({ scope, quoteRef, onPrintBuy }: { scope: ScopeLine[]; inputs: I
         </div>
         <button onClick={onPrintBuy} style={primaryBtn}>⬇ Download Buy List</button>
       </div>
-      {categoryGroups.map((group) => (
+      {categoryGroups.map((group) => {
+        // A category with exactly one identically-named sub-category (e.g.
+        // "Compression Fittings" / "Compression Fittings") would render its
+        // own heading+total immediately above the sub-category's navy bar
+        // showing the same text and figure — visually a straight duplicate.
+        // Keep the navy bar (the app-wide sub-heading treatment) and skip
+        // the redundant plain-text line above it in that case only.
+        const categoryDuplicatesSoleSubGroup =
+          group.subGroups.length === 1 && group.subGroups[0].subCategory === group.category;
+        return (
         <div key={group.category} style={{ margin:"0 16px 14px" }}>
-          <div style={{ display:"flex", justifyContent:"space-between", padding:"4px 2px", color:C.navy, fontWeight:800, fontSize:13 }}>
-            <span>{group.category}</span>
-            <span>{fmt(group.total)}</span>
-          </div>
+          {!categoryDuplicatesSoleSubGroup && (
+            <div style={{ display:"flex", justifyContent:"space-between", padding:"4px 2px", color:C.navy, fontWeight:800, fontSize:13 }}>
+              <span>{group.category}</span>
+              <span>{fmt(group.total)}</span>
+            </div>
+          )}
           {group.subGroups.map((sub) => (
             <div key={sub.subCategory} style={{ marginBottom:8 }}>
               <div style={{background:C.navyMid,color:C.gold,fontSize:10,fontWeight:700,letterSpacing:0.8,textTransform:"uppercase",padding:"5px 12px",display:"flex",justifyContent:"space-between"}}>
@@ -1244,7 +1255,8 @@ function BuyTab({ scope, quoteRef, onPrintBuy }: { scope: ScopeLine[]; inputs: I
             </div>
           ))}
         </div>
-      ))}
+        );
+      })}
       <div style={{background:"#FEF5E7",border:`1px solid ${C.amber}40`,borderRadius:6,padding:"10px 16px",margin:"0 16px 8px",fontSize:11,color:C.navy}}>
         ⚠ Procurement document — not a client quote. Confirm pack sizes and round up to whole purchasable units. Add 15% VAT at purchase.
       </div>
