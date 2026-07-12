@@ -695,14 +695,23 @@ function SectionGroup({ label, subHeadings, children }: {
   children: React.ReactNode;
 }) {
   const [collapsed, setCollapsed] = useState(false);
+  // The group's own floating tag and its first child card's SectionHeader
+  // (navy bar) render the identical string when label === subHeadings[0] —
+  // they'd sit stacked directly on top of each other with nothing between
+  // them. Keep the navy bar (the app-wide card-heading treatment) and drop
+  // the now-redundant floating tag in that case; subHeadings still carries
+  // the group's name for the collapsed summary and aria-label regardless.
+  const labelDuplicatesFirstChild = label === subHeadings[0];
   return (
     <div style={{ position:"relative", border:`2px solid ${C.gold}`, borderRadius:12,
       padding:`${S.lg}px ${S.md}px ${collapsed ? S.lg : 2}px`, marginTop:30, marginBottom:S.xl }}>
-      <div style={{ position:"absolute", top:-13, left:16, background:UI.pageBg,
-        padding:"0 10px", fontSize:12.5, fontWeight:800, color:C.goldDim,
-        textTransform:"uppercase", letterSpacing:0.8 }}>
-        {label}
-      </div>
+      {!labelDuplicatesFirstChild && (
+        <div style={{ position:"absolute", top:-13, left:16, background:UI.pageBg,
+          padding:"0 10px", fontSize:12.5, fontWeight:800, color:C.goldDim,
+          textTransform:"uppercase", letterSpacing:0.8 }}>
+          {label}
+        </div>
+      )}
       <button
         onClick={() => setCollapsed(c => !c)}
         aria-expanded={!collapsed}
