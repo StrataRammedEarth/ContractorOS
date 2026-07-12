@@ -1841,6 +1841,12 @@ function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, 
   catalogueLoading: boolean;
 }) {
   const [collapsed, setCollapsed] = useState(false);
+  // Suggested/Optional collapse independently of each other and of the
+  // template-level `collapsed` above. Optional starts collapsed (it's the
+  // long list this control exists to tuck away); Suggested starts expanded
+  // (the confirmed/priced content the plumber wants visible by default).
+  const [suggestedCollapsed, setSuggestedCollapsed] = useState(false);
+  const [optionalCollapsed, setOptionalCollapsed] = useState(true);
   // Identify by template_id, not fixture_type — GEYSER_ELEMENT_REPAIR also has
   // fixture_type:'Geyser' but no PCV/Vacuum Breaker rows, so it must not render
   // this control. Hooks below must still run unconditionally (rules of hooks);
@@ -1970,11 +1976,20 @@ function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, 
   };
 
   const plainHead = (t: string) => <div style={{gridColumn:"1 / -1",fontSize:11,fontWeight:700,color:C.slate,textTransform:"uppercase",letterSpacing:0.6,margin:"10px 0 4px"}}>{t}</div>;
-  // Filled green check / empty radio — decorative group markers only, no click
-  // handler (bulk-toggle-on-header was explicitly rejected in design review).
-  const groupHead = (icon: React.ReactNode, t: string) => (
-    <div style={{gridColumn:"1 / -1",display:"flex",alignItems:"center",gap:6,fontSize:11,fontWeight:700,color:C.slate,textTransform:"uppercase",letterSpacing:0.6,margin:"10px 0 4px"}}>
-      {icon}<span>{t}</span>
+  // Filled green check / empty radio — decorative group markers only, the
+  // header text/body itself has no click handler (bulk-toggle-on-header was
+  // explicitly rejected in design review). The optional chevron below is a
+  // distinct collapse/expand control, not a re-introduction of that rejected
+  // row-bulk-toggle behaviour — it never touches row selection.
+  const groupHead = (icon: React.ReactNode, t: string, opts?: { collapsed: boolean; onToggle: () => void }) => (
+    <div style={{gridColumn:"1 / -1",display:"flex",alignItems:"center",justifyContent:"space-between",gap:6,fontSize:11,fontWeight:700,color:C.slate,textTransform:"uppercase",letterSpacing:0.6,margin:"10px 0 4px"}}>
+      <div style={{display:"flex",alignItems:"center",gap:6}}>{icon}<span>{t}</span></div>
+      {opts && (
+        <button onClick={opts.onToggle} aria-expanded={!opts.collapsed} aria-label={`${opts.collapsed?"Expand":"Collapse"} ${t}`}
+          style={{background:"none",border:"none",cursor:"pointer",padding:4,color:C.slate,fontSize:12,display:"flex",alignItems:"center"}}>
+          {opts.collapsed ? "▸" : "▾"}
+        </button>
+      )}
     </div>
   );
   const filledCheck = <span style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:14,height:14,borderRadius:"50%",background:C.green,color:"#fff",fontSize:9,fontWeight:900,flexShrink:0}}>✓</span>;
@@ -2035,10 +2050,10 @@ function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, 
               <span/>
               <span/>
 
-              {suggested.length>0&&groupHead(filledCheck,`Suggested fittings (${sc.active} of ${sc.total} confirmed)`)}
-              {suggested.map((r,i)=>renderRow(r, i<suggested.length-1))}
-              {optional.length>0&&groupHead(emptyRadio,`Optional fittings (${oc.active} of ${oc.total} selected)`)}
-              {optional.map((r,i)=>renderRow(r, i<optional.length-1))}
+              {suggested.length>0&&groupHead(filledCheck,`Suggested fittings (${sc.active} of ${sc.total} confirmed)`,{collapsed:suggestedCollapsed,onToggle:()=>setSuggestedCollapsed(c=>!c)})}
+              {suggested.length>0&&!suggestedCollapsed&&suggested.map((r,i)=>renderRow(r, i<suggested.length-1))}
+              {optional.length>0&&groupHead(emptyRadio,`Optional fittings (${oc.active} of ${oc.total} selected)`,{collapsed:optionalCollapsed,onToggle:()=>setOptionalCollapsed(c=>!c)})}
+              {optional.length>0&&!optionalCollapsed&&optional.map((r,i)=>renderRow(r, i<optional.length-1))}
               {catalog.length>0&&plainHead("Catalogue fittings")}
               {catalog.map((r,i)=>(
                 <CatalogFittingRow key={r.id} row={r} catalogue={catalogue} catalogueLoading={catalogueLoading}
