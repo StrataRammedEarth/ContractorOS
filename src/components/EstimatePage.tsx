@@ -1717,7 +1717,6 @@ function StandaloneFittingSection({ title, use, rows, catalogue, catalogueLoadin
               <span style={{...T.colHead,textAlign:"center"}}>Qty</span>
               <span style={{...T.colHead,textAlign:"right"}}>Price</span>
               <span/>
-              <span/>
               {catalog.map((r,i)=>(
                 <StandaloneCatalogRow key={r.id} row={r} catalogue={catalogue} catalogueLoading={catalogueLoading}
                   showDivider={i<catalog.length-1}
