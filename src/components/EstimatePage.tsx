@@ -1023,12 +1023,12 @@ function ScopeModal({ scope, labour, inputs, onConfirm, onBack }: { scope: Scope
       ].filter(Boolean);
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(13,27,42,0.88)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999,padding:20}}>
-      <div style={{background:"#fff",borderRadius:10,maxWidth:540,width:"100%",boxShadow:"0 24px 80px rgba(0,0,0,0.4)",overflow:"hidden"}}>
-        <div style={{background:C.navy,padding:"16px 24px",borderBottom:`3px solid ${C.gold}`}}>
+      <div style={{background:"#fff",borderRadius:10,maxWidth:540,width:"100%",maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:"0 24px 80px rgba(0,0,0,0.4)",overflow:"hidden"}}>
+        <div style={{background:C.navy,padding:"16px 24px",borderBottom:`3px solid ${C.gold}`,flexShrink:0}}>
           <div style={{color:C.gold,fontWeight:800,fontSize:16}}>Scope of Work — Confirmation Gate</div>
           <div style={{color:C.muted,fontSize:12,marginTop:2}}>{inputs._scanNotes?"Extracted from scanned drawing":"From manual inputs"} · verify before pricing</div>
         </div>
-        <div style={{padding:"20px 24px",maxHeight:"60vh",overflowY:"auto"}}>
+        <div style={{padding:"20px 24px",overflowY:"auto",flex:"1 1 auto",minHeight:0}}>
           {inputs._scanNotes&&<div style={{background:"#FEF5E7",border:`1px solid ${C.amber}50`,borderRadius:6,padding:"8px 12px",marginBottom:12,fontSize:11,color:C.navy}}>📐 <strong>From scan:</strong> {inputs._scanNotes}</div>}
           {summaryNotes.length>0&&(
             <ul style={{paddingLeft:18,fontSize:13,color:C.navy,lineHeight:1.8,marginBottom:16}}>{summaryNotes.map((item,i)=><li key={i}>{item}</li>)}</ul>
@@ -1083,16 +1083,17 @@ function ScopeModal({ scope, labour, inputs, onConfirm, onBack }: { scope: Scope
               </table>
             </div>
           )}
-          <div style={{background:UI.pageBg,borderRadius:6,padding:"12px 16px",marginTop:14,display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,fontSize:12}}>
-
+        </div>
+        <div style={{padding:"14px 24px",borderTop:"1px solid #E0E5EC",flexShrink:0}}>
+          <div style={{background:UI.pageBg,borderRadius:6,padding:"12px 16px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,fontSize:12}}>
             <div><div style={{color:C.slateL}}>Est. material</div><div style={{fontWeight:700,color:C.navy,fontSize:15}}>{fmt(mat)}</div></div>
             <div><div style={{color:C.slateL}}>Est. labour</div><div style={{fontWeight:700,color:C.navy,fontSize:15}}>{fmt(lab)}</div></div>
           </div>
           <div style={{background:"#FEF5E7",border:`1px solid ${C.amber}50`,borderRadius:6,padding:"8px 12px",marginTop:10,fontSize:11,color:C.navy}}>⚠ This is a review aid. Verify scope before generating the estimate.</div>
-        </div>
-        <div style={{padding:"12px 24px",borderTop:"1px solid #E0E5EC",display:"flex",gap:10,justifyContent:"flex-end"}}>
-          <button onClick={onBack} style={backNavBtn}>← Revise</button>
-          <button onClick={onConfirm} style={primaryBtn}>Confirm &amp; Generate Estimate →</button>
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:12}}>
+            <button onClick={onBack} style={backNavBtn}>← Revise</button>
+            <button onClick={onConfirm} style={primaryBtn}>Confirm &amp; Generate Estimate →</button>
+          </div>
         </div>
       </div>
     </div>
