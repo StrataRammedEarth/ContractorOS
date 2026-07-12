@@ -1,5 +1,6 @@
 import type { FixtureTemplateRow } from './fixture-templates';
 import { isManualLine } from './product-filter';
+import type { DrainageFittingMaterial } from './product-cascade';
 
 // The 5-state row model from claude_code_brief_fixture_templates.md §2 — governs
 // both pricing and visual treatment for a fixture/system template's fitting rows.
@@ -18,6 +19,10 @@ export interface TemplateRowInstance {
   touched: boolean;                // has the user ever explicitly acted on this row?
   application: string;
   system: string | null;
+  // Drainage-only Material step (SV PVC / UG PVC), upstream of Size in the
+  // standalone Drainage Fittings cascade. undefined = not yet selected;
+  // irrelevant (never set) for Supply Fittings and the fixture-template cascade.
+  material?: DrainageFittingMaterial;
   nominalSize: string | null;
   fittingType: string;
   materialCode: string | null;    // linked catalog code; null = no product resolved yet
@@ -269,6 +274,13 @@ export function setSize(row: TemplateRowInstance, size: string | null): Template
 // so Size is upstream of Fitting Type here and clears it on change.
 export function setStandaloneSize(row: TemplateRowInstance, size: string | null): TemplateRowInstance {
   return { ...row, nominalSize: size, fittingType: '', materialCode: null, description: '', unitPrice: 0, category: null, subCategory: null, touched: true };
+}
+
+// Drainage Fittings only — Material precedes Size in that section's cascade
+// (Material → Size → Fitting Type → Product), so changing it clears everything
+// downstream, same as changing Application does in the fixture cascade.
+export function setStandaloneMaterial(row: TemplateRowInstance, material: DrainageFittingMaterial): TemplateRowInstance {
+  return { ...row, material, nominalSize: null, fittingType: '', materialCode: null, description: '', unitPrice: 0, category: null, subCategory: null, touched: true };
 }
 
 export function setStandaloneFittingType(row: TemplateRowInstance, fittingType: string): TemplateRowInstance {
