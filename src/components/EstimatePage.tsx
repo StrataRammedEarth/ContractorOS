@@ -26,13 +26,16 @@ import {
   selectMaterial as rowSelectMaterial, setManualProduct as rowSetManual,
   setApplication as rowSetApplication, setSize as rowSetSize, setFittingType as rowSetFittingType,
   setStandaloneSize as rowSetStandaloneSize, setStandaloneFittingType as rowSetStandaloneFittingType,
+  setStandaloneMaterial as rowSetStandaloneMaterial,
   sectionCounts, quantityInputLabel,
   type TemplateRowInstance,
 } from "@/lib/template-row-state";
 import type { PlumblinkMaterial } from "@/lib/product-filter";
 import {
   fetchCascadeCatalogue, distinctApplications, distinctSizes, distinctFittingTypes, matchingProducts,
+  distinctMaterials, type DrainageFittingMaterial,
 } from "@/lib/product-cascade";
+import { fetchDrainagePipeCatalogue, type DrainagePipeRow } from "@/lib/pipe-catalogue";
 import { aggregateBuyList, groupByCategory } from "@/lib/buy-list";
 import { GRADES, lowestGrade } from "@/lib/grades";
 
@@ -342,10 +345,14 @@ const fxCount = (ls: FixtureLine[] | undefined, t: FixtureType) =>
   (ls ?? []).filter(l => l.type === t).reduce((s, l) => s + (l.quantity || 0), 0);
 
 // ─── PIPE LOOKUP (supply + drainage line builders) ────────────────────────────
-// type + diameter is the lookup key. PerMetre = PackPrice / PackLength (pre-calc).
-// Pricing method A (per-metre × metres) is live; method B (whole-tube) is available
-// but off by default. Source: pipe_lookup, Plumblink 2026 (excl VAT). NOTE: copper
-// 15mm is R102.41/m here — the old hardcoded R58/m under-priced copper ~45%.
+// type + diameter + code is the lookup key (code disambiguates when more than
+// one product shares a diameter, e.g. UG PVC 110mm's two duty grades — see
+// pipeRowsFor). PerMetre = PackPrice / PackLength (pre-calc). Pricing method A
+// (per-metre × metres) is live; method B (whole-tube) is available but off by
+// default. Source: pipe_lookup, Plumblink 2026 (excl VAT). NOTE: copper 15mm is
+// R102.41/m here — the old hardcoded R58/m under-priced copper ~45%.
+// Supply (Copper/PEX) stays static — only Drainage moved to a live Supabase
+// fetch (DrainagePipeRow, merged in at render time; see drainagePipeCatalogue).
 interface PipeRow { code: string; type: string; diameter: number; use: 'supply'|'drainage'; packLength: number; packPrice: number; perMetre: number; grade: string; source: string; description: string }
 const PIPE_LOOKUP: PipeRow[] = [
   { code:'PIPE-CU-15',  type:'Copper', diameter:15,  use:'supply',   packLength:5.5, packPrice:563.27,  perMetre:102.41, grade:'Sourced', source:'Plumblink', description:'Copper tube 15×5.5m 460/1 domestic' },
@@ -354,22 +361,30 @@ const PIPE_LOOKUP: PipeRow[] = [
   { code:'PIPE-CU-35',  type:'Copper', diameter:35,  use:'supply',   packLength:5.5, packPrice:2488.85, perMetre:452.52, grade:'Sourced', source:'Plumblink', description:'Copper tube 35×5.5m 460/1 domestic' },
   { code:'PIPE-PEX-16', type:'PEX',    diameter:16,  use:'supply',   packLength:200, packPrice:4269.74, perMetre:21.35,  grade:'Sourced', source:'Plumblink', description:'Rifeng PEX-AL-PEX crimped 16×200m white (036971)' },
   { code:'PIPE-PEX-20', type:'PEX',    diameter:20,  use:'supply',   packLength:200, packPrice:4865.22, perMetre:24.33,  grade:'Sourced', source:'Plumblink', description:'Sunridge Rifeng PEX-AL-PEX 20×200m white (SNR-B-20*200M)' },
-  { code:'PIPE-PVC-40', type:'PVC',    diameter:40,  use:'drainage', packLength:6,   packPrice:485.01,  perMetre:80.83,  grade:'Sourced', source:'Plumblink', description:'PVC SV/UG pipe 40mm ×6m' },
-  { code:'PIPE-PVC-50', type:'PVC',    diameter:50,  use:'drainage', packLength:6,   packPrice:232.85,  perMetre:38.81,  grade:'Sourced', source:'Plumblink', description:'PVC SV/UG pipe 50mm ×6m' },
-  { code:'PIPE-PVC-75', type:'PVC',    diameter:75,  use:'drainage', packLength:6,   packPrice:339.75,  perMetre:56.62,  grade:'Sourced', source:'Plumblink', description:'PVC SV/UG pipe 75mm ×6m' },
-  { code:'PIPE-PVC-110',type:'PVC',    diameter:110, use:'drainage', packLength:6,   packPrice:154.99,  perMetre:25.83,  grade:'Sourced', source:'Plumblink', description:'PVC SV/UG pipe 110mm ×6m' },
-  { code:'PIPE-PVC-160',type:'PVC',    diameter:160, use:'drainage', packLength:6,   packPrice:437.93,  perMetre:72.99,  grade:'Sourced', source:'Plumblink', description:'PVC SV/UG pipe 160mm ×6m' },
 ];
-const pipeTypesFor = (use: 'supply'|'drainage') =>
-  [...new Set(PIPE_LOOKUP.filter(p=>p.use===use).map(p=>p.type))];
-const pipeDiametersFor = (use: 'supply'|'drainage', type: string) =>
-  PIPE_LOOKUP.filter(p=>p.use===use && p.type===type).map(p=>p.diameter).sort((a,b)=>a-b);
-const pipeRow = (use: 'supply'|'drainage', type: string, diameter: number) =>
-  PIPE_LOOKUP.find(p=>p.use===use && p.type===type && p.diameter===diameter);
-function makePipeLine(use: 'supply'|'drainage'): PipeLine {
-  const type = pipeTypesFor(use)[0];
-  const dia = pipeDiametersFor(use, type)[0];
-  const r = pipeRow(use, type, dia)!;
+const pipeTypesFor = (rows: PipeRow[], use: 'supply'|'drainage') =>
+  [...new Set(rows.filter(p=>p.use===use).map(p=>p.type))];
+const pipeDiametersFor = (rows: PipeRow[], use: 'supply'|'drainage', type: string) =>
+  [...new Set(rows.filter(p=>p.use===use && p.type===type).map(p=>p.diameter))].sort((a,b)=>a-b);
+// All products at a given (use, type, diameter) — usually one, but real
+// drainage data has diameters with multiple SKUs (duty grades, solid vs
+// slotted). The Product step in pipeSection only appears when this has >1 row.
+const pipeRowsFor = (rows: PipeRow[], use: 'supply'|'drainage', type: string, diameter: number) =>
+  rows.filter(p=>p.use===use && p.type===type && p.diameter===diameter);
+// Resolves to a specific row: by exact code when given, else the first match
+// (the existing "first option" convention) for the (use, type, diameter) group.
+const pipeRow = (rows: PipeRow[], use: 'supply'|'drainage', type: string, diameter: number, code?: string) =>
+  code ? rows.find(p=>p.use===use && p.type===type && p.diameter===diameter && p.code===code)
+       : pipeRowsFor(rows, use, type, diameter)[0];
+function makePipeLine(rows: PipeRow[], use: 'supply'|'drainage'): PipeLine {
+  const type = pipeTypesFor(rows, use)[0];
+  const dia = type!==undefined ? pipeDiametersFor(rows, use, type)[0] : undefined;
+  const r = dia!==undefined ? pipeRow(rows, use, type, dia) : undefined;
+  // Drainage rows load asynchronously (live Supabase fetch) — if a line is
+  // added before that resolves, fall back to a blank Custom line rather than
+  // crashing on an empty lookup; the user can retype it once the catalogue loads.
+  if (!r) return { id:_uid(), use, source:'custom', type:'Custom', diameter:0,
+    description:'', perMetre:0, metres:use==='supply'?10:6, grade:'Assumption' };
   return { id:_uid(), use, source:'library', pipeCode:r.code, type:r.type, diameter:r.diameter,
     description:r.description, perMetre:r.perMetre, metres:use==='supply'?10:6, grade:r.grade, supplier:r.source };
 }
@@ -1363,9 +1378,9 @@ function LearnTab({ scope, labour, flags=[], documentType="quote" }: { scope: Sc
 }
 
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
-function pipeLineFrom(use: 'supply'|'drainage', type: string, diameter: number, metres: number): PipeLine {
-  const r = pipeRow(use, type, diameter);
-  if (!r) return { ...makePipeLine(use), metres };
+function pipeLineFrom(rows: PipeRow[], use: 'supply'|'drainage', type: string, diameter: number, metres: number): PipeLine {
+  const r = pipeRow(rows, use, type, diameter);
+  if (!r) return { ...makePipeLine(rows, use), metres };
   return { id:_uid(), use, source:'library', pipeCode:r.code, type:r.type, diameter:r.diameter,
     description:r.description, perMetre:r.perMetre, metres, grade:r.grade, supplier:r.source };
 }
@@ -1604,9 +1619,16 @@ function StandaloneCatalogRow({ row, catalogue, catalogueLoading, showDivider, o
 }) {
   const disabled = isCheckboxDisabled(row);
   const grade = resolvedGrade(row);
-  const sizes = distinctSizes(catalogue, row.application);
-  const fittingTypes = row.nominalSize ? distinctFittingTypes(catalogue, row.application, row.nominalSize) : [];
-  const products = (row.nominalSize && row.fittingType) ? matchingProducts(catalogue, row.application, row.fittingType, row.nominalSize) : [];
+  // Drainage Fittings only: a Material step (SV PVC / UG PVC) precedes Size.
+  // Supply Fittings (row.application==='Supply') is untouched — no Material
+  // column, cascade starts straight at Size exactly as it did before this brief.
+  const showMaterial = row.application === 'Drainage';
+  const materials = showMaterial ? distinctMaterials(catalogue, row.application) : [];
+  const sizes = showMaterial
+    ? (row.material ? distinctSizes(catalogue, row.application, undefined, row.material) : [])
+    : distinctSizes(catalogue, row.application);
+  const fittingTypes = row.nominalSize ? distinctFittingTypes(catalogue, row.application, row.nominalSize, showMaterial ? row.material : undefined) : [];
+  const products = (row.nominalSize && row.fittingType) ? matchingProducts(catalogue, row.application, row.fittingType, row.nominalSize, showMaterial ? row.material : undefined) : [];
 
   return (
     <div style={{display:"contents"}}>
@@ -1614,10 +1636,18 @@ function StandaloneCatalogRow({ row, catalogue, catalogueLoading, showDivider, o
         title={disabled?"Select a product first":""}
         onChange={e=>onUpdate(x=>rowSetChecked(x,e.target.checked))}
         style={{width:16,height:16,cursor:disabled?"not-allowed":"pointer",...cellDivider(showDivider)}}/>
-      <select value={row.nominalSize??"__select__"} disabled={catalogueLoading}
+      {showMaterial&&(
+        <select value={row.material??"__select__"} disabled={catalogueLoading}
+          onChange={e=>{const v=e.target.value;if(v==="__select__")return;onUpdate(x=>rowSetStandaloneMaterial(x,v as DrainageFittingMaterial));}}
+          style={{...templateSmallSelectStyle,...cellDivider(showDivider)}}>
+          <option value="__select__" disabled>{catalogueLoading?"Loading catalogue…":"Select…"}</option>
+          {materials.map(m=><option key={m} value={m}>{m}</option>)}
+        </select>
+      )}
+      <select value={row.nominalSize??"__select__"} disabled={catalogueLoading || (showMaterial && !row.material)}
         onChange={e=>{const v=e.target.value;if(v==="__select__")return;onUpdate(x=>rowSetStandaloneSize(x,v));}}
         style={{...templateSmallSelectStyle,...cellDivider(showDivider)}}>
-        <option value="__select__" disabled>{catalogueLoading?"Loading catalogue…":"Select…"}</option>
+        <option value="__select__" disabled>{catalogueLoading?"Loading catalogue…":(showMaterial&&!row.material)?"Select material first":"Select…"}</option>
         {sizes.map(s=><option key={s} value={s}>{s}</option>)}
       </select>
       <select value={row.fittingType||"__select__"} disabled={!row.nominalSize}
@@ -1654,6 +1684,9 @@ function StandaloneCatalogRow({ row, catalogue, catalogueLoading, showDivider, o
 // rows (Size → Fitting Type → Product) with a manual "+ Add custom fitting"
 // fallback for anything off-catalogue.
 const STANDALONE_ROW_GRID = "22px 80px 120px 1fr 52px 112px minmax(88px, auto)";
+// Drainage Fittings only — one extra track for the Material (SV PVC / UG PVC)
+// column ahead of Size. Supply Fittings keeps STANDALONE_ROW_GRID untouched.
+const STANDALONE_DRAINAGE_ROW_GRID = "22px 92px 80px 120px 1fr 52px 112px minmax(88px, auto)";
 function StandaloneFittingSection({ title, use, rows, catalogue, catalogueLoading, onAdd, onAddCustom, onUpdate, onRemove }: {
   title: string;
   use: 'supply'|'drainage';
@@ -1678,6 +1711,7 @@ function StandaloneFittingSection({ title, use, rows, catalogue, catalogueLoadin
           title={disabled?"Enter a product first":""}
           onChange={e=>{const c=e.target.checked;onUpdate(use,r.id,x=>rowSetChecked(x,c));}}
           style={{width:16,height:16,cursor:disabled?"not-allowed":"pointer",...cellDivider(showDivider)}}/>
+        {use==="drainage"&&<span style={cellDivider(showDivider)}/>}
         <input placeholder="Size" value={r.nominalSize ?? ""}
           onChange={e=>{const v=e.target.value;onUpdate(use,r.id,x=>({...x,nominalSize:v||null}));}}
           style={{...templateSmallInputStyle,...cellDivider(showDivider)}}/>
@@ -1709,8 +1743,9 @@ function StandaloneFittingSection({ title, use, rows, catalogue, catalogueLoadin
       <div style={{padding:S.xl}}>
         {rows.length===0
           ? <div style={{fontSize:12,color:C.slateL,padding:"2px 2px 8px"}}>No {use} fittings yet — add one below.</div>
-          : <div style={{display:"grid",gridTemplateColumns:STANDALONE_ROW_GRID,columnGap:8,rowGap:4,alignItems:"center"}}>
+          : <div style={{display:"grid",gridTemplateColumns:use==="drainage"?STANDALONE_DRAINAGE_ROW_GRID:STANDALONE_ROW_GRID,columnGap:8,rowGap:4,alignItems:"center"}}>
               <span/>
+              {use==="drainage"&&<span style={T.colHead}>Material</span>}
               <span style={T.colHead}>Size</span>
               <span style={T.colHead}>Fitting Type</span>
               <span style={T.colHead}>Product</span>
@@ -2233,6 +2268,20 @@ export default function EstimatePage() {
     });
     return () => { alive = false; };
   }, []);
+  // Drainage pipe rows (SV PVC / UG PVC) — live-fetched, unlike Supply's static
+  // Copper/PEX rows in PIPE_LOOKUP, so they stay in sync with plumblink_materials
+  // instead of a second hand-maintained data source.
+  const [drainagePipeCatalogue, setDrainagePipeCatalogue] = useState<DrainagePipeRow[]>([]);
+  const [drainagePipeLoading, setDrainagePipeLoading] = useState(true);
+  useEffect(() => {
+    let alive = true;
+    fetchDrainagePipeCatalogue().then(rows => {
+      if (!alive) return;
+      setDrainagePipeCatalogue(rows); setDrainagePipeLoading(false);
+    });
+    return () => { alive = false; };
+  }, []);
+  const allPipeRows = useMemo<PipeRow[]>(() => [...PIPE_LOOKUP, ...drainagePipeCatalogue], [drainagePipeCatalogue]);
   const [geyser, setGeyser]   = useState<GeyserMeta>(GEYSER_DEFAULT);
   // Geyser pricing (fetched once, like `catalogue` above) — feeds the
   // fixed-composition build functions, which stay synchronous/pure.
@@ -2478,8 +2527,8 @@ export default function EstimatePage() {
   // Pipe-line builder management (supply + drainage share these via the `key`)
   const addPipeLine = useCallback((use: 'supply'|'drainage') => {
     const key = use==='supply' ? 'supplyLines' : 'drainLines';
-    setInputs(p=>({...p, [key]:[...(p[key] ?? []), makePipeLine(use)]}));
-  },[]);
+    setInputs(p=>({...p, [key]:[...(p[key] ?? []), makePipeLine(allPipeRows, use)]}));
+  },[allPipeRows]);
   const removePipeLine = useCallback((use: 'supply'|'drainage', id: string) => {
     const key = use==='supply' ? 'supplyLines' : 'drainLines';
     setInputs(p=>({...p, [key]:(p[key] ?? []).filter(l=>l.id!==id)}));
@@ -2497,11 +2546,11 @@ export default function EstimatePage() {
     setInputs({
       ...data,
       fixtureLines: scanFixturesToLines(data.fixtures),
-      supplyLines: data.supplyMetres>0 ? [pipeLineFrom("supply","Copper",15,data.supplyMetres)] : [],
-      drainLines:  data.drainMetres>0  ? [pipeLineFrom("drainage","PVC",110,data.drainMetres)] : [],
+      supplyLines: data.supplyMetres>0 ? [pipeLineFrom(allPipeRows,"supply","Copper",15,data.supplyMetres)] : [],
+      drainLines:  data.drainMetres>0  ? [pipeLineFrom(allPipeRows,"drainage","SV PVC",110,data.drainMetres)] : [],
     });
     setScreen("review");
-  },[]);
+  },[allPipeRows]);
 
   const matTotal=scope.reduce((s,l)=>s+l.total,0);
   const labTotal=labour.reduce((s,l)=>s+l.cost,0);
@@ -2755,33 +2804,41 @@ export default function EstimatePage() {
   // Reusable supply/drainage pipe line builder (type + diameter + metres)
   const pipeSection = (use: 'supply'|'drainage', title: string, extra: React.ReactNode) => {
     const lines = ((use==='supply' ? inputs.supplyLines : inputs.drainLines) ?? []);
-    const types = pipeTypesFor(use);
+    const types = pipeTypesFor(allPipeRows, use);
+    // Drainage only: some (type, diameter) groups have more than one real SKU
+    // (e.g. UG PVC 110mm's two duty grades) — that section's grid gets an extra
+    // Product column. Supply (Copper/PEX) is always one product per diameter,
+    // so its grid/header stay exactly as they were.
+    const showProduct = use==='drainage';
+    const pipeLineClass = showProduct ? "cos-line cos-line--pipe cos-line--pipe-drainage" : "cos-line cos-line--pipe";
     return (
       <div style={cardStyle}>
         <SectionHeader>{title}</SectionHeader>
         <div style={{padding:S.xl}}>
           {lines.length===0&&<div style={{fontSize:12,color:C.slateL,padding:"6px 2px 10px"}}>No {use} lines — add one below.</div>}
           {lines.length>0&&(
-            <div className="cos-line cos-line--pipe cos-line-head">
+            <div className={`${pipeLineClass} cos-line-head`}>
               <span style={T.colHead}>Material</span>
               <span style={T.colHead}>Size</span>
+              {showProduct&&<span style={T.colHead}>Product</span>}
               <span style={{...T.colHead,textAlign:"center"}}>Run (m)</span>
               <span style={{...T.colHead,textAlign:"right"}}>Rate</span>
               <span style={{...T.colHead,textAlign:"right"}}>Line total</span>
-              <span/><span/>
+              {showProduct?<span/>:<><span/><span/></>}
             </div>)}
           {lines.map((l,i)=>{
-            const dias = l.source==="custom" ? [] : pipeDiametersFor(use,l.type);
+            const dias = l.source==="custom" ? [] : pipeDiametersFor(allPipeRows, use,l.type);
+            const products = (!l.source || l.source==="custom") ? [] : pipeRowsFor(allPipeRows, use, l.type, l.diameter);
             const isCustom = l.source==="custom";
             return (
             <div key={l.id} className="cos-toggle" style={{padding:"12px 14px 12px 0",
               borderBottom:i===lines.length-1?"none":`1px solid ${UI.borderRow}`,
               background:isCustom?UI.customBg:"transparent"}}>
-              <div className="cos-line cos-line--pipe">
+              <div className={pipeLineClass}>
                 <select className="cos-grow" value={isCustom?"__custom__":l.type}
                   onChange={e=>{const v=e.target.value;
                     if(v==="__custom__"){updatePipeLine(use,l.id,{source:"custom",pipeCode:undefined,type:"Custom",diameter:0,description:"",perMetre:0,grade:"Assumption",supplier:undefined});}
-                    else{const dia=pipeDiametersFor(use,v)[0];const r=pipeRow(use,v,dia);if(r)updatePipeLine(use,l.id,{source:"library",pipeCode:r.code,type:r.type,diameter:r.diameter,description:r.description,perMetre:r.perMetre,grade:r.grade,supplier:r.source});}}}
+                    else{const dia=pipeDiametersFor(allPipeRows, use,v)[0];const r=pipeRow(allPipeRows, use,v,dia);if(r)updatePipeLine(use,l.id,{source:"library",pipeCode:r.code,type:r.type,diameter:r.diameter,description:r.description,perMetre:r.perMetre,grade:r.grade,supplier:r.source});}}}
                   style={{...rowSelect,minWidth:0}}>
                   {types.map(t=><option key={t} value={t}>{t}</option>)}
                   <option value="__custom__">Custom…</option>
@@ -2789,10 +2846,17 @@ export default function EstimatePage() {
                 {isCustom
                   ? <span style={{...T.secondary,textAlign:"center"}}>—</span>
                   : <select value={l.diameter}
-                    onChange={e=>{const d=parseInt(e.target.value);const r=pipeRow(use,l.type,d);if(r)updatePipeLine(use,l.id,{pipeCode:r.code,diameter:r.diameter,description:r.description,perMetre:r.perMetre,grade:r.grade});}}
+                    onChange={e=>{const d=parseInt(e.target.value);const r=pipeRow(allPipeRows, use,l.type,d);if(r)updatePipeLine(use,l.id,{pipeCode:r.code,diameter:r.diameter,description:r.description,perMetre:r.perMetre,grade:r.grade});}}
                     style={{...rowSelect,minWidth:0}}>
                     {dias.map(d=><option key={d} value={d}>{d}mm</option>)}
                   </select>}
+                {showProduct&&(isCustom||products.length<=1
+                  ? <span style={{...T.secondary,fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{isCustom?"—":l.description}</span>
+                  : <select value={l.pipeCode ?? ""} title={l.description}
+                      onChange={e=>{const code=e.target.value;const r=pipeRow(allPipeRows, use,l.type,l.diameter,code);if(r)updatePipeLine(use,l.id,{pipeCode:r.code,description:r.description,perMetre:r.perMetre,grade:r.grade,supplier:r.source});}}
+                      style={{...rowSelect,minWidth:0}}>
+                      {products.map(p=><option key={p.code} value={p.code}>{p.description}</option>)}
+                    </select>)}
                 <div className="cos-num" style={{display:"flex",alignItems:"center",gap:4,minWidth:0}}>
                   <input type="number" min={0} value={l.metres}
                     onChange={e=>updatePipeLine(use,l.id,{metres:Math.max(0,parseFloat(e.target.value)||0)})}

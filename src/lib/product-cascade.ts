@@ -32,6 +32,31 @@ export function distinctApplications(rows: PlumblinkMaterial[]): string[] {
   return [...set].sort((a, b) => a.localeCompare(b));
 }
 
+// Drainage-only Material step (SV PVC / UG PVC), inserted ahead of Size in the
+// standalone Drainage Fittings cascade. Keyed on sub_category rather than the
+// `system` column: system has null gaps on 6 PVC Pressure Fittings rows that
+// are SV by description but would otherwise silently drop out of the SV PVC
+// bucket. sub_category has no such gaps for the two fitting sub_categories.
+export type DrainageFittingMaterial = 'SV PVC' | 'UG PVC';
+
+const SV_PVC_FITTING_SUB_CATEGORIES = ['PVC Pressure Fittings', 'PVC SV Fittings'];
+const UG_PVC_FITTING_SUB_CATEGORIES = ['PVC UG Fittings'];
+
+function matchesMaterial(row: PlumblinkMaterial, material?: DrainageFittingMaterial): boolean {
+  if (!material) return true;
+  const subCategories = material === 'SV PVC' ? SV_PVC_FITTING_SUB_CATEGORIES : UG_PVC_FITTING_SUB_CATEGORIES;
+  return row.sub_category !== null && subCategories.includes(row.sub_category);
+}
+
+// Distinct materials available for an application — currently only meaningful
+// for Drainage. Fixed SV-then-UG order (not alphabetical, which happens to
+// coincide here, but the order is driven by which sub_category groups are
+// actually present, not derived incidentally from string sort).
+export function distinctMaterials(rows: PlumblinkMaterial[], application: string): DrainageFittingMaterial[] {
+  const order: DrainageFittingMaterial[] = ['SV PVC', 'UG PVC'];
+  return order.filter((material) => rows.some((r) => r.application === application && matchesMaterial(r, material)));
+}
+
 // Nominal bore/diameter = leading integer of the raw supplier size string.
 // "110mm" | "110x87" | "110mm x6m" -> "110mm"; null / no-leading-digit -> null.
 // The canonical rule for Drainage (and any non-Supply application).
@@ -74,11 +99,12 @@ export function nominalSizeFor(size: string | null, application: string): string
 // (bare pressure rating, null) is simply unreachable via the cascade. Sorted
 // numerically by the leading integer, not lexically — string sort would put
 // "110mm" before "40mm".
-export function distinctSizes(rows: PlumblinkMaterial[], application: string, fittingType?: string): string[] {
+export function distinctSizes(rows: PlumblinkMaterial[], application: string, fittingType?: string, material?: DrainageFittingMaterial): string[] {
   const set = new Set<string>();
   for (const r of rows) {
     if (r.application !== application) continue;
     if (fittingType !== undefined && r.fitting_type !== fittingType) continue;
+    if (!matchesMaterial(r, material)) continue;
     const d = nominalSizeFor(r.size, application);
     if (d !== null) set.add(d);
   }
@@ -90,11 +116,12 @@ export function distinctSizes(rows: PlumblinkMaterial[], application: string, fi
 // omitted, returns every fitting type for the application (the App -> Fitting
 // Type fixture cascade). Both sides normalise through nominalSizeFor so raw
 // case-duplicates (110x45/110X45) collapse into the same bucket automatically.
-export function distinctFittingTypes(rows: PlumblinkMaterial[], application: string, size?: string): string[] {
+export function distinctFittingTypes(rows: PlumblinkMaterial[], application: string, size?: string, material?: DrainageFittingMaterial): string[] {
   const set = new Set<string>();
   for (const r of rows) {
     if (r.application !== application) continue;
     if (size !== undefined && nominalSizeFor(r.size, application) !== size) continue;
+    if (!matchesMaterial(r, material)) continue;
     if (r.fitting_type) set.add(r.fitting_type);
   }
   return [...set].sort((a, b) => a.localeCompare(b));
@@ -104,6 +131,6 @@ export function distinctFittingTypes(rows: PlumblinkMaterial[], application: str
 // size, regardless of which order the two middle steps were resolved in. `size`
 // is the normalised value from distinctSizes; the row's raw size goes through
 // nominalSizeFor so raw variants collapse consistently.
-export function matchingProducts(rows: PlumblinkMaterial[], application: string, fittingType: string, size: string): PlumblinkMaterial[] {
-  return rows.filter((r) => r.application === application && r.fitting_type === fittingType && nominalSizeFor(r.size, application) === size);
+export function matchingProducts(rows: PlumblinkMaterial[], application: string, fittingType: string, size: string, material?: DrainageFittingMaterial): PlumblinkMaterial[] {
+  return rows.filter((r) => r.application === application && r.fitting_type === fittingType && nominalSizeFor(r.size, application) === size && matchesMaterial(r, material));
 }

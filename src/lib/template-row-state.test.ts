@@ -23,6 +23,7 @@ import {
   setManualProduct,
   setSize,
   setStandaloneFittingType,
+  setStandaloneMaterial,
   setStandaloneSize,
   shouldShowGradeChip,
   usesManualEntry,
@@ -389,6 +390,25 @@ describe('standalone-section cascade setters (Size -> Fitting Type -> Product)',
     expect(retyped.nominalSize).toBe('110mm'); // upstream Size survives
     expect(retyped.materialCode).toBeNull();
     expect(retyped.unitPrice).toBe(0);
+  });
+
+  it('createStandaloneRowInstance has no material pre-selected', () => {
+    const row = createStandaloneRowInstance('Drainage');
+    expect(row.material).toBeUndefined();
+  });
+
+  it('setStandaloneMaterial is upstream of Size — changing it clears Size, Fitting Type, and the product', () => {
+    const resolved = selectMaterial(
+      setStandaloneFittingType(setStandaloneSize(setStandaloneMaterial(createStandaloneRowInstance('Drainage'), 'SV PVC'), '110mm'), 'Bend'),
+      { materialCode: 'PLB-PL-PF015', description: 'Bend 110x87 access', unitPrice: 89.01 },
+    );
+    expect(resolved.material).toBe('SV PVC');
+    const rematerialed = setStandaloneMaterial(resolved, 'UG PVC');
+    expect(rematerialed.material).toBe('UG PVC');
+    expect(rematerialed.nominalSize).toBeNull();
+    expect(rematerialed.fittingType).toBe('');
+    expect(rematerialed.materialCode).toBeNull();
+    expect(rematerialed.unitPrice).toBe(0);
   });
 });
 

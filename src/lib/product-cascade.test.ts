@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   distinctApplications,
   distinctFittingTypes,
+  distinctMaterials,
   distinctSizes,
   fetchCascadeCatalogue,
   matchingProducts,
@@ -136,6 +137,31 @@ describe('distinctApplications', () => {
   });
 });
 
+describe('distinctMaterials', () => {
+  it('returns SV PVC and UG PVC, in that order, when both sub_category groups are present', () => {
+    const rows = [
+      material({ application: 'Drainage', sub_category: 'PVC Pressure Fittings' }),
+      material({ application: 'Drainage', sub_category: 'PVC UG Fittings' }),
+    ];
+    expect(distinctMaterials(rows, 'Drainage')).toEqual(['SV PVC', 'UG PVC']);
+  });
+
+  it('includes PVC SV Fittings under SV PVC (duplicates included per confirmed scope)', () => {
+    const rows = [material({ application: 'Drainage', sub_category: 'PVC SV Fittings' })];
+    expect(distinctMaterials(rows, 'Drainage')).toEqual(['SV PVC']);
+  });
+
+  it('omits a material with no matching rows rather than always returning both', () => {
+    const rows = [material({ application: 'Drainage', sub_category: 'PVC Pressure Fittings' })];
+    expect(distinctMaterials(rows, 'Drainage')).toEqual(['SV PVC']);
+  });
+
+  it('ignores rows for a different application', () => {
+    const rows = [material({ application: 'Supply', sub_category: 'PVC UG Fittings' })];
+    expect(distinctMaterials(rows, 'Drainage')).toEqual([]);
+  });
+});
+
 describe('nominalDiameter', () => {
   it.each([
     ['110mm', '110mm'],
@@ -218,6 +244,15 @@ describe('distinctSizes', () => {
     ];
     expect(distinctSizes(rows, 'Supply')).toEqual(['15mm']);
   });
+
+  it('narrows to a single material (Drainage SV PVC vs UG PVC) when one is given', () => {
+    const rows = [
+      material({ application: 'Drainage', sub_category: 'PVC Pressure Fittings', size: '110x87' }),
+      material({ application: 'Drainage', sub_category: 'PVC UG Fittings', size: '160mm' }),
+    ];
+    expect(distinctSizes(rows, 'Drainage', undefined, 'SV PVC')).toEqual(['110mm']);
+    expect(distinctSizes(rows, 'Drainage', undefined, 'UG PVC')).toEqual(['160mm']);
+  });
 });
 
 describe('distinctFittingTypes', () => {
@@ -246,6 +281,16 @@ describe('distinctFittingTypes', () => {
       material({ application: 'Drainage', size: '110X45', fitting_type: 'Bend' }),
     ];
     expect(distinctFittingTypes(rows, 'Drainage', '110mm')).toEqual(['Bend']);
+  });
+
+  it('narrows to a single material — UG PVC surfaces far fewer types than SV PVC, as expected', () => {
+    const rows = [
+      material({ application: 'Drainage', sub_category: 'PVC Pressure Fittings', fitting_type: 'Vent Valve' }),
+      material({ application: 'Drainage', sub_category: 'PVC Pressure Fittings', fitting_type: 'Socket' }),
+      material({ application: 'Drainage', sub_category: 'PVC UG Fittings', fitting_type: 'Gulley' }),
+    ];
+    expect(distinctFittingTypes(rows, 'Drainage', undefined, 'SV PVC')).toEqual(['Socket', 'Vent Valve']);
+    expect(distinctFittingTypes(rows, 'Drainage', undefined, 'UG PVC')).toEqual(['Gulley']);
   });
 });
 
@@ -278,5 +323,14 @@ describe('matchingProducts', () => {
       material({ application: 'Drainage', size: '110mm x6m', fitting_type: 'Pipe', material_code: 'NOISE-2' }),
     ];
     expect(matchingProducts([...bends110, ...noise], 'Drainage', 'Bend', '110mm')).toHaveLength(11);
+  });
+
+  it('narrows to a single material, keeping the two confirmed-duplicate SV bends distinct rows', () => {
+    const svBend1 = material({ application: 'Drainage', sub_category: 'PVC Pressure Fittings', fitting_type: 'Bend', size: '110x87', material_code: 'PLB-PL-PF015' });
+    const svBend2 = material({ application: 'Drainage', sub_category: 'PVC SV Fittings', fitting_type: 'Bend', size: '110x87', material_code: 'PLB-PL-PF08' });
+    const ugBend = material({ application: 'Drainage', sub_category: 'PVC UG Fittings', fitting_type: 'Bend', size: '110x45', material_code: 'PLB-PL-PF02' });
+    const rows = [svBend1, svBend2, ugBend];
+    expect(matchingProducts(rows, 'Drainage', 'Bend', '110mm', 'SV PVC')).toEqual([svBend1, svBend2]);
+    expect(matchingProducts(rows, 'Drainage', 'Bend', '110mm', 'UG PVC')).toEqual([ugBend]);
   });
 });
