@@ -101,8 +101,9 @@ export interface ValidationResult {
 
 export interface SaveResult {
   success: boolean;
-  estimate?: { id: string; reference: string; status: string };
+  estimate?: { id: string; reference: string; status: string; version?: number };
   error?: string;
+  unauthorized?: boolean;
 }
 
 export interface Employee {
@@ -209,22 +210,37 @@ export async function saveEstimate(
   clientName: string,
   documentType: "quote" | "invoice" = "quote",
   invoiceMeta: Record<string, unknown> = {},
+  // Edit path (Brief: Edit Existing Estimates/Invoices): when set, this save
+  // becomes a new version of the existing document (same reference) instead
+  // of minting a brand-new one, and requires the owner passphrase.
+  edit?: { reference: string; ownerSecret: string },
 ): Promise<SaveResult> {
   try {
+    const body: Record<string, unknown> = {
+      estimate_data: estimateData,
+      project_name: projectName,
+      client_name: clientName,
+      document_type: documentType,
+      invoice_meta: invoiceMeta,
+    };
+    if (edit) {
+      body.edit_reference = edit.reference;
+      body.owner_secret = edit.ownerSecret;
+    }
     const res = await fetch(`${supabaseUrl}/functions/v1/save-estimate`, {
       method: "POST",
       headers: edgeHeaders(),
-      body: JSON.stringify({
-        estimate_data: estimateData,
-        project_name: projectName,
-        client_name: clientName,
-        document_type: documentType,
-        invoice_meta: invoiceMeta,
-      }),
+      body: JSON.stringify(body),
     });
     const data = await res.json();
-    if (!res.ok || !data.success) return { success: false, error: data.error ?? `HTTP ${res.status}` };
-    console.log(`✅ Quote saved as ${data.estimate.reference}`);
+    if (!res.ok || !data.success) {
+      return {
+        success: false,
+        error: data.error ?? `HTTP ${res.status}`,
+        unauthorized: res.status === 401,
+      };
+    }
+    console.log(`✅ ${documentType === "invoice" ? "Invoice" : "Quote"} saved as ${data.estimate.reference}`);
     return { success: true, estimate: data.estimate };
   } catch (err) {
     return { success: false, error: String(err) };
@@ -239,6 +255,7 @@ export async function saveEstimate(
 export interface EstimateVersionRow {
   id: string;
   reference: string;
+  version: number;
   status: string;
   document_type: "quote" | "invoice";
   snapshot: Record<string, unknown> | null;

@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
-import { Link, getRouteApi } from "@tanstack/react-router";
+import { Link, getRouteApi, useNavigate } from "@tanstack/react-router";
 import { HamburgerButton, NavDrawer } from "@/components/NavDrawer";
 import {
   buildGeyserReplacement, buildElementRepair, buildNewInstallation, fetchGeyserPricing,
@@ -10,7 +10,10 @@ import {
   type InvoiceMeta, type DocumentType,
 } from "@/lib/invoice-document";
 import { useSettings, DEFAULT_SETTINGS, type OrgSettings } from "@/lib/settings-context";
-import { saveEstimate, loadEmployees, type Employee } from "@/lib/supabase-client";
+import {
+  saveEstimate, loadEmployees, loadEstimateById, clearStoredOwnerSecret, type Employee,
+} from "@/lib/supabase-client";
+import { getOrPromptOwnerSecret } from "@/components/StatusToggle";
 import {
   fetchFixtureTemplates, fetchTemplateRows, fetchCandidateMaterials, fetchMaterialByCode,
   type FixtureTemplate,
@@ -1081,7 +1084,7 @@ function ScopeModal({ scope, labour, inputs, onConfirm, onBack }: { scope: Scope
 }
 
 // ─── OUTPUT TABS ──────────────────────────────────────────────────────────────
-function EstimateTab({ scope, labour, inputs, finalGrade, docRef, documentType, onPrintDocument, ladder, vatRate, isGeneratingRef }: { scope: ScopeLine[]; labour: LabourLine[]; inputs: Inputs; finalGrade: string; docRef: string | null; documentType: DocumentType; onPrintDocument: () => Promise<void>; ladder: LadderRates; vatRate: number; isGeneratingRef: boolean }) {
+function EstimateTab({ scope, labour, inputs, finalGrade, docRef, documentType, onPrintDocument, ladder, vatRate, isGeneratingRef, isEditing, editingVersion, onSaveChanges, savingEdit, editSaveError }: { scope: ScopeLine[]; labour: LabourLine[]; inputs: Inputs; finalGrade: string; docRef: string | null; documentType: DocumentType; onPrintDocument: () => Promise<void>; ladder: LadderRates; vatRate: number; isGeneratingRef: boolean; isEditing: boolean; editingVersion: number | null; onSaveChanges: () => Promise<void>; savingEdit: boolean; editSaveError: string | null }) {
   const mat=scope.reduce((s,l)=>s+l.total,0);
   const lab=labour.reduce((s,l)=>s+l.cost,0);
   const ld=applyLadder(mat,lab,ladder);
@@ -1098,12 +1101,23 @@ function EstimateTab({ scope, labour, inputs, finalGrade, docRef, documentType, 
             <div style={{color:C.muted,fontSize:11,letterSpacing:1,textTransform:"uppercase"}}>Sell Price (excl. VAT)</div>
             <div style={{...T.heroTotal,letterSpacing:-1}}>{fmt(ld.sell)}</div>
             <div style={{color:C.slateL,fontSize:12,marginTop:4}}>{fmt(ld.sell*(1+vatRate))} incl. {vatPct}% VAT</div>
-            <div style={{color:C.muted,fontSize:11,marginTop:2}}>{documentType==="invoice"?"Invoice":"Quote"} ref: {refDisplay}</div>
+            <div style={{color:C.muted,fontSize:11,marginTop:2}}>
+              {documentType==="invoice"?"Invoice":"Quote"} ref: {refDisplay}
+              {isEditing && editingVersion!=null && ` · editing v${editingVersion} → will save as v${editingVersion+1}`}
+            </div>
           </div>
           <div style={{textAlign:"right"}}>
             <GradePill grade={finalGrade}/>
             <div style={{color:C.muted,fontSize:10,marginTop:6}}>{issuable?"✓ Internal use OK":"⚠ Not client-issuable"}</div>
-            <button onClick={onPrintDocument} disabled={isGeneratingRef} style={{...primaryBtn,marginTop:10,cursor:isGeneratingRef?"wait":"pointer",opacity:isGeneratingRef?0.6:1}}>⬇ Download {documentType==="invoice"?"Invoice":"Quote"}</button>
+            {isEditing && (
+              <button onClick={onSaveChanges} disabled={savingEdit} style={{...primaryBtn,marginTop:10,cursor:savingEdit?"wait":"pointer",opacity:savingEdit?0.6:1}}>
+                {savingEdit ? "Saving…" : "💾 Save Changes"}
+              </button>
+            )}
+            <button onClick={onPrintDocument} disabled={isGeneratingRef} style={{...primaryBtn,marginTop:10,marginLeft:isEditing?8:0,cursor:isGeneratingRef?"wait":"pointer",opacity:isGeneratingRef?0.6:1}}>⬇ Download {documentType==="invoice"?"Invoice":"Quote"}</button>
+            {isEditing && editSaveError && (
+              <div style={{color:"#FF8A80",fontSize:11,marginTop:6,maxWidth:200}}>{editSaveError}</div>
+            )}
           </div>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginTop:16,paddingTop:16,borderTop:`1px solid ${C.navyLt}`}}>
@@ -2171,7 +2185,8 @@ const GEYSER_DEFAULT: GeyserMeta = { jobType:"burst_replacement", size:150, bran
 const plumbingRoute = getRouteApi("/plumbing");
 
 export default function EstimatePage() {
-  const { doc } = plumbingRoute.useSearch();
+  const { doc, estimateId } = plumbingRoute.useSearch();
+  const navigate = useNavigate();
   // Per-contractor configuration (commercial ladder, labour rates, VAT, identity,
   // document prefixes). Falls back to DEFAULT_SETTINGS for a first-time user.
   const { settings } = useSettings();
@@ -2231,6 +2246,97 @@ export default function EstimatePage() {
     });
     return () => { alive = false; };
   }, []);
+
+  // Edit path (Brief: Edit Existing Estimates/Invoices): when the URL carries
+  // ?estimateId=, load that record's frozen snapshot and hydrate it back into
+  // the builder state below, then drop straight into the "review" screen (no
+  // "entry" landing screen for an edit). editingEstimateId/editingReference
+  // track the row being edited, needed by saveDocumentToDB (B3) to save as a
+  // new version of the SAME reference rather than minting a new document.
+  const [editingEstimateId, setEditingEstimateId] = useState<string | null>(null);
+  const [editingReference, setEditingReference] = useState<string | null>(null);
+  const [editingVersion, setEditingVersion] = useState<number | null>(null);
+  const [hydratingEdit, setHydratingEdit] = useState(!!estimateId);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editSaveError, setEditSaveError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!estimateId) return;
+    let cancelled = false;
+    loadEstimateById(estimateId).then((row) => {
+      if (cancelled) return;
+      if (!row) {
+        setHydratingEdit(false);
+        return;
+      }
+      const snap = (row.snapshot ?? {}) as Record<string, unknown>;
+      const activeKeys = Array.isArray(snap.activeSections) ? (snap.activeSections as string[]) : [];
+      const waterSupply = snap.waterSupply as { supplyLines?: PipeLine[]; supplyFittings?: TemplateRowInstance[] } | null | undefined;
+      const drainage = snap.drainage as { drainLines?: PipeLine[]; drainageFittings?: TemplateRowInstance[]; trenching?: boolean; templates?: AppliedTemplate[] } | null | undefined;
+      const geyserSnap = snap.geyser as (GeyserMeta & { templates?: AppliedTemplate[] }) | null | undefined;
+      const fixturesSnap = snap.fixtures as { fixtureLines?: FixtureLine[]; templates?: AppliedTemplate[] } | null | undefined;
+
+      setActiveSections({
+        waterSupply: activeKeys.includes("waterSupply"),
+        drainage: activeKeys.includes("drainage"),
+        geyser: activeKeys.includes("geyser"),
+        fixtures: activeKeys.includes("fixtures"),
+      });
+
+      // Only inputs/activeSections/geyser are hydrated here — materialLines/
+      // totals in the snapshot are frozen historical figures and are NOT read
+      // back in. buildScope/buildLabour re-derive scope/labour live from these
+      // inputs against today's catalogue pricing (locked decision #5).
+      setInputs((p) => ({
+        ...p,
+        projectName: typeof snap.projectName === "string" ? snap.projectName : p.projectName,
+        clientName: typeof snap.clientName === "string" ? snap.clientName : p.clientName,
+        allocatedEmployees: Array.isArray(snap.allocatedEmployees)
+          ? (snap.allocatedEmployees as { id: string; name: string }[])
+          : [],
+        afterHours: typeof snap.afterHours === "boolean" ? snap.afterHours : false,
+        supplyLines: waterSupply?.supplyLines ?? [],
+        supplyFittings: waterSupply?.supplyFittings ?? [],
+        drainLines: drainage?.drainLines ?? [],
+        drainageFittings: drainage?.drainageFittings ?? [],
+        trenching: drainage?.trenching ?? false,
+        fixtureLines: fixturesSnap?.fixtureLines ?? [],
+        // Recombine the three per-section template arrays the snapshot splits
+        // them into back into the single fittingTemplates array Inputs expects.
+        fittingTemplates: [
+          ...(drainage?.templates ?? []),
+          ...(geyserSnap?.templates ?? []),
+          ...(fixturesSnap?.templates ?? []),
+        ],
+        points: typeof snap.points === "number" ? snap.points : 0,
+      }));
+
+      if (geyserSnap) {
+        const { templates: _templates, ...geyserMeta } = geyserSnap;
+        setGeyser(geyserMeta as GeyserMeta);
+      }
+
+      if (row.document_type === "invoice" && row.invoice_meta) {
+        const im = row.invoice_meta as Partial<InvoiceMeta>;
+        setInvoiceMeta((p) => ({
+          issueDate: typeof im.issueDate === "string" ? im.issueDate : p.issueDate,
+          dueDate: typeof im.dueDate === "string" ? im.dueDate : p.dueDate,
+          bankingDetails: typeof im.bankingDetails === "string" ? im.bankingDetails : p.bankingDetails,
+        }));
+      }
+
+      setEditingEstimateId(row.id);
+      setEditingReference(row.reference);
+      setEditingVersion(row.version);
+      setScreen("review");
+      setHydratingEdit(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // Runs once on mount for a given estimateId — this page is always freshly
+    // mounted per navigation (route param change), never re-used in place.
+  }, [estimateId]);
+
   const [documentType] = useState<DocumentType>(doc);
   const [docRef, setDocRef] = useState<string | null>(null);
   const [isGeneratingRef, setIsGeneratingRef] = useState(false);
@@ -2409,7 +2515,12 @@ export default function EstimatePage() {
   // direct client insert — same pattern as employees/vehicles/attendance.
   // The edge function also mints the canonical reference server-side, so it
   // is returned here rather than generated separately beforehand.
-  const saveDocumentToDB = async (): Promise<string | null> => {
+  //
+  // Editing an existing record (editingEstimateId set) takes a different
+  // branch: it requires the owner passphrase and passes editingReference
+  // through so the edge function inserts a new version of the SAME
+  // reference (locked decision #2) instead of minting a brand-new one.
+  const saveDocumentToDB = async (): Promise<{ id: string; reference: string } | null> => {
     // Per-section snapshot (Brief C-2 Step 0.6) — a faithful, reconstructable
     // record of what was actually quoted (which sections were active and each
     // active section's real input data), not just totals as before. This is
@@ -2457,12 +2568,31 @@ export default function EstimatePage() {
 
     const invoiceMeta2 = documentType === "invoice" ? invoiceMeta : undefined;
 
-    const result = await saveEstimate(snapshot, effInputs.projectName, effInputs.clientName, documentType, (invoiceMeta2 ?? {}) as Record<string, unknown>);
+    let editParams: { reference: string; ownerSecret: string } | undefined;
+    if (editingEstimateId && editingReference) {
+      const ownerSecret = getOrPromptOwnerSecret("Enter the owner passphrase to save changes:");
+      if (!ownerSecret) return null; // user cancelled the prompt
+      editParams = { reference: editingReference, ownerSecret };
+    }
+
+    const result = await saveEstimate(
+      snapshot, effInputs.projectName, effInputs.clientName, documentType,
+      (invoiceMeta2 ?? {}) as Record<string, unknown>, editParams,
+    );
     if (!result.success || !result.estimate) {
+      if (editParams) {
+        if (result.unauthorized) {
+          clearStoredOwnerSecret();
+          setEditSaveError("Incorrect owner passphrase.");
+        } else {
+          setEditSaveError(result.error ?? "Failed to save changes.");
+        }
+      }
       console.error('Save failed:', result.error);
       return null;
     }
-    return result.estimate.reference;
+    if (editParams) setEditSaveError(null);
+    return { id: result.estimate.id, reference: result.estimate.reference };
   };
 
   // Save (if not already saved) and print document
@@ -2471,11 +2601,14 @@ export default function EstimatePage() {
     try {
       let currentRef = docRef;
       if (!currentRef) {
-        currentRef = await saveDocumentToDB();
-        if (!currentRef) {
-          alert(`Failed to save ${documentType}. Please check your connection and try again.`);
+        const saved = await saveDocumentToDB();
+        if (!saved) {
+          if (!editingEstimateId) {
+            alert(`Failed to save ${documentType}. Please check your connection and try again.`);
+          }
           return;
         }
+        currentRef = saved.reference;
         setDocRef(currentRef);
       }
 
@@ -2496,6 +2629,28 @@ export default function EstimatePage() {
   const printBuy = () => {
     if (!docRef) return;
     printBuyPDF(effInputs,scope,docRef);
+  };
+
+  // Edit-save entry point (Part C's "Edit" flow lands here): distinct from
+  // Download — persists the current state as a new version of the SAME
+  // reference (via saveDocumentToDB's edit branch above) and, only on
+  // success, navigates to the new row's detail page. Errors (wrong
+  // passphrase, network) surface inline via editSaveError instead of
+  // navigating, so the user's in-progress edits are never lost.
+  const saveEditedVersion = async () => {
+    if (!editingEstimateId) return;
+    setSavingEdit(true);
+    try {
+      const saved = await saveDocumentToDB();
+      if (!saved) return;
+      setDocRef(saved.reference);
+      navigate({
+        to: documentType === "invoice" ? "/invoices/$id" : "/estimates/$id",
+        params: { id: saved.id },
+      });
+    } finally {
+      setSavingEdit(false);
+    }
   };
 
   const AppHeader = ({ showTabs }: { showTabs: boolean }) => (
@@ -2544,6 +2699,18 @@ export default function EstimatePage() {
     </div>
   );
 
+  // While the edit hydration fetch is in flight, show a loading state rather
+  // than flashing the blank "entry" screen (which briefly renders before the
+  // effect above finishes and flips screen to "review").
+  if (hydratingEdit) return (
+    <div className="cos-app" style={{fontFamily:"'Inter',system-ui,sans-serif",background:UI.pageBg,minHeight:"100vh"}}>
+      <AppHeader showTabs={false}/>
+      <div style={{maxWidth:680,margin:"0 auto",padding:"60px 20px",textAlign:"center",color:C.slateL,fontSize:13}}>
+        Loading estimate…
+      </div>
+    </div>
+  );
+
   if (screen==="scan") return (
     <div className="cos-app" style={{fontFamily:"'Inter',system-ui,sans-serif",background:UI.pageBg,minHeight:"100vh"}}>
       <AppHeader showTabs={false}/>
@@ -2576,7 +2743,7 @@ export default function EstimatePage() {
         {inputs._scanNotes&&!geyserAsm&&<div style={{background:"#FEF5E7",border:`1px solid ${C.amber}40`,borderRadius:"0 0 6px 6px",padding:"6px 16px",fontSize:11,color:C.navy,marginBottom:4}}>📐 <strong>Scan-derived scope:</strong> {inputs._scanNotes}</div>}
         {geyserAsm&&<div style={{background:"#FEF5E7",border:`1px solid ${C.amber}40`,borderRadius:"0 0 6px 6px",padding:"6px 16px",fontSize:11,color:C.navy,marginBottom:4}}>♨ <strong>Geyser assembly · {finalGrade} grade:</strong> fixed-composition quote — {flags.length} note{flags.length===1?"":"s"} in the Learn tab{GRADES[finalGrade]?.rank>=GRADES["Derived"].rank?" · client-issuable through the normal gate.":" · not client-issuable until grade lifts."}</div>}
         <div style={{background:C.white,borderRadius:"0 10px 10px 10px",borderLeft:`1px solid ${UI.border}`,borderRight:`1px solid ${UI.border}`,borderBottom:`1px solid ${UI.border}`,overflow:"hidden",boxShadow:UI.cardShadow}}>
-          {tab==="estimate"&&<EstimateTab scope={scope} labour={labour} inputs={effInputs} finalGrade={finalGrade} docRef={docRef} documentType={documentType} onPrintDocument={printDocument} ladder={ladder} vatRate={vatRate} isGeneratingRef={isGeneratingRef}/>}
+          {tab==="estimate"&&<EstimateTab scope={scope} labour={labour} inputs={effInputs} finalGrade={finalGrade} docRef={docRef} documentType={documentType} onPrintDocument={printDocument} ladder={ladder} vatRate={vatRate} isGeneratingRef={isGeneratingRef} isEditing={!!editingEstimateId} editingVersion={editingVersion} onSaveChanges={saveEditedVersion} savingEdit={savingEdit} editSaveError={editSaveError}/>}
           {tab==="buy"    &&<BuyTab scope={scope} inputs={effInputs} quoteRef={docRef} onPrintBuy={printBuy}/>}
           {tab==="build"  &&<BuildTab labour={labour} allocatedEmployees={effInputs.allocatedEmployees}/>}
           {tab==="learn"  &&<LearnTab scope={scope} labour={labour} flags={flags} documentType={documentType}/>}

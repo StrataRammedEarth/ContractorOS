@@ -157,14 +157,27 @@ export function DocumentDetailPage({ documentType, id }: { documentType: Documen
               <div style={{ fontWeight: 800, color: C.navy, fontSize: 16 }}>{snapshot.clientName || "Unnamed client"}</div>
               <div style={{ color: C.slateL, fontSize: 13, marginTop: 2 }}>{snapshot.projectName || "Unnamed project"}</div>
             </div>
-            <StatusToggle
-              documentType={documentType}
-              id={row.id}
-              status={row.status}
-              onChanged={(patch) =>
-                setRow((prev) => (prev ? { ...prev, ...patch } : prev))
-              }
-            />
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {/* Opens the builder pre-loaded with this record's data (any
+                  status — no gate). Saving there inserts a new version;
+                  distinct from DueDateField's Edit link below, which only
+                  changes the due date in place. */}
+              <Link
+                to="/plumbing"
+                search={{ doc: documentType, estimateId: row.id }}
+                style={{ fontSize: 11, fontWeight: 700, color: C.navy, textDecoration: "none", border: `1px solid #DDE3EA`, borderRadius: 4, padding: "3px 9px" }}
+              >
+                ✎ Edit
+              </Link>
+              <StatusToggle
+                documentType={documentType}
+                id={row.id}
+                status={row.status}
+                onChanged={(patch) =>
+                  setRow((prev) => (prev ? { ...prev, ...patch } : prev))
+                }
+              />
+            </div>
           </div>
           <div style={{ display: "flex", gap: 16, marginTop: 12, fontSize: 12, color: C.slate }}>
             <div><span style={{ color: C.muted }}>Ref: </span><span style={{ fontFamily: "monospace" }}>{row.reference}</span></div>
