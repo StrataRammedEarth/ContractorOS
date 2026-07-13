@@ -5,7 +5,9 @@ import {
   distinctMaterials,
   distinctSizes,
   fetchCascadeCatalogue,
+  filterByFixtureTag,
   matchingProducts,
+  matchingProductsNoSize,
   nominalDiameter,
   nominalSizeFor,
   supplyNominalSize,
@@ -95,7 +97,7 @@ function material(overrides: Partial<PlumblinkMaterial> = {}): PlumblinkMaterial
 }
 
 describe('fetchCascadeCatalogue', () => {
-  it('queries plumblink_materials filtered to the cascade-eligible set: no Pipe, only Drainage/Supply', async () => {
+  it('queries plumblink_materials filtered to the cascade-eligible set: no Pipe, Drainage/Supply/Waste-Trap', async () => {
     const rows = [material()];
     setResponse('plumblink_materials', { data: rows, error: null });
 
@@ -109,7 +111,7 @@ describe('fetchCascadeCatalogue', () => {
       { table: 'plumblink_materials', method: 'not', args: ['fitting_type', 'is', null] },
       { table: 'plumblink_materials', method: 'not', args: ['unit_price_excl_vat', 'is', null] },
       { table: 'plumblink_materials', method: 'neq', args: ['fitting_type', 'Pipe'] },
-      { table: 'plumblink_materials', method: 'in', args: ['application', ['Drainage', 'Supply']] },
+      { table: 'plumblink_materials', method: 'in', args: ['application', ['Drainage', 'Supply', 'Waste / Trap']] },
       { table: 'plumblink_materials', method: 'returns', args: [] },
     ]);
   });
@@ -132,6 +134,19 @@ describe('distinctApplications', () => {
       material({ application: 'Supply' }),
       material({ application: 'Drainage' }),
       material({ application: 'Supply' }),
+    ];
+    expect(distinctApplications(rows)).toEqual(['Drainage', 'Supply']);
+  });
+
+  // Waste / Trap has no Size cascade step (owner decision) and gets its own
+  // dedicated Fitting Type -> Product cascade elsewhere — it must never appear
+  // in the generic Application picker's options, or a user could route into the
+  // unsuited 4-step App->FittingType->Size->Product cascade for it.
+  it('excludes Waste / Trap even when present in the catalogue', () => {
+    const rows = [
+      material({ application: 'Supply' }),
+      material({ application: 'Waste / Trap' }),
+      material({ application: 'Drainage' }),
     ];
     expect(distinctApplications(rows)).toEqual(['Drainage', 'Supply']);
   });
@@ -292,6 +307,19 @@ describe('distinctFittingTypes', () => {
     expect(distinctFittingTypes(rows, 'Drainage', undefined, 'SV PVC')).toEqual(['Socket', 'Vent Valve']);
     expect(distinctFittingTypes(rows, 'Drainage', undefined, 'UG PVC')).toEqual(['Gulley']);
   });
+
+  // Wastes & Traps: no size dimension, so the App -> Fitting Type list must be
+  // reachable with size omitted, same as any other application.
+  it('returns the distinct trap types present when called with application=Waste / Trap and no size', () => {
+    const rows = [
+      material({ application: 'Waste / Trap', fitting_type: 'Bottle Trap', size: '32mm', brand: 'Wirquin' }),
+      material({ application: 'Waste / Trap', fitting_type: 'P Trap', size: null, brand: 'Du Bois' }),
+      material({ application: 'Waste / Trap', fitting_type: 'P Trap', size: '32X40', brand: 'Geberit' }),
+      material({ application: 'Waste / Trap', fitting_type: 'Shower Trap', size: null, brand: 'Plumline' }),
+      material({ application: 'Drainage', fitting_type: 'Bend', size: '110mm' }),
+    ];
+    expect(distinctFittingTypes(rows, 'Waste / Trap')).toEqual(['Bottle Trap', 'P Trap', 'Shower Trap']);
+  });
 });
 
 describe('matchingProducts', () => {
@@ -332,5 +360,52 @@ describe('matchingProducts', () => {
     const rows = [svBend1, svBend2, ugBend];
     expect(matchingProducts(rows, 'Drainage', 'Bend', '110mm', 'SV PVC')).toEqual([svBend1, svBend2]);
     expect(matchingProducts(rows, 'Drainage', 'Bend', '110mm', 'UG PVC')).toEqual([ugBend]);
+  });
+});
+
+describe('matchingProductsNoSize', () => {
+  it('returns exactly the P Trap rows for (Waste / Trap, P Trap), including the null-size one', () => {
+    const pTrap1 = material({ application: 'Waste / Trap', fitting_type: 'P Trap', size: '32mm', brand: 'Du Bois', material_code: 'DB-PT-1' });
+    const pTrap2 = material({ application: 'Waste / Trap', fitting_type: 'P Trap', size: null, brand: 'Geberit', material_code: 'GB-PT-2' });
+    const pTrap3 = material({ application: 'Waste / Trap', fitting_type: 'P Trap', size: '32X40', brand: 'Wirquin', material_code: 'WQ-PT-3' });
+    const bottleTrap = material({ application: 'Waste / Trap', fitting_type: 'Bottle Trap', size: '32mm', brand: 'Plumline', material_code: 'PL-BT-1' });
+    const drainageBend = material({ application: 'Drainage', fitting_type: 'P Trap', size: '32mm', material_code: 'NOISE-1' });
+    const rows = [pTrap1, pTrap2, pTrap3, bottleTrap, drainageBend];
+    expect(matchingProductsNoSize(rows, 'Waste / Trap', 'P Trap')).toEqual([pTrap1, pTrap2, pTrap3]);
+  });
+
+  it('application scoping holds: Drainage rows never leak into a Waste / Trap match and vice-versa', () => {
+    const trap = material({ application: 'Waste / Trap', fitting_type: 'Bend', size: null, material_code: 'TRAP-BEND' });
+    const drainageBend = material({ application: 'Drainage', fitting_type: 'Bend', size: '110mm', material_code: 'DRAIN-BEND' });
+    const rows = [trap, drainageBend];
+    expect(matchingProductsNoSize(rows, 'Drainage', 'Bend')).toEqual([drainageBend]);
+    expect(matchingProductsNoSize(rows, 'Waste / Trap', 'Bend')).toEqual([trap]);
+  });
+});
+
+describe('filterByFixtureTag', () => {
+  it("returns rows whose fixture_tags contains the tag, excluding a row tagged only 'Shower;General'", () => {
+    const basinTrap = material({ application: 'Waste / Trap', fitting_type: 'Bottle Trap', fixture_tags: 'Basin;Kitchen Sink;General' });
+    const showerTrap = material({ application: 'Waste / Trap', fitting_type: 'Shower Trap', fixture_tags: 'Shower;General' });
+    expect(filterByFixtureTag([basinTrap, showerTrap], 'Basin')).toEqual([basinTrap]);
+  });
+
+  it('matches case- and space-insensitively', () => {
+    const basinTrap = material({ application: 'Waste / Trap', fitting_type: 'Bottle Trap', fixture_tags: 'Basin;Kitchen Sink' });
+    expect(filterByFixtureTag([basinTrap], 'basin ')).toEqual([basinTrap]);
+  });
+
+  it('returns the input unchanged when tag is null (show-all fallback)', () => {
+    const rows = [
+      material({ application: 'Waste / Trap', fitting_type: 'Bottle Trap', fixture_tags: 'Basin;General' }),
+      material({ application: 'Waste / Trap', fitting_type: 'Shower Trap', fixture_tags: 'Shower;General' }),
+    ];
+    expect(filterByFixtureTag(rows, null)).toEqual(rows);
+  });
+
+  it('excludes a row with fixture_tags=null for a non-null tag, includes it when tag=null', () => {
+    const untagged = material({ application: 'Waste / Trap', fitting_type: 'Trap', fixture_tags: null });
+    expect(filterByFixtureTag([untagged], 'Basin')).toEqual([]);
+    expect(filterByFixtureTag([untagged], null)).toEqual([untagged]);
   });
 });

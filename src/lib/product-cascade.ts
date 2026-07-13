@@ -5,10 +5,11 @@ import type { PlumblinkMaterial } from './product-filter';
 // plumblink_materials than the template product_filter queries: only rows with
 // application, fitting_type, and unit_price_excl_vat all non-null, fitting_type
 // not 'Pipe' (pipe stock has its own dedicated builders and isn't a fitting),
-// and application in {Drainage, Supply} are cascade-eligible. Sanware (fixtures,
-// not fittings) and Waste / Trap (deferred) are excluded at the source, so both
-// the fixture-template cascade and the standalone Supply/Drainage sections see a
-// clean, fitting-only slice.
+// and application in {Drainage, Supply, Waste / Trap} are cascade-eligible.
+// Sanware (fixtures, not fittings) is excluded at the source. Waste / Trap rows
+// are fetched here (shared with Drainage/Supply) but use a size-less cascade
+// (matchingProductsNoSize) — see Wastes & Traps brief 1; nothing renders them
+// yet (brief 2).
 export async function fetchCascadeCatalogue(): Promise<PlumblinkMaterial[]> {
   const { data, error } = await supabase
     .from('plumblink_materials')
@@ -17,7 +18,7 @@ export async function fetchCascadeCatalogue(): Promise<PlumblinkMaterial[]> {
     .not('fitting_type', 'is', null)
     .not('unit_price_excl_vat', 'is', null)
     .neq('fitting_type', 'Pipe')
-    .in('application', ['Drainage', 'Supply'])
+    .in('application', ['Drainage', 'Supply', 'Waste / Trap'])
     .returns<PlumblinkMaterial[]>();
   if (error) {
     console.error('❌ Error loading cascade catalogue:', error);
@@ -26,9 +27,15 @@ export async function fetchCascadeCatalogue(): Promise<PlumblinkMaterial[]> {
   return data ?? [];
 }
 
+// Distinct applications for the generic Application -> Fitting Type -> Size ->
+// Product cascade (CatalogFittingRow). Excludes 'Waste / Trap': that family has
+// no Size step (owner decision — see Wastes & Traps brief) and gets its own
+// dedicated Fitting Type -> Product cascade (matchingProductsNoSize) built for
+// it in a later brief, not this generic 4-step one. Keeps this brief's fetch
+// unblock free of any UI-visible change ahead of that dedicated cascade landing.
 export function distinctApplications(rows: PlumblinkMaterial[]): string[] {
   const set = new Set<string>();
-  for (const r of rows) if (r.application) set.add(r.application);
+  for (const r of rows) if (r.application && r.application !== 'Waste / Trap') set.add(r.application);
   return [...set].sort((a, b) => a.localeCompare(b));
 }
 
@@ -133,4 +140,34 @@ export function distinctFittingTypes(rows: PlumblinkMaterial[], application: str
 // nominalSizeFor so raw variants collapse consistently.
 export function matchingProducts(rows: PlumblinkMaterial[], application: string, fittingType: string, size: string, material?: DrainageFittingMaterial): PlumblinkMaterial[] {
   return rows.filter((r) => r.application === application && r.fitting_type === fittingType && nominalSizeFor(r.size, application) === size && matchesMaterial(r, material));
+}
+
+// Terminal cascade step for families with NO size dimension (Wastes & Traps).
+// Matches application + fitting_type only. Size is display-only for these rows,
+// never a filter — see owner decision (traps have inconsistent/null sizes).
+export function matchingProductsNoSize(
+  rows: PlumblinkMaterial[],
+  application: string,
+  fittingType: string,
+): PlumblinkMaterial[] {
+  return rows.filter(
+    (r) => r.application === application && r.fitting_type === fittingType,
+  );
+}
+
+// fixture_tags is a semicolon-delimited string, e.g. "Basin;Kitchen Sink;General".
+// Returns rows whose tag list contains `tag` (case-insensitive, trimmed). A null
+// `tag` (ungrouped — no linked fixture) returns rows unchanged (show-all fallback).
+export function filterByFixtureTag(
+  rows: PlumblinkMaterial[],
+  tag: string | null,
+): PlumblinkMaterial[] {
+  if (!tag) return rows;
+  const want = tag.trim().toLowerCase();
+  return rows.filter((r) =>
+    (r.fixture_tags ?? '')
+      .split(';')
+      .map((t) => t.trim().toLowerCase())
+      .includes(want),
+  );
 }
