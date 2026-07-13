@@ -11,7 +11,8 @@ import { isManualLine, parseProductFilter, buildQuery, type PlumblinkMaterial } 
 // can reference it without importing from a component.
 export type FixtureType =
   | 'toilet' | 'basin' | 'basin_mixer' | 'shower_mixer'
-  | 'shower_door' | 'shower_rose' | 'kitchen_mixer' | 'sink';
+  | 'shower_door' | 'shower_rose' | 'kitchen_mixer' | 'sink'
+  | 'bath' | 'bath_mixer';
 
 export interface FixtureTemplate {
   template_id: string;

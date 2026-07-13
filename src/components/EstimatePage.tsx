@@ -304,10 +304,13 @@ interface Ladder {
 const FIXTURE_LABOUR: Record<FixtureType, number> = {
   toilet: 1.83, basin: 1.50, basin_mixer: 0.25, shower_mixer: 1.17,
   shower_door: 1.00, shower_rose: 0.25, kitchen_mixer: 0.25, sink: 1.50,
+  bath: 2.50 /* ASSUMPTION — placeholder, confirm real hours with Luke */,
+  bath_mixer: 0.50 /* ASSUMPTION — placeholder, confirm real hours with Luke */,
 };
 const FIXTURE_TYPES: { t: FixtureType; label: string }[] = [
   { t:'toilet', label:'Toilet' }, { t:'basin', label:'Basin' },
-  { t:'basin_mixer', label:'Basin mixer' }, { t:'shower_mixer', label:'Shower mixer' },
+  { t:'basin_mixer', label:'Basin mixer' }, { t:'bath', label:'Bath' },
+  { t:'bath_mixer', label:'Bath mixer' }, { t:'shower_mixer', label:'Shower mixer' },
   { t:'shower_door', label:'Shower door' }, { t:'shower_rose', label:'Shower rose' },
   { t:'kitchen_mixer', label:'Kitchen mixer' }, { t:'sink', label:'Kitchen sink' },
 ];
@@ -324,6 +327,8 @@ const FIXTURE_ICONS: Record<FixtureType, string> = {
   shower_rose: "/icons/fixtures/shower-rose.png",
   kitchen_mixer: "/icons/fixtures/kitchen-mixer.png",
   sink: "/icons/fixtures/sink.png",
+  bath: "/icons/fixtures/bath.png",
+  bath_mixer: "/icons/fixtures/bath-mixer.png",
 };
 const FIXTURE_ICON_GENERIC = "/icons/fixtures/fixture-generic.png";
 const fixtureIcon = (type: FixtureType): string => FIXTURE_ICONS[type] ?? FIXTURE_ICON_GENERIC;
@@ -340,6 +345,8 @@ const FIXTURE_PRESETS: Record<FixtureType, FixturePreset[]> = {
   shower_rose:  [{ materialCode:'PLB-PD-018', description:'Shower rose round s/steel 200mm', unitPrice:477.39, grade:'Sourced', supplier:'Plumblink' }],
   kitchen_mixer:[{ materialCode:'PLB-PD-069', description:'Kitchen basin mixer (inc stop taps)', unitPrice:516.45, grade:'Sourced', supplier:'AfriCamps' }],
   sink:         [{ materialCode:'PLB-PL-SK001', description:'Plumline Nyathi S/Steel SEB Inset Sink 860×460mm', unitPrice:912.17, grade:'Sourced', supplier:'Plumline' }],
+  bath:         [], // no preset yet — no bath tub SKU in catalogue
+  bath_mixer:   [], // no preset yet — no bath mixer SKU in catalogue
 };
 const _uid = () => Math.random().toString(36).slice(2, 9);
 function makeFixtureLine(type: FixtureType): FixtureLine {
@@ -360,6 +367,7 @@ const FIXTURE_TRAP_TAG: Partial<Record<FixtureType, string>> = {
   basin: 'Basin',
   sink: 'Kitchen Sink',
   shower_mixer: 'Shower',
+  bath: 'Bath',
 };
 const trapTagFor = (t: FixtureType | undefined): string | null =>
   t ? (FIXTURE_TRAP_TAG[t] ?? null) : null;
@@ -3494,7 +3502,8 @@ export default function EstimatePage() {
                 <div className="cos-line cos-line--fixture">
                   <span className="cos-fixture-thumb">
                     <img src={fixtureIcon(fl.type)} alt={FIXTURE_TYPES.find(ft=>ft.t===fl.type)?.label ?? fl.type}
-                      width={28} height={28} loading="lazy"/>
+                      width={28} height={28} loading="lazy"
+                      onError={e=>{e.currentTarget.onerror=null;e.currentTarget.src=FIXTURE_ICON_GENERIC;}}/>
                   </span>
                   <select value={fl.type} onChange={e=>{const t=e.target.value as FixtureType;const b=makeFixtureLine(t);updateFixtureLine(fl.id,{type:t,source:b.source,materialCode:b.materialCode,description:b.description,unitPrice:b.unitPrice,grade:b.grade,supplier:b.supplier});}}
                     style={{...rowSelect,minWidth:0}}>
