@@ -1,4 +1,4 @@
-import type { FixtureTemplateRow } from './fixture-templates';
+import type { FixtureTemplateRow, FixtureType } from './fixture-templates';
 import { isManualLine } from './product-filter';
 import type { DrainageFittingMaterial } from './product-cascade';
 
@@ -40,6 +40,10 @@ export interface TemplateRowInstance {
   defaultQty: number;             // fixture_template_rows.default_qty; 1 for Custom rows
   allowAlternatives: boolean;
   productFilter: string;          // raw filter; drives the Product dropdown. '' for Custom rows
+  // Fixture Grouping — optional tag linking this row to a FIXTURES-section
+  // fixture type for display grouping only; undefined = existing ungrouped
+  // behaviour, unchanged. Zero effect on pricing.
+  linkedFixture?: { type: FixtureType; name: string };
 }
 
 const _uid = () => Math.random().toString(36).slice(2, 9);

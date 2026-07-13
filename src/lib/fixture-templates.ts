@@ -5,6 +5,14 @@ import { isManualLine, parseProductFilter, buildQuery, type PlumblinkMaterial } 
 // names here line up with claude_code_brief_fixture_templates.md exactly, unlike
 // plumblink_materials which diverged from its own reference doc.
 
+// Single source of truth for the manual-entry fixture builder's type union —
+// re-exported from EstimatePage.tsx so existing in-component references keep
+// resolving. Lives here (not in the component) so lib/template-row-state.ts
+// can reference it without importing from a component.
+export type FixtureType =
+  | 'toilet' | 'basin' | 'basin_mixer' | 'shower_mixer'
+  | 'shower_door' | 'shower_rose' | 'kitchen_mixer';
+
 export interface FixtureTemplate {
   template_id: string;
   fixture_type: string;
