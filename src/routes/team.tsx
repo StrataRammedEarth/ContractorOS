@@ -574,9 +574,10 @@ function DayDetail({
                   style={{
                     padding: "6px 8px",
                     borderRadius: 6,
-                    border: "1px solid #C8D0DB",
+                    border: `1px solid ${draft.status !== "" ? STATUS_COLORS[draft.status as AttendanceStatus] : "#C8D0DB"}`,
                     fontSize: 12,
-                    color: C.navy,
+                    fontWeight: draft.status !== "" ? 700 : 400,
+                    color: draft.status !== "" ? STATUS_COLORS[draft.status as AttendanceStatus] : C.navy,
                   }}
                 >
                   <option value="">— Not marked —</option>
