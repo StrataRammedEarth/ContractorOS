@@ -1242,7 +1242,7 @@ function EstimateTab({ scope, labour, inputs, finalGrade, docRef, documentType, 
             {l:`+ Contingency ${ladder.contingencyPct}%`,v:ld.cont,n:"on risk-adjusted"},{l:`+ Margin ${ladder.marginPct}%`,v:ld.margin,n:"on cont-adjusted"},
             {l:"= Sell (excl. VAT)",v:ld.sell,n:"",bold:true},{l:`= Sell (incl. ${vatPct}% VAT)`,v:ld.sell*(1+vatRate),n:"",gold:true},
           ].map((r,i)=>(
-            <tr key={i} style={{background:r.gold?`${C.gold}12`:r.bold?C.navyLt:i%2===0?C.offWhite:"#fff",borderBottom:"1px solid #E0E5EC"}}>
+            <tr key={i} style={{background:r.gold||r.bold?`${C.gold}12`:i%2===0?C.offWhite:"#fff",borderBottom:"1px solid #E0E5EC"}}>
               <td style={{padding:"7px 16px",color:r.bold||r.gold?C.navy:C.slate,fontWeight:r.bold||r.gold?700:400}}>{r.l}</td>
               <td style={{padding:"7px 16px",textAlign:"right",fontWeight:r.bold||r.gold?700:400,color:r.gold?C.goldDim:C.navy}}>{fmt(r.v)}</td>
               <td style={{padding:"7px 16px",color:C.muted,fontSize:11,fontStyle:"italic"}}>{r.n}</td>
