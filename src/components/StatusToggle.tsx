@@ -7,6 +7,7 @@ import {
   type EstimateVersionRow,
 } from "@/lib/supabase-client";
 import type { DocumentType } from "@/lib/invoice-document";
+import { statusStyle } from "@/lib/status-styles";
 
 // Mirrors the estimate_versions_status_check CHECK constraint — the only
 // values the DB will actually accept per document_type.
@@ -45,6 +46,7 @@ export function StatusToggle({
   const [error, setError] = useState<string | null>(null);
 
   const options = VALID_STATUSES[documentType];
+  const pillStyle = statusStyle(status);
 
   const choose = async (next: string) => {
     if (next === status) {
@@ -83,8 +85,8 @@ export function StatusToggle({
         }}
         style={{
           display: "inline-block",
-          background: "#F5A62326",
-          color: "#0D1B2A",
+          background: pillStyle.bg,
+          color: pillStyle.color,
           padding: "2px 8px",
           borderRadius: 4,
           fontSize: 9,
