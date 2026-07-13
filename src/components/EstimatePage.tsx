@@ -17,8 +17,9 @@ import {
 import { getOrPromptOwnerSecret } from "@/components/StatusToggle";
 import {
   fetchFixtureTemplates, fetchTemplateRows, fetchCandidateMaterials, fetchMaterialByCode,
-  type FixtureTemplate,
+  type FixtureTemplate, type FixtureType,
 } from "@/lib/fixture-templates";
+export type { FixtureType } from "@/lib/fixture-templates";
 import {
   initialRowInstance, createCustomRowInstance, createCatalogRowInstance, createStandaloneRowInstance,
   rowState, isPriced,
@@ -201,9 +202,6 @@ interface Fixtures {
 // Repeatable fixture lines (manual entry): each line is a product (library preset
 // or custom) + its own quantity. Library presets keep their real grade; custom
 // lines are Assumption and flagged. See multiline_entry_spec.
-type FixtureType =
-  | 'toilet' | 'basin' | 'basin_mixer' | 'shower_mixer'
-  | 'shower_door' | 'shower_rose' | 'kitchen_mixer';
 interface FixtureLine {
   id: string;
   type: FixtureType;
@@ -230,6 +228,10 @@ interface PipeLine {
   metres: number;
   grade: string;
   supplier?: string;
+  // Fixture Grouping — optional tag linking this line to a FIXTURES-section
+  // fixture type for display grouping only; undefined = existing ungrouped
+  // behaviour, unchanged. Zero effect on pricing/buildScope.
+  linkedFixture?: { type: FixtureType; name: string };
 }
 
 // Repeatable fitting lines (Compression Fittings, and future families): each line
@@ -344,6 +346,48 @@ function makeFixtureLine(type: FixtureType): FixtureLine {
 }
 const fxCount = (ls: FixtureLine[] | undefined, t: FixtureType) =>
   (ls ?? []).filter(l => l.type === t).reduce((s, l) => s + (l.quantity || 0), 0);
+const fixtureTypeLabel = (t: FixtureType): string => FIXTURE_TYPES.find(ft => ft.t === t)?.label ?? t;
+
+// ─── FIXTURE GROUPING (Water Supply/Supply Fittings/Drainage/Drainage Fittings) ──
+// Additive, presentation-only layer (see brief_fixture_grouping) above the four
+// existing flat lists. A row/line opts in via the optional `linkedFixture` tag;
+// untagged rows keep rendering in the pre-existing ungrouped area, unchanged.
+// Label is always re-derived from live fixtureLines (never read off a row's own
+// linkedFixture.name, which is a point-in-time snapshot only — see decision #4).
+const fixtureGroupLabel = (fixtureLines: FixtureLine[] | undefined, t: FixtureType): string =>
+  `${fixtureTypeLabel(t)} ×${fxCount(fixtureLines, t)}`;
+function partitionByFixture<T extends { linkedFixture?: { type: FixtureType; name: string } }>(rows: T[]):
+  { grouped: Map<FixtureType, T[]>; ungrouped: T[] } {
+  const grouped = new Map<FixtureType, T[]>();
+  const ungrouped: T[] = [];
+  for (const r of rows) {
+    if (r.linkedFixture) {
+      const arr = grouped.get(r.linkedFixture.type);
+      if (arr) arr.push(r); else grouped.set(r.linkedFixture.type, [r]);
+    } else {
+      ungrouped.push(r);
+    }
+  }
+  return { grouped, ungrouped };
+}
+// Which fixture-type headings a section should show: every type with a live
+// FixtureLine (so the scoped "+ Add under X" control is reachable the moment a
+// fixture is added — the only way to create that type's first linked row),
+// plus any type that already has linked rows in this section even without a
+// current FixtureLine (e.g. the fixture's type was since edited elsewhere) —
+// orphaned links must stay visible/removable, never silently hidden. Order:
+// fixtureLines' own order, then any orphan-only types.
+function fixtureTypesToShow(fixtureLines: FixtureLine[] | undefined, grouped: Map<FixtureType, unknown[]>): FixtureType[] {
+  const seen = new Set<FixtureType>();
+  const ordered: FixtureType[] = [];
+  for (const l of fixtureLines ?? []) {
+    if (!seen.has(l.type)) { seen.add(l.type); ordered.push(l.type); }
+  }
+  for (const t of grouped.keys()) {
+    if (!seen.has(t)) { seen.add(t); ordered.push(t); }
+  }
+  return ordered;
+}
 
 // ─── PIPE LOOKUP (supply + drainage line builders) ────────────────────────────
 // type + diameter + code is the lookup key (code disambiguates when more than
@@ -719,6 +763,50 @@ function SectionGroup({ label, subHeadings, children }: {
         </div>
       ) : (
         children
+      )}
+    </div>
+  );
+}
+
+// Collapsible per-fixture grouping sub-heading inside Water Supply/Supply
+// Fittings/Drainage/Drainage Fittings (Fixture Grouping brief, decision #5).
+// Mirrors SectionGroup's ▾/▸ collapse interaction at a smaller, in-card scale.
+// Default collapsed: the scoped "+ Add under {typeLabel}" controls only ever
+// show while expanded, so a freshly-added fixture doesn't clutter every
+// section with an open add-row until the user opts in.
+function FixtureSubheading({ heading, typeLabel, onAdd, onAddCustom, children }: {
+  heading: string;
+  typeLabel: string;
+  onAdd?: () => void;
+  onAddCustom?: () => void;
+  children: React.ReactNode;
+}) {
+  const [collapsed, setCollapsed] = useState(true);
+  return (
+    <div style={{ border:`1px solid ${UI.borderStrong}`, borderRadius:8, margin:"0 0 10px", padding:"8px 10px" }}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+        <span style={{ fontSize:12, fontWeight:800, color:C.navy, textTransform:"uppercase", letterSpacing:0.5 }}>
+          {heading}
+        </span>
+        <button
+          onClick={() => setCollapsed(c => !c)}
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? `Expand ${heading}` : `Collapse ${heading}`}
+          style={{ background:"transparent", border:`1px solid ${UI.borderStrong}`, borderRadius:6,
+            color:C.slate, fontSize:11, fontWeight:700, padding:"3px 9px", cursor:"pointer" }}>
+          {collapsed ? "▸ Expand" : "▾ Collapse"}
+        </button>
+      </div>
+      {!collapsed && (
+        <div style={{ marginTop:8 }}>
+          {children}
+          {(onAdd || onAddCustom) && (
+            <div style={{ display:"flex", gap:8, marginTop:8, flexWrap:"wrap" }}>
+              {onAdd && <button onClick={onAdd} style={addLineBtn}>+ Add under {typeLabel}</button>}
+              {onAddCustom && <button onClick={onAddCustom} style={addLineBtn}>+ Add custom under {typeLabel}</button>}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
@@ -1688,20 +1776,20 @@ const STANDALONE_ROW_GRID = "22px 80px 120px 1fr 52px 112px minmax(88px, auto)";
 // Drainage Fittings only — one extra track for the Material (SV PVC / UG PVC)
 // column ahead of Size. Supply Fittings keeps STANDALONE_ROW_GRID untouched.
 const STANDALONE_DRAINAGE_ROW_GRID = "22px 92px 80px 120px 1fr 52px 112px minmax(88px, auto)";
-function StandaloneFittingSection({ title, use, rows, catalogue, catalogueLoading, onAdd, onAddCustom, onUpdate, onRemove }: {
+function StandaloneFittingSection({ title, use, rows, fixtureLines, catalogue, catalogueLoading, onAdd, onAddCustom, onUpdate, onRemove }: {
   title: string;
   use: 'supply'|'drainage';
   rows: TemplateRowInstance[];
+  fixtureLines: FixtureLine[];
   catalogue: PlumblinkMaterial[];
   catalogueLoading: boolean;
-  onAdd: (use: 'supply'|'drainage') => void;
-  onAddCustom: (use: 'supply'|'drainage') => void;
+  onAdd: (use: 'supply'|'drainage', linkedFixture?: { type: FixtureType; name: string }) => void;
+  onAddCustom: (use: 'supply'|'drainage', linkedFixture?: { type: FixtureType; name: string }) => void;
   onUpdate: (use: 'supply'|'drainage', rowId: string, fn: (r: TemplateRowInstance) => TemplateRowInstance) => void;
   onRemove: (use: 'supply'|'drainage', rowId: string) => void;
 }) {
   const priced = rows.filter(r=>isPriced(r)).length;
-  const catalog = rows.filter(r=>r.origin==="catalog");
-  const custom  = rows.filter(r=>r.origin==="custom");
+  const { grouped, ungrouped } = partitionByFixture(rows);
 
   const customRow = (r: TemplateRowInstance, showDivider: boolean) => {
     const disabled = isCheckboxDisabled(r);
@@ -1738,29 +1826,49 @@ function StandaloneFittingSection({ title, use, rows, catalogue, catalogueLoadin
     );
   };
 
+  const rowGrid = (list: TemplateRowInstance[]) => {
+    const catalog = list.filter(r=>r.origin==="catalog");
+    const custom  = list.filter(r=>r.origin==="custom");
+    return (
+      <div style={{display:"grid",gridTemplateColumns:use==="drainage"?STANDALONE_DRAINAGE_ROW_GRID:STANDALONE_ROW_GRID,columnGap:8,rowGap:4,alignItems:"center"}}>
+        <span/>
+        {use==="drainage"&&<span style={T.colHead}>Material</span>}
+        <span style={T.colHead}>Size</span>
+        <span style={T.colHead}>Fitting Type</span>
+        <span style={T.colHead}>Product</span>
+        <span style={{...T.colHead,textAlign:"center"}}>Qty</span>
+        <span style={{...T.colHead,textAlign:"right"}}>Price</span>
+        <span/>
+        {catalog.map((r,i)=>(
+          <StandaloneCatalogRow key={r.id} row={r} catalogue={catalogue} catalogueLoading={catalogueLoading}
+            showDivider={i<catalog.length-1}
+            onUpdate={fn=>onUpdate(use,r.id,fn)} onRemove={()=>onRemove(use,r.id)}/>
+        ))}
+        {custom.length>0&&<div style={{gridColumn:"1 / -1",fontSize:11,fontWeight:700,color:C.slate,textTransform:"uppercase",letterSpacing:0.6,margin:"10px 0 4px"}}>Custom fittings</div>}
+        {custom.map((r,i)=>customRow(r, i<custom.length-1))}
+      </div>
+    );
+  };
+
   return (
     <div style={cardStyle}>
       <SectionHeader>{title}</SectionHeader>
       <div style={{padding:S.xl}}>
-        {rows.length===0
+        {fixtureTypesToShow(fixtureLines, grouped).map(type=>{
+          const typeLabel = fixtureTypeLabel(type);
+          const groupRows = grouped.get(type) ?? [];
+          return (
+            <FixtureSubheading key={type} heading={fixtureGroupLabel(fixtureLines, type)} typeLabel={typeLabel}
+              onAdd={()=>onAdd(use,{type,name:typeLabel})} onAddCustom={()=>onAddCustom(use,{type,name:typeLabel})}>
+              {groupRows.length>0
+                ? rowGrid(groupRows)
+                : <div style={{fontSize:12,color:C.slateL,padding:"2px 2px 4px"}}>No {use} fittings linked to {typeLabel} yet.</div>}
+            </FixtureSubheading>
+          );
+        })}
+        {ungrouped.length===0&&grouped.size===0
           ? <div style={{fontSize:12,color:C.slateL,padding:"2px 2px 8px"}}>No {use} fittings yet — add one below.</div>
-          : <div style={{display:"grid",gridTemplateColumns:use==="drainage"?STANDALONE_DRAINAGE_ROW_GRID:STANDALONE_ROW_GRID,columnGap:8,rowGap:4,alignItems:"center"}}>
-              <span/>
-              {use==="drainage"&&<span style={T.colHead}>Material</span>}
-              <span style={T.colHead}>Size</span>
-              <span style={T.colHead}>Fitting Type</span>
-              <span style={T.colHead}>Product</span>
-              <span style={{...T.colHead,textAlign:"center"}}>Qty</span>
-              <span style={{...T.colHead,textAlign:"right"}}>Price</span>
-              <span/>
-              {catalog.map((r,i)=>(
-                <StandaloneCatalogRow key={r.id} row={r} catalogue={catalogue} catalogueLoading={catalogueLoading}
-                  showDivider={i<catalog.length-1}
-                  onUpdate={fn=>onUpdate(use,r.id,fn)} onRemove={()=>onRemove(use,r.id)}/>
-              ))}
-              {custom.length>0&&<div style={{gridColumn:"1 / -1",fontSize:11,fontWeight:700,color:C.slate,textTransform:"uppercase",letterSpacing:0.6,margin:"10px 0 4px"}}>Custom fittings</div>}
-              {custom.map((r,i)=>customRow(r, i<custom.length-1))}
-            </div>}
+          : ungrouped.length>0&&rowGrid(ungrouped)}
         <div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}>
           <button onClick={()=>onAdd(use)}
             style={addLineBtn}>+ Add fitting</button>
@@ -2481,23 +2589,49 @@ export default function EstimatePage() {
   // Fixture-line builder management
   const addFixtureLine = useCallback((type: FixtureType) =>
     setInputs(p=>({...p, fixtureLines:[...(p.fixtureLines ?? []), makeFixtureLine(type)]})),[]);
-  const removeFixtureLine = useCallback((id: string) =>
-    setInputs(p=>({...p, fixtureLines:(p.fixtureLines ?? []).filter(l=>l.id!==id)})),[]);
+  // Delete cascade + confirmation (Fixture Grouping brief, decision #3): removing
+  // a fixture line always removes every row linked to that fixture TYPE (not just
+  // this line's id) across all four linkable arrays — two same-type fixture lines
+  // share one linked-rows pool, by design. A single aggregated confirm fires first;
+  // cancelling leaves everything untouched.
+  const removeFixtureLine = useCallback((fl: FixtureLine) => {
+    const type = fl.type;
+    const linkedCount =
+      (inputs.supplyLines ?? []).filter(l=>l.linkedFixture?.type===type).length +
+      (inputs.drainLines ?? []).filter(l=>l.linkedFixture?.type===type).length +
+      (inputs.supplyFittings ?? []).filter(r=>r.linkedFixture?.type===type).length +
+      (inputs.drainageFittings ?? []).filter(r=>r.linkedFixture?.type===type).length;
+    const label = fixtureTypeLabel(type);
+    const message = linkedCount>0
+      ? `Delete ${label} and its ${linkedCount} linked supply/drainage fittings? This cannot be undone.`
+      : `Delete ${label}?`;
+    if (!window.confirm(message)) return;
+    setInputs(p=>({
+      ...p,
+      fixtureLines: (p.fixtureLines ?? []).filter(l=>l.id!==fl.id),
+      supplyLines: (p.supplyLines ?? []).filter(l=>l.linkedFixture?.type!==type),
+      drainLines: (p.drainLines ?? []).filter(l=>l.linkedFixture?.type!==type),
+      supplyFittings: (p.supplyFittings ?? []).filter(r=>r.linkedFixture?.type!==type),
+      drainageFittings: (p.drainageFittings ?? []).filter(r=>r.linkedFixture?.type!==type),
+    }));
+  },[inputs.supplyLines, inputs.drainLines, inputs.supplyFittings, inputs.drainageFittings]);
   const updateFixtureLine = useCallback((id: string, patch: Partial<FixtureLine>) =>
     setInputs(p=>({...p, fixtureLines:(p.fixtureLines ?? []).map(l=>l.id===id?{...l,...patch}:l)})),[]);
 
   // Standalone Supply/Drainage fitting section management. Each section owns a
   // list of catalog rows whose application is fixed by the section; the `use` key
   // routes to the right Inputs list, mirroring the pipe-line builder pattern.
-  const addStandaloneFitting = useCallback((use: 'supply'|'drainage') => {
+  // linkedFixture is an optional pre-tag (Fixture Grouping brief §4) for scoped
+  // "+ Add under {Fixture}" controls; ungrouped adds omit it, unchanged.
+  const addStandaloneFitting = useCallback((use: 'supply'|'drainage', linkedFixture?: { type: FixtureType; name: string }) => {
     const key = use==='supply' ? 'supplyFittings' : 'drainageFittings';
     const application = use==='supply' ? 'Supply' : 'Drainage';
-    setInputs(p=>({...p, [key]:[...(p[key] ?? []), createStandaloneRowInstance(application)]}));
+    setInputs(p=>({...p, [key]:[...(p[key] ?? []), { ...createStandaloneRowInstance(application), ...(linkedFixture?{linkedFixture}:{}) }]}));
   },[]);
-  const addStandaloneCustomFitting = useCallback((use: 'supply'|'drainage') => {
+  const addStandaloneCustomFitting = useCallback((use: 'supply'|'drainage', linkedFixture?: { type: FixtureType; name: string }) => {
     const key = use==='supply' ? 'supplyFittings' : 'drainageFittings';
     const application = use==='supply' ? 'Supply' : 'Drainage';
-    setInputs(p=>({...p, [key]:[...(p[key] ?? []), { ...createCustomRowInstance(1), application }]}));
+    setInputs(p=>({...p, [key]:[...(p[key] ?? []), { ...createCustomRowInstance(1), application, ...(linkedFixture?{linkedFixture}:{}) }]}));
   },[]);
   const removeStandaloneFitting = useCallback((use: 'supply'|'drainage', id: string) => {
     const key = use==='supply' ? 'supplyFittings' : 'drainageFittings';
@@ -2541,9 +2675,9 @@ export default function EstimatePage() {
       t.instanceId !== instanceId ? t : { ...t, rows: t.rows.filter(r => r.id !== rowId) }) })), []);
 
   // Pipe-line builder management (supply + drainage share these via the `key`)
-  const addPipeLine = useCallback((use: 'supply'|'drainage') => {
+  const addPipeLine = useCallback((use: 'supply'|'drainage', linkedFixture?: { type: FixtureType; name: string }) => {
     const key = use==='supply' ? 'supplyLines' : 'drainLines';
-    setInputs(p=>({...p, [key]:[...(p[key] ?? []), makePipeLine(allPipeRows, use)]}));
+    setInputs(p=>({...p, [key]:[...(p[key] ?? []), { ...makePipeLine(allPipeRows, use), ...(linkedFixture?{linkedFixture}:{}) }]}));
   },[allPipeRows]);
   const removePipeLine = useCallback((use: 'supply'|'drainage', id: string) => {
     const key = use==='supply' ? 'supplyLines' : 'drainLines';
@@ -2819,7 +2953,8 @@ export default function EstimatePage() {
 
   // Reusable supply/drainage pipe line builder (type + diameter + metres)
   const pipeSection = (use: 'supply'|'drainage', title: string, extra: React.ReactNode) => {
-    const lines = ((use==='supply' ? inputs.supplyLines : inputs.drainLines) ?? []);
+    const allLines = ((use==='supply' ? inputs.supplyLines : inputs.drainLines) ?? []);
+    const { grouped, ungrouped } = partitionByFixture(allLines);
     const types = pipeTypesFor(allPipeRows, use);
     // Drainage only: some (type, diameter) groups have more than one real SKU
     // (e.g. UG PVC 110mm's two duty grades) — that section's grid gets an extra
@@ -2827,80 +2962,94 @@ export default function EstimatePage() {
     // so its grid/header stay exactly as they were.
     const showProduct = use==='drainage';
     const pipeLineClass = showProduct ? "cos-line cos-line--pipe cos-line--pipe-drainage" : "cos-line cos-line--pipe";
+    const headRow = (
+      <div className={`${pipeLineClass} cos-line-head`}>
+        <span style={T.colHead}>Material</span>
+        <span style={T.colHead}>Size</span>
+        {showProduct&&<span style={T.colHead}>Product</span>}
+        <span style={{...T.colHead,textAlign:"center"}}>Run (m)</span>
+        <span style={{...T.colHead,textAlign:"right"}}>Rate</span>
+        <span style={{...T.colHead,textAlign:"right"}}>Line total</span>
+        {showProduct?<span/>:<><span/><span/></>}
+      </div>);
+    const renderLine = (l: PipeLine, i: number, arr: PipeLine[]) => {
+      const dias = l.source==="custom" ? [] : pipeDiametersFor(allPipeRows, use,l.type);
+      const products = (!l.source || l.source==="custom") ? [] : pipeRowsFor(allPipeRows, use, l.type, l.diameter);
+      const isCustom = l.source==="custom";
+      return (
+      <div key={l.id} className="cos-toggle" style={{padding:"12px 14px 12px 0",
+        borderBottom:i===arr.length-1?"none":`1px solid ${UI.borderRow}`,
+        background:isCustom?UI.customBg:"transparent"}}>
+        <div className={pipeLineClass}>
+          <select className="cos-grow" value={isCustom?"__custom__":l.type}
+            onChange={e=>{const v=e.target.value;
+              if(v==="__custom__"){updatePipeLine(use,l.id,{source:"custom",pipeCode:undefined,type:"Custom",diameter:0,description:"",perMetre:0,grade:"Assumption",supplier:undefined});}
+              else{const dia=pipeDiametersFor(allPipeRows, use,v)[0];const r=pipeRow(allPipeRows, use,v,dia);if(r)updatePipeLine(use,l.id,{source:"library",pipeCode:r.code,type:r.type,diameter:r.diameter,description:r.description,perMetre:r.perMetre,grade:r.grade,supplier:r.source});}}}
+            style={{...rowSelect,minWidth:0}}>
+            {types.map(t=><option key={t} value={t}>{t}</option>)}
+            <option value="__custom__">Custom…</option>
+          </select>
+          {isCustom
+            ? <span style={{...T.secondary,textAlign:"center"}}>—</span>
+            : <select value={l.diameter}
+              onChange={e=>{const d=parseInt(e.target.value);const r=pipeRow(allPipeRows, use,l.type,d);if(r)updatePipeLine(use,l.id,{pipeCode:r.code,diameter:r.diameter,description:r.description,perMetre:r.perMetre,grade:r.grade});}}
+              style={{...rowSelect,minWidth:0}}>
+              {dias.map(d=><option key={d} value={d}>{d}mm</option>)}
+            </select>}
+          {showProduct&&(isCustom||products.length<=1
+            ? <span style={{...T.secondary,fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{isCustom?"—":l.description}</span>
+            : <select value={l.pipeCode ?? ""} title={l.description}
+                onChange={e=>{const code=e.target.value;const r=pipeRow(allPipeRows, use,l.type,l.diameter,code);if(r)updatePipeLine(use,l.id,{pipeCode:r.code,description:r.description,perMetre:r.perMetre,grade:r.grade,supplier:r.source});}}
+                style={{...rowSelect,minWidth:0}}>
+                {products.map(p=><option key={p.code} value={p.code}>{p.description}</option>)}
+              </select>)}
+          <div className="cos-num" style={{display:"flex",alignItems:"center",gap:4,minWidth:0}}>
+            <input type="number" min={0} value={l.metres}
+              onChange={e=>updatePipeLine(use,l.id,{metres:Math.max(0,parseFloat(e.target.value)||0)})}
+              style={{...rowCtl,width:"100%",minWidth:0,fontWeight:700,textAlign:"center",padding:"0 6px"}}/>
+            <span style={T.secondary}>m</span>
+          </div>
+          <span style={{...T.rate,textAlign:"right"}}>R{l.perMetre.toFixed(2)}/m</span>
+          <span style={{...T.total,textAlign:"right",height:34}}>{fmt(l.metres*l.perMetre)}</span>
+          <div style={{display:"flex",alignItems:"center",gap:4,justifySelf:"end"}}>
+            <GradePill grade={l.grade}/>
+            <button onClick={()=>removePipeLine(use,l.id)} title="Remove line" aria-label="Remove line" style={rowDeleteBtn}>✕</button>
+          </div>
+        </div>
+        {isCustom&&(
+          <div style={{display:"flex",gap:8,marginTop:8,alignItems:"center"}}>
+            <input placeholder={`Custom ${use} pipe description`} value={l.description}
+              onChange={e=>updatePipeLine(use,l.id,{description:e.target.value})}
+              style={{...rowCtl,flex:1,minWidth:0}}/>
+            <div style={{display:"flex",alignItems:"center",gap:4}}>
+              <span style={T.secondary}>R</span>
+              <input type="number" min={0} step="0.01" placeholder="/m" value={l.perMetre||""}
+                onChange={e=>updatePipeLine(use,l.id,{perMetre:Math.max(0,parseFloat(e.target.value)||0)})}
+                style={{...rowCtl,width:90}}/>
+              <span style={T.secondary}>/m</span>
+            </div>
+          </div>)}
+      </div>);
+    };
     return (
       <div style={cardStyle}>
         <SectionHeader>{title}</SectionHeader>
         <div style={{padding:S.xl}}>
-          {lines.length===0&&<div style={{fontSize:12,color:C.slateL,padding:"6px 2px 10px"}}>No {use} lines — add one below.</div>}
-          {lines.length>0&&(
-            <div className={`${pipeLineClass} cos-line-head`}>
-              <span style={T.colHead}>Material</span>
-              <span style={T.colHead}>Size</span>
-              {showProduct&&<span style={T.colHead}>Product</span>}
-              <span style={{...T.colHead,textAlign:"center"}}>Run (m)</span>
-              <span style={{...T.colHead,textAlign:"right"}}>Rate</span>
-              <span style={{...T.colHead,textAlign:"right"}}>Line total</span>
-              {showProduct?<span/>:<><span/><span/></>}
-            </div>)}
-          {lines.map((l,i)=>{
-            const dias = l.source==="custom" ? [] : pipeDiametersFor(allPipeRows, use,l.type);
-            const products = (!l.source || l.source==="custom") ? [] : pipeRowsFor(allPipeRows, use, l.type, l.diameter);
-            const isCustom = l.source==="custom";
+          {fixtureTypesToShow(inputs.fixtureLines, grouped).map(type=>{
+            const typeLabel = fixtureTypeLabel(type);
+            const groupLines = grouped.get(type) ?? [];
             return (
-            <div key={l.id} className="cos-toggle" style={{padding:"12px 14px 12px 0",
-              borderBottom:i===lines.length-1?"none":`1px solid ${UI.borderRow}`,
-              background:isCustom?UI.customBg:"transparent"}}>
-              <div className={pipeLineClass}>
-                <select className="cos-grow" value={isCustom?"__custom__":l.type}
-                  onChange={e=>{const v=e.target.value;
-                    if(v==="__custom__"){updatePipeLine(use,l.id,{source:"custom",pipeCode:undefined,type:"Custom",diameter:0,description:"",perMetre:0,grade:"Assumption",supplier:undefined});}
-                    else{const dia=pipeDiametersFor(allPipeRows, use,v)[0];const r=pipeRow(allPipeRows, use,v,dia);if(r)updatePipeLine(use,l.id,{source:"library",pipeCode:r.code,type:r.type,diameter:r.diameter,description:r.description,perMetre:r.perMetre,grade:r.grade,supplier:r.source});}}}
-                  style={{...rowSelect,minWidth:0}}>
-                  {types.map(t=><option key={t} value={t}>{t}</option>)}
-                  <option value="__custom__">Custom…</option>
-                </select>
-                {isCustom
-                  ? <span style={{...T.secondary,textAlign:"center"}}>—</span>
-                  : <select value={l.diameter}
-                    onChange={e=>{const d=parseInt(e.target.value);const r=pipeRow(allPipeRows, use,l.type,d);if(r)updatePipeLine(use,l.id,{pipeCode:r.code,diameter:r.diameter,description:r.description,perMetre:r.perMetre,grade:r.grade});}}
-                    style={{...rowSelect,minWidth:0}}>
-                    {dias.map(d=><option key={d} value={d}>{d}mm</option>)}
-                  </select>}
-                {showProduct&&(isCustom||products.length<=1
-                  ? <span style={{...T.secondary,fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{isCustom?"—":l.description}</span>
-                  : <select value={l.pipeCode ?? ""} title={l.description}
-                      onChange={e=>{const code=e.target.value;const r=pipeRow(allPipeRows, use,l.type,l.diameter,code);if(r)updatePipeLine(use,l.id,{pipeCode:r.code,description:r.description,perMetre:r.perMetre,grade:r.grade,supplier:r.source});}}
-                      style={{...rowSelect,minWidth:0}}>
-                      {products.map(p=><option key={p.code} value={p.code}>{p.description}</option>)}
-                    </select>)}
-                <div className="cos-num" style={{display:"flex",alignItems:"center",gap:4,minWidth:0}}>
-                  <input type="number" min={0} value={l.metres}
-                    onChange={e=>updatePipeLine(use,l.id,{metres:Math.max(0,parseFloat(e.target.value)||0)})}
-                    style={{...rowCtl,width:"100%",minWidth:0,fontWeight:700,textAlign:"center",padding:"0 6px"}}/>
-                  <span style={T.secondary}>m</span>
-                </div>
-                <span style={{...T.rate,textAlign:"right"}}>R{l.perMetre.toFixed(2)}/m</span>
-                <span style={{...T.total,textAlign:"right",height:34}}>{fmt(l.metres*l.perMetre)}</span>
-                <div style={{display:"flex",alignItems:"center",gap:4,justifySelf:"end"}}>
-                  <GradePill grade={l.grade}/>
-                  <button onClick={()=>removePipeLine(use,l.id)} title="Remove line" aria-label="Remove line" style={rowDeleteBtn}>✕</button>
-                </div>
-              </div>
-              {isCustom&&(
-                <div style={{display:"flex",gap:8,marginTop:8,alignItems:"center"}}>
-                  <input placeholder={`Custom ${use} pipe description`} value={l.description}
-                    onChange={e=>updatePipeLine(use,l.id,{description:e.target.value})}
-                    style={{...rowCtl,flex:1,minWidth:0}}/>
-                  <div style={{display:"flex",alignItems:"center",gap:4}}>
-                    <span style={T.secondary}>R</span>
-                    <input type="number" min={0} step="0.01" placeholder="/m" value={l.perMetre||""}
-                      onChange={e=>updatePipeLine(use,l.id,{perMetre:Math.max(0,parseFloat(e.target.value)||0)})}
-                      style={{...rowCtl,width:90}}/>
-                    <span style={T.secondary}>/m</span>
-                  </div>
-                </div>)}
-            </div>);
+              <FixtureSubheading key={type} heading={fixtureGroupLabel(inputs.fixtureLines, type)} typeLabel={typeLabel}
+                onAdd={()=>addPipeLine(use,{type,name:typeLabel})}>
+                {groupLines.length>0
+                  ? <>{headRow}{groupLines.map((l,i,arr)=>renderLine(l,i,arr))}</>
+                  : <div style={{fontSize:12,color:C.slateL,padding:"2px 2px 4px"}}>No {use} lines linked to {typeLabel} yet.</div>}
+              </FixtureSubheading>
+            );
           })}
+          {ungrouped.length===0&&grouped.size===0&&<div style={{fontSize:12,color:C.slateL,padding:"6px 2px 10px"}}>No {use} lines — add one below.</div>}
+          {ungrouped.length>0&&headRow}
+          {ungrouped.map((l,i,arr)=>renderLine(l,i,arr))}
           <button onClick={()=>addPipeLine(use)}
             style={addLineBtn}>+ Add {use==="supply"?"supply":"drain"} line</button>
           {extra}
@@ -3041,7 +3190,7 @@ export default function EstimatePage() {
         <SectionGroup label="Water Supply" subHeadings={["Water Supply", "Supply Fittings"]}>
         {pipeSection("supply","Water Supply", null)}
         <StandaloneFittingSection title="Supply Fittings" use="supply"
-          rows={inputs.supplyFittings ?? []} catalogue={catalogue} catalogueLoading={catalogueLoading}
+          rows={inputs.supplyFittings ?? []} fixtureLines={inputs.fixtureLines ?? []} catalogue={catalogue} catalogueLoading={catalogueLoading}
           onAdd={addStandaloneFitting} onAddCustom={addStandaloneCustomFitting}
           onUpdate={updateStandaloneFitting} onRemove={removeStandaloneFitting}/>
         </SectionGroup>
@@ -3055,7 +3204,7 @@ export default function EstimatePage() {
             <span style={{fontSize:13,color:C.navy}}>Include trench excavation labour (across drainage lines)</span>
           </label>)}
         <StandaloneFittingSection title="Drainage Fittings" use="drainage"
-          rows={inputs.drainageFittings ?? []} catalogue={catalogue} catalogueLoading={catalogueLoading}
+          rows={inputs.drainageFittings ?? []} fixtureLines={inputs.fixtureLines ?? []} catalogue={catalogue} catalogueLoading={catalogueLoading}
           onAdd={addStandaloneFitting} onAddCustom={addStandaloneCustomFitting}
           onUpdate={updateStandaloneFitting} onRemove={removeStandaloneFitting}/>
         <FixtureTemplatesSection
@@ -3121,7 +3270,7 @@ export default function EstimatePage() {
                   <span style={{...T.total,textAlign:"right",height:34}}>{fmt(fl.quantity*fl.unitPrice)}</span>
                   <div style={{display:"flex",alignItems:"center",gap:4,justifySelf:"end"}}>
                     <GradePill grade={fl.grade}/>
-                    <button onClick={()=>removeFixtureLine(fl.id)} title="Remove line" aria-label="Remove line" style={rowDeleteBtn}>✕</button>
+                    <button onClick={()=>removeFixtureLine(fl)} title="Remove line" aria-label="Remove line" style={rowDeleteBtn}>✕</button>
                   </div>
                 </div>
                 {isCustom&&(
