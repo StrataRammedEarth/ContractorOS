@@ -522,6 +522,19 @@ function DayDetail({
     setDrafts((prev) => ({ ...prev, [employeeId]: { ...prev[employeeId], ...patch } }));
   };
 
+  const [noteExpanded, setNoteExpanded] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = {};
+    for (const emp of employees) {
+      const record = existing.find((a) => a.employee_id === emp.id);
+      initial[emp.id] = !!record?.note;
+    }
+    return initial;
+  });
+
+  const toggleNote = (employeeId: string) => {
+    setNoteExpanded((prev) => ({ ...prev, [employeeId]: !prev[employeeId] }));
+  };
+
   const handleSave = () => {
     const entries: {
       employee_id: string;
@@ -552,6 +565,7 @@ function DayDetail({
         ) : (
           employees.map((emp) => {
             const draft = drafts[emp.id] ?? { status: "", note: "" };
+            const isNoteExpanded = noteExpanded[emp.id] ?? false;
             return (
               <div
                 key={emp.id}
@@ -566,27 +580,44 @@ function DayDetail({
                 }}
               >
                 <div style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>{emp.name}</div>
-                <select
-                  value={draft.status}
-                  onChange={(e) =>
-                    setDraft(emp.id, { status: e.target.value as AttendanceStatus | "" })
-                  }
-                  style={{
-                    padding: "6px 8px",
-                    borderRadius: 6,
-                    border: `1px solid ${draft.status !== "" ? STATUS_COLORS[draft.status as AttendanceStatus] : "#C8D0DB"}`,
-                    fontSize: 12,
-                    fontWeight: draft.status !== "" ? 700 : 400,
-                    color: draft.status !== "" ? STATUS_COLORS[draft.status as AttendanceStatus] : C.navy,
-                  }}
-                >
-                  <option value="">— Not marked —</option>
-                  {STATUS_OPTIONS.map((s) => (
-                    <option key={s} value={s}>
-                      {STATUS_LABELS[s]}
-                    </option>
-                  ))}
-                </select>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <select
+                    value={draft.status}
+                    onChange={(e) =>
+                      setDraft(emp.id, { status: e.target.value as AttendanceStatus | "" })
+                    }
+                    style={{
+                      padding: "6px 8px",
+                      borderRadius: 6,
+                      border: `1px solid ${draft.status !== "" ? STATUS_COLORS[draft.status as AttendanceStatus] : "#C8D0DB"}`,
+                      fontSize: 12,
+                      fontWeight: draft.status !== "" ? 700 : 400,
+                      color: draft.status !== "" ? STATUS_COLORS[draft.status as AttendanceStatus] : C.navy,
+                    }}
+                  >
+                    <option value="">— Not marked —</option>
+                    {STATUS_OPTIONS.map((s) => (
+                      <option key={s} value={s}>
+                        {STATUS_LABELS[s]}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => toggleNote(emp.id)}
+                    style={{
+                      padding: "6px 12px",
+                      borderRadius: 6,
+                      border: "1px solid #C8D0DB",
+                      background: "#fff",
+                      color: C.slate,
+                      fontWeight: 600,
+                      fontSize: 12,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {isNoteExpanded ? "− Remove note" : "+ Add note"}
+                  </button>
+                </div>
                 {draft.status !== "" && STATUSES_WITH_ARRIVAL.includes(draft.status) && (
                   <div
                     style={{
@@ -613,19 +644,21 @@ function DayDetail({
                     />
                   </div>
                 )}
-                <input
-                  value={draft.note}
-                  onChange={(e) => setDraft(emp.id, { note: e.target.value })}
-                  placeholder="Note (optional)"
-                  style={{
-                    gridColumn: "1 / span 2",
-                    padding: "6px 8px",
-                    borderRadius: 6,
-                    border: "1px solid #C8D0DB",
-                    fontSize: 12,
-                    color: C.navy,
-                  }}
-                />
+                {isNoteExpanded && (
+                  <input
+                    value={draft.note}
+                    onChange={(e) => setDraft(emp.id, { note: e.target.value })}
+                    placeholder="Note (optional)"
+                    style={{
+                      gridColumn: "1 / span 2",
+                      padding: "6px 8px",
+                      borderRadius: 6,
+                      border: "1px solid #C8D0DB",
+                      fontSize: 12,
+                      color: C.navy,
+                    }}
+                  />
+                )}
               </div>
             );
           })
