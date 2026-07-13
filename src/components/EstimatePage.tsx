@@ -35,7 +35,7 @@ import {
 import type { PlumblinkMaterial } from "@/lib/product-filter";
 import {
   fetchCascadeCatalogue, distinctApplications, distinctSizes, distinctFittingTypes, matchingProducts,
-  distinctMaterials, type DrainageFittingMaterial,
+  distinctMaterials, matchingProductsNoSize, filterByFixtureTag, type DrainageFittingMaterial,
 } from "@/lib/product-cascade";
 import { fetchDrainagePipeCatalogue, type DrainagePipeRow } from "@/lib/pipe-catalogue";
 import { aggregateBuyList, groupByCategory } from "@/lib/buy-list";
@@ -265,6 +265,7 @@ interface Inputs {
   fixtureLines?: FixtureLine[]; // canonical fixtures for manual-entry pricing
   supplyFittings?: TemplateRowInstance[];   // standalone Supply Fittings section (catalogue cascade)
   drainageFittings?: TemplateRowInstance[]; // standalone Drainage Fittings section (catalogue cascade)
+  wastesTraps?: TemplateRowInstance[]; // standalone Wastes & Traps section (catalogue cascade, no size step)
   fittingTemplates?: AppliedTemplate[]; // fixture-linked fitting templates
   supplyLines?: PipeLine[];     // canonical supply pipe (replaces pipeType+supplyMetres)
   drainLines?: PipeLine[];      // canonical drainage pipe (replaces drainMetres)
@@ -347,6 +348,19 @@ function makeFixtureLine(type: FixtureType): FixtureLine {
 const fxCount = (ls: FixtureLine[] | undefined, t: FixtureType) =>
   (ls ?? []).filter(l => l.type === t).reduce((s, l) => s + (l.quantity || 0), 0);
 const fixtureTypeLabel = (t: FixtureType): string => FIXTURE_TYPES.find(ft => ft.t === t)?.label ?? t;
+
+// ─── WASTES & TRAPS — fixture-type → catalogue fixture_tag map ────────────────
+// Which plumblink_materials.fixture_tags value a linked fixture narrows the trap
+// product list by (see filterByFixtureTag, Wastes & Traps brief 1). Unmapped
+// types → null → show all traps (owner decision B) — they're still valid link
+// targets via an orphaned/ungrouped row, just without narrowing.
+const FIXTURE_TRAP_TAG: Partial<Record<FixtureType, string>> = {
+  basin: 'Basin',
+  kitchen_mixer: 'Kitchen Sink',
+  shower_mixer: 'Shower',
+};
+const trapTagFor = (t: FixtureType | undefined): string | null =>
+  t ? (FIXTURE_TRAP_TAG[t] ?? null) : null;
 
 // ─── FIXTURE GROUPING (Water Supply/Supply Fittings/Drainage/Drainage Fittings) ──
 // Additive, presentation-only layer (see brief_fixture_grouping) above the four
@@ -570,6 +584,7 @@ function buildScope(inp: Inputs, opts: { invoiceStrict?: boolean } = {}): ScopeL
   ([
     ['SF', 'Supply',   inp.supplyFittings   ?? []],
     ['DF', 'Drainage', inp.drainageFittings ?? []],
+    ['WT', 'Waste / Trap', inp.wastesTraps  ?? []],
   ] as const).forEach(([prefix, sectionLabel, rows]) => {
     rows.forEach((r, ri) => {
       if (!isPriced(r)) return;
@@ -701,6 +716,15 @@ const today = () => new Date().toLocaleDateString("en-ZA",{day:"numeric",month:"
 const productOptionLabel = (m: Pick<PlumblinkMaterial, 'brand' | 'description' | 'material_code'>) => {
   const name = m.description ?? m.material_code;
   return m.brand ? `${m.brand} ${name}` : name;
+};
+// Wastes & Traps only: size has no cascade step (inconsistent/null in the
+// catalogue — owner decision), so it's surfaced inline in the product label
+// instead, e.g. "40mm Geberit P Trap…". Kept separate from productOptionLabel
+// so every other cascade's option label (size already resolved via its own
+// dropdown) stays byte-identical.
+const trapOptionLabel = (m: Pick<PlumblinkMaterial, 'brand' | 'description' | 'material_code' | 'size'>) => {
+  const base = productOptionLabel(m);
+  return m.size ? `${m.size} ${base}` : base;
 };
 
 // ─── MICRO COMPONENTS ─────────────────────────────────────────────────────────
@@ -1506,6 +1530,7 @@ const DEFAULT: Inputs = {
   fixtureLines:[],
   supplyFittings:[],
   drainageFittings:[],
+  wastesTraps:[],
   fittingTemplates:[],
   supplyLines:[],
   drainLines:[],
@@ -1790,6 +1815,65 @@ function StandaloneCatalogRow({ row, catalogue, catalogueLoading, showDivider, o
   );
 }
 
+// Wastes & Traps catalogue-cascade row — the 2-step analogue of
+// StandaloneCatalogRow: Fitting Type -> Product only, application fixed to
+// 'Waste / Trap', no Material/Size steps (owner decision: traps have
+// inconsistent/null sizes, so size is display-only inside the product label —
+// see trapOptionLabel). Product list is additionally narrowed by the linked
+// fixture's tag (filterByFixtureTag); ungrouped rows (no linkedFixture) get the
+// unfiltered list via trapTagFor's null fallback.
+const TRAP_ROW_GRID = "22px 120px 1fr 52px 112px minmax(88px, auto)";
+function TrapCatalogRow({ row, catalogue, catalogueLoading, showDivider, onUpdate, onRemove }: {
+  row: TemplateRowInstance;
+  catalogue: PlumblinkMaterial[];
+  catalogueLoading: boolean;
+  showDivider: boolean;
+  onUpdate: (fn: (r: TemplateRowInstance) => TemplateRowInstance) => void;
+  onRemove: () => void;
+}) {
+  const disabled = isCheckboxDisabled(row);
+  const grade = resolvedGrade(row);
+  const fittingTypes = distinctFittingTypes(catalogue, 'Waste / Trap');
+  const tag = trapTagFor(row.linkedFixture?.type);
+  const products = row.fittingType
+    ? filterByFixtureTag(matchingProductsNoSize(catalogue, 'Waste / Trap', row.fittingType), tag)
+    : [];
+
+  return (
+    <div style={{display:"contents"}}>
+      <input type="checkbox" checked={row.checked} disabled={disabled}
+        title={disabled?"Select a product first":""}
+        onChange={e=>onUpdate(x=>rowSetChecked(x,e.target.checked))}
+        style={{width:16,height:16,cursor:disabled?"not-allowed":"pointer",...cellDivider(showDivider)}}/>
+      <select value={row.fittingType||"__select__"} disabled={catalogueLoading}
+        onChange={e=>{const v=e.target.value;if(v==="__select__")return;onUpdate(x=>rowSetStandaloneFittingType(x,v));}}
+        style={{...templateSmallSelectStyle,...cellDivider(showDivider)}}>
+        <option value="__select__" disabled>{catalogueLoading?"Loading catalogue…":"Select…"}</option>
+        {fittingTypes.map(ft=><option key={ft} value={ft}>{ft}</option>)}
+      </select>
+      <select value={row.materialCode??"__select__"} disabled={!row.fittingType}
+        onChange={e=>{
+          const v=e.target.value; if(v==="__select__")return;
+          const m=products.find(p=>p.material_code===v);
+          if(m) onUpdate(x=>rowSelectMaterial(x,{materialCode:m.material_code,description:m.description??"",unitPrice:m.unit_price_excl_vat??0,category:m.section??null,subCategory:m.sub_category??null}));
+        }}
+        style={{...templateSmallSelectStyle,...cellDivider(showDivider)}}>
+        <option value="__select__" disabled>{products.length?"Select product…":"No matching products"}</option>
+        {products.map(p=><option key={p.material_code} value={p.material_code}>{trapOptionLabel(p)}</option>)}
+      </select>
+      <input type="number" min={0} step={1} value={row.defaultQty} title="Qty"
+        onChange={e=>{const q=Math.max(0,parseFloat(e.target.value)||0);onUpdate(x=>({...x,defaultQty:q}));}}
+        style={{width:48,padding:"6px 6px",border:`1px solid ${UI.borderStrong}`,borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center",...cellDivider(showDivider)}}/>
+      <PriceCell row={row} style={cellDivider(showDivider)}/>
+      <div style={{display:"flex",alignItems:"center",gap:4,justifySelf:"end",...cellDivider(showDivider)}}>
+        {grade ? <GradePill grade={grade}/> : <span/>}
+        <button onClick={onRemove} title="Remove"
+          style={rowDeleteBtnCompact}>✕</button>
+      </div>
+    </div>
+  );
+}
+
 // One standalone fittings table — Supply or Drainage, application fixed. No
 // fixture header, no fixture-count basis: it's a plain list of catalogue-cascade
 // rows (Size → Fitting Type → Product) with a manual "+ Add custom fitting"
@@ -1895,6 +1979,119 @@ function StandaloneFittingSection({ title, use, rows, fixtureLines, catalogue, c
           <button onClick={()=>onAdd(use)}
             style={addLineBtn}>+ Add fitting</button>
           <button onClick={()=>onAddCustom(use)}
+            style={addLineBtn}>+ Add custom fitting</button>
+        </div>
+        <div style={{...T.muted,marginTop:6}}>ⓘ {priced} priced · only confirmed rows are priced and added to the buy list.</div>
+      </div>
+    </div>
+  );
+}
+
+// Wastes & Traps — a third card under Drainage, mirroring StandaloneFittingSection's
+// grouping structure (partitionByFixture + fixtureTypesToShow + FixtureSubheading)
+// but with the 2-column TrapCatalogRow grid instead of the Material/Size/FittingType
+// grid (that grid is hard-coupled to the 3/4-step drainage/supply cascade — see
+// Wastes & Traps brief 2, Step 0-F). No `use` coupling: application is always
+// 'Waste / Trap', so handlers are dedicated (addWasteTrap etc.) rather than
+// widening the 'supply'|'drainage' union threaded through the other sections.
+//
+// Heading bootstrap is narrower than the other three sections': only fixture
+// types present in FIXTURE_TRAP_TAG (basin/kitchen_mixer/shower_mixer) get a
+// heading the instant their FixtureLine exists — passed via `fixtureLines`
+// already pre-filtered by the caller. Any type with existing linked rows still
+// surfaces via fixtureTypesToShow's own orphan-safety union (grouped.keys()),
+// so nothing already filed under an unmapped type (e.g. after a fixture edit)
+// ever becomes hidden — same guarantee as the other sections, narrower bootstrap.
+function WastesTrapsSection({ rows, fixtureLines, catalogue, catalogueLoading, onAdd, onAddCustom, onUpdate, onRemove }: {
+  rows: TemplateRowInstance[];
+  fixtureLines: FixtureLine[];
+  catalogue: PlumblinkMaterial[];
+  catalogueLoading: boolean;
+  onAdd: (linkedFixture?: { type: FixtureType; name: string }) => void;
+  onAddCustom: (linkedFixture?: { type: FixtureType; name: string }) => void;
+  onUpdate: (rowId: string, fn: (r: TemplateRowInstance) => TemplateRowInstance) => void;
+  onRemove: (rowId: string) => void;
+}) {
+  const priced = rows.filter(r=>isPriced(r)).length;
+  const { grouped, ungrouped } = partitionByFixture(rows);
+  const trapEligibleFixtureLines = fixtureLines.filter(l => l.type in FIXTURE_TRAP_TAG);
+
+  const customRow = (r: TemplateRowInstance, showDivider: boolean) => {
+    const disabled = isCheckboxDisabled(r);
+    const grade = resolvedGrade(r);
+    return (
+      <div key={r.id} style={{display:"contents"}}>
+        <input type="checkbox" checked={r.checked} disabled={disabled}
+          title={disabled?"Enter a product first":""}
+          onChange={e=>{const c=e.target.checked;onUpdate(r.id,x=>rowSetChecked(x,c));}}
+          style={{width:16,height:16,cursor:disabled?"not-allowed":"pointer",...cellDivider(showDivider)}}/>
+        <input placeholder="Fitting type" value={r.fittingType}
+          onChange={e=>{const v=e.target.value;onUpdate(r.id,x=>({...x,fittingType:v}));}}
+          style={{...templateSmallInputStyle,...cellDivider(showDivider)}}/>
+        <div style={{minWidth:0,overflow:"hidden",...cellDivider(showDivider)}}>
+          <TemplateProductSelect row={r}
+            onSelect={m=>onUpdate(r.id,x=>rowSelectMaterial(x,m))}
+            onManual={(d,p)=>onUpdate(r.id,x=>rowSetManual(x,d,p))}
+            onResolveDefault={(p,d,cat,sub)=>onUpdate(r.id,x=>({...x,unitPrice:p,description:x.description||d,category:cat,subCategory:sub}))}/>
+        </div>
+        <input type="number" min={0} step={1} value={r.defaultQty} title="Qty"
+          onChange={e=>{const q=Math.max(0,parseFloat(e.target.value)||0);onUpdate(r.id,x=>({...x,defaultQty:q}));}}
+          style={{width:48,padding:"6px 6px",border:`1px solid ${UI.borderStrong}`,borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center",...cellDivider(showDivider)}}/>
+        <PriceCell row={r} style={cellDivider(showDivider)}/>
+        <div style={{display:"flex",alignItems:"center",gap:4,justifySelf:"end",...cellDivider(showDivider)}}>
+          {grade ? <GradePill grade={grade}/> : <span/>}
+          <button onClick={()=>onRemove(r.id)} title="Remove"
+            style={rowDeleteBtnCompact}>✕</button>
+        </div>
+      </div>
+    );
+  };
+
+  const rowGrid = (list: TemplateRowInstance[]) => {
+    const catalog = list.filter(r=>r.origin==="catalog");
+    const custom  = list.filter(r=>r.origin==="custom");
+    return (
+      <div style={{display:"grid",gridTemplateColumns:TRAP_ROW_GRID,columnGap:8,rowGap:4,alignItems:"center"}}>
+        <span/>
+        <span style={T.colHead}>Fitting Type</span>
+        <span style={T.colHead}>Product</span>
+        <span style={{...T.colHead,textAlign:"center"}}>Qty</span>
+        <span style={{...T.colHead,textAlign:"right"}}>Price</span>
+        <span/>
+        {catalog.map((r,i)=>(
+          <TrapCatalogRow key={r.id} row={r} catalogue={catalogue} catalogueLoading={catalogueLoading}
+            showDivider={i<catalog.length-1}
+            onUpdate={fn=>onUpdate(r.id,fn)} onRemove={()=>onRemove(r.id)}/>
+        ))}
+        {custom.length>0&&<div style={{gridColumn:"1 / -1",fontSize:11,fontWeight:700,color:C.slate,textTransform:"uppercase",letterSpacing:0.6,margin:"10px 0 4px"}}>Custom fittings</div>}
+        {custom.map((r,i)=>customRow(r, i<custom.length-1))}
+      </div>
+    );
+  };
+
+  return (
+    <div style={cardStyle}>
+      <SectionHeader>Wastes & Traps</SectionHeader>
+      <div style={{padding:S.xl}}>
+        {fixtureTypesToShow(trapEligibleFixtureLines, grouped).map(type=>{
+          const typeLabel = fixtureTypeLabel(type);
+          const groupRows = grouped.get(type) ?? [];
+          return (
+            <FixtureSubheading key={type} heading={fixtureGroupLabel(fixtureLines, type)} typeLabel={typeLabel}
+              onAdd={()=>onAdd({type,name:typeLabel})} onAddCustom={()=>onAddCustom({type,name:typeLabel})}>
+              {groupRows.length>0
+                ? rowGrid(groupRows)
+                : <div style={{fontSize:12,color:C.slateL,padding:"2px 2px 4px"}}>No wastes/traps linked to {typeLabel} yet.</div>}
+            </FixtureSubheading>
+          );
+        })}
+        {ungrouped.length===0&&grouped.size===0
+          ? <div style={{fontSize:12,color:C.slateL,padding:"2px 2px 8px"}}>No wastes/traps yet — add one below.</div>
+          : ungrouped.length>0&&rowGrid(ungrouped)}
+        <div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}>
+          <button onClick={()=>onAdd()}
+            style={addLineBtn}>+ Add fitting</button>
+          <button onClick={()=>onAddCustom()}
             style={addLineBtn}>+ Add custom fitting</button>
         </div>
         <div style={{...T.muted,marginTop:6}}>ⓘ {priced} priced · only confirmed rows are priced and added to the buy list.</div>
@@ -2465,7 +2662,7 @@ export default function EstimatePage() {
       const snap = (row.snapshot ?? {}) as Record<string, unknown>;
       const activeKeys = Array.isArray(snap.activeSections) ? (snap.activeSections as string[]) : [];
       const waterSupply = snap.waterSupply as { supplyLines?: PipeLine[]; supplyFittings?: TemplateRowInstance[] } | null | undefined;
-      const drainage = snap.drainage as { drainLines?: PipeLine[]; drainageFittings?: TemplateRowInstance[]; trenching?: boolean; templates?: AppliedTemplate[] } | null | undefined;
+      const drainage = snap.drainage as { drainLines?: PipeLine[]; drainageFittings?: TemplateRowInstance[]; wastesTraps?: TemplateRowInstance[]; trenching?: boolean; templates?: AppliedTemplate[] } | null | undefined;
       const geyserSnap = snap.geyser as (GeyserMeta & { templates?: AppliedTemplate[] }) | null | undefined;
       const fixturesSnap = snap.fixtures as { fixtureLines?: FixtureLine[]; templates?: AppliedTemplate[] } | null | undefined;
 
@@ -2492,6 +2689,7 @@ export default function EstimatePage() {
         supplyFittings: waterSupply?.supplyFittings ?? [],
         drainLines: drainage?.drainLines ?? [],
         drainageFittings: drainage?.drainageFittings ?? [],
+        wastesTraps: drainage?.wastesTraps ?? [],
         trenching: drainage?.trenching ?? false,
         fixtureLines: fixturesSnap?.fixtureLines ?? [],
         // Recombine the three per-section template arrays the snapshot splits
@@ -2562,6 +2760,7 @@ export default function EstimatePage() {
     points: activeSections.waterSupply ? inputs.points : 0,
     drainLines: activeSections.drainage ? (inputs.drainLines ?? []) : [],
     drainageFittings: activeSections.drainage ? (inputs.drainageFittings ?? []) : [],
+    wastesTraps: activeSections.drainage ? (inputs.wastesTraps ?? []) : [],
     trenching: activeSections.drainage ? inputs.trenching : false,
     fixtureLines: activeSections.fixtures ? (inputs.fixtureLines ?? []) : [],
     fittingTemplates: (inputs.fittingTemplates ?? []).filter(t =>
@@ -2622,7 +2821,8 @@ export default function EstimatePage() {
       (inputs.supplyLines ?? []).filter(l=>l.linkedFixture?.type===type).length +
       (inputs.drainLines ?? []).filter(l=>l.linkedFixture?.type===type).length +
       (inputs.supplyFittings ?? []).filter(r=>r.linkedFixture?.type===type).length +
-      (inputs.drainageFittings ?? []).filter(r=>r.linkedFixture?.type===type).length;
+      (inputs.drainageFittings ?? []).filter(r=>r.linkedFixture?.type===type).length +
+      (inputs.wastesTraps ?? []).filter(r=>r.linkedFixture?.type===type).length;
     const label = fixtureTypeLabel(type);
     const message = linkedCount>0
       ? `Delete ${label} and its ${linkedCount} linked supply/drainage fittings? This cannot be undone.`
@@ -2635,8 +2835,9 @@ export default function EstimatePage() {
       drainLines: (p.drainLines ?? []).filter(l=>l.linkedFixture?.type!==type),
       supplyFittings: (p.supplyFittings ?? []).filter(r=>r.linkedFixture?.type!==type),
       drainageFittings: (p.drainageFittings ?? []).filter(r=>r.linkedFixture?.type!==type),
+      wastesTraps: (p.wastesTraps ?? []).filter(r=>r.linkedFixture?.type!==type),
     }));
-  },[inputs.supplyLines, inputs.drainLines, inputs.supplyFittings, inputs.drainageFittings]);
+  },[inputs.supplyLines, inputs.drainLines, inputs.supplyFittings, inputs.drainageFittings, inputs.wastesTraps]);
   const updateFixtureLine = useCallback((id: string, patch: Partial<FixtureLine>) =>
     setInputs(p=>({...p, fixtureLines:(p.fixtureLines ?? []).map(l=>l.id===id?{...l,...patch}:l)})),[]);
 
@@ -2663,6 +2864,20 @@ export default function EstimatePage() {
     const key = use==='supply' ? 'supplyFittings' : 'drainageFittings';
     setInputs(p=>({...p, [key]:(p[key] ?? []).map(r=>r.id===id?fn(r):r)}));
   },[]);
+
+  // Wastes & Traps section management — dedicated handlers rather than widening
+  // the 'supply'|'drainage' union (Wastes & Traps brief 2, Step 0-I): application
+  // is always fixed to 'Waste / Trap', there's no second `use` value to switch on.
+  const addWasteTrap = useCallback((linkedFixture?: { type: FixtureType; name: string }) => {
+    setInputs(p=>({...p, wastesTraps:[...(p.wastesTraps ?? []), { ...createStandaloneRowInstance('Waste / Trap'), ...(linkedFixture?{linkedFixture}:{}) }]}));
+  },[]);
+  const addWasteTrapCustom = useCallback((linkedFixture?: { type: FixtureType; name: string }) => {
+    setInputs(p=>({...p, wastesTraps:[...(p.wastesTraps ?? []), { ...createCustomRowInstance(1), application:'Waste / Trap', ...(linkedFixture?{linkedFixture}:{}) }]}));
+  },[]);
+  const removeWasteTrap = useCallback((id: string) =>
+    setInputs(p=>({...p, wastesTraps:(p.wastesTraps ?? []).filter(r=>r.id!==id)})),[]);
+  const updateWasteTrap = useCallback((id: string, fn: (r: TemplateRowInstance) => TemplateRowInstance) =>
+    setInputs(p=>({...p, wastesTraps:(p.wastesTraps ?? []).map(r=>r.id===id?fn(r):r)})),[]);
 
   // Fixture-template management. Applying fetches the template's rows and builds
   // live TemplateRowInstances; the basis input scales every row's pricing
@@ -2759,6 +2974,7 @@ export default function EstimatePage() {
       drainage: activeSections.drainage ? {
         drainLines: inputs.drainLines ?? [],
         drainageFittings: inputs.drainageFittings ?? [],
+        wastesTraps: inputs.wastesTraps ?? [],
         trenching: inputs.trenching,
         templates: (inputs.fittingTemplates ?? []).filter(t=>t.scope==='system'),
       } : null,
@@ -3219,7 +3435,7 @@ export default function EstimatePage() {
         )}
 
         {activeSections.drainage&&(
-        <SectionGroup label="Drainage" subHeadings={["Drainage", "Drainage Fittings", "Drainage Templates"]}>
+        <SectionGroup label="Drainage" subHeadings={["Drainage", "Drainage Fittings", "Wastes & Traps", "Drainage Templates"]}>
         {pipeSection("drainage","Drainage",
           <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",marginTop:10,paddingTop:10,borderTop:`1px solid ${UI.borderRow}`}}>
             <input type="checkbox" checked={inputs.trenching} onChange={e=>setInp("trenching",e.target.checked)} style={{width:16,height:16}}/>
@@ -3229,6 +3445,10 @@ export default function EstimatePage() {
           rows={inputs.drainageFittings ?? []} fixtureLines={inputs.fixtureLines ?? []} catalogue={catalogue} catalogueLoading={catalogueLoading}
           onAdd={addStandaloneFitting} onAddCustom={addStandaloneCustomFitting}
           onUpdate={updateStandaloneFitting} onRemove={removeStandaloneFitting}/>
+        <WastesTrapsSection
+          rows={inputs.wastesTraps ?? []} fixtureLines={inputs.fixtureLines ?? []} catalogue={catalogue} catalogueLoading={catalogueLoading}
+          onAdd={addWasteTrap} onAddCustom={addWasteTrapCustom}
+          onUpdate={updateWasteTrap} onRemove={removeWasteTrap}/>
         <FixtureTemplatesSection
           title="Drainage Templates"
           scopeFilter="system"
