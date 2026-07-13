@@ -303,13 +303,13 @@ interface Ladder {
 // accessory constant. Every type has a constant, so labour is never invented.
 const FIXTURE_LABOUR: Record<FixtureType, number> = {
   toilet: 1.83, basin: 1.50, basin_mixer: 0.25, shower_mixer: 1.17,
-  shower_door: 1.00, shower_rose: 0.25, kitchen_mixer: 0.25,
+  shower_door: 1.00, shower_rose: 0.25, kitchen_mixer: 0.25, sink: 1.50,
 };
 const FIXTURE_TYPES: { t: FixtureType; label: string }[] = [
   { t:'toilet', label:'Toilet' }, { t:'basin', label:'Basin' },
   { t:'basin_mixer', label:'Basin mixer' }, { t:'shower_mixer', label:'Shower mixer' },
   { t:'shower_door', label:'Shower door' }, { t:'shower_rose', label:'Shower rose' },
-  { t:'kitchen_mixer', label:'Kitchen mixer' },
+  { t:'kitchen_mixer', label:'Kitchen mixer' }, { t:'sink', label:'Kitchen sink' },
 ];
 // Category placeholder thumbnails — one icon per fixture TYPE (not per product),
 // reused across every preset/custom line of that type. fixtureIcon() always
@@ -323,6 +323,7 @@ const FIXTURE_ICONS: Record<FixtureType, string> = {
   shower_door: "/icons/fixtures/shower-door.png",
   shower_rose: "/icons/fixtures/shower-rose.png",
   kitchen_mixer: "/icons/fixtures/kitchen-mixer.png",
+  sink: "/icons/fixtures/sink.png",
 };
 const FIXTURE_ICON_GENERIC = "/icons/fixtures/fixture-generic.png";
 const fixtureIcon = (type: FixtureType): string => FIXTURE_ICONS[type] ?? FIXTURE_ICON_GENERIC;
@@ -338,6 +339,7 @@ const FIXTURE_PRESETS: Record<FixtureType, FixturePreset[]> = {
   shower_door:  [{ materialCode:'PLB-PD-074', description:'Glass shower door – chrome', unitPrice:3559.00, grade:'Sourced', supplier:'CTM' }],
   shower_rose:  [{ materialCode:'PLB-PD-018', description:'Shower rose round s/steel 200mm', unitPrice:477.39, grade:'Sourced', supplier:'Plumblink' }],
   kitchen_mixer:[{ materialCode:'PLB-PD-069', description:'Kitchen basin mixer (inc stop taps)', unitPrice:516.45, grade:'Sourced', supplier:'AfriCamps' }],
+  sink:         [{ materialCode:'PLB-PL-SK001', description:'Plumline Nyathi S/Steel SEB Inset Sink 860×460mm', unitPrice:912.17, grade:'Sourced', supplier:'Plumline' }],
 };
 const _uid = () => Math.random().toString(36).slice(2, 9);
 function makeFixtureLine(type: FixtureType): FixtureLine {
@@ -356,7 +358,7 @@ const fixtureTypeLabel = (t: FixtureType): string => FIXTURE_TYPES.find(ft => ft
 // targets via an orphaned/ungrouped row, just without narrowing.
 const FIXTURE_TRAP_TAG: Partial<Record<FixtureType, string>> = {
   basin: 'Basin',
-  kitchen_mixer: 'Kitchen Sink',
+  sink: 'Kitchen Sink',
   shower_mixer: 'Shower',
 };
 const trapTagFor = (t: FixtureType | undefined): string | null =>
@@ -1996,7 +1998,7 @@ function StandaloneFittingSection({ title, use, rows, fixtureLines, catalogue, c
 // widening the 'supply'|'drainage' union threaded through the other sections.
 //
 // Heading bootstrap is narrower than the other three sections': only fixture
-// types present in FIXTURE_TRAP_TAG (basin/kitchen_mixer/shower_mixer) get a
+// types present in FIXTURE_TRAP_TAG (basin/sink/shower_mixer) get a
 // heading the instant their FixtureLine exists — passed via `fixtureLines`
 // already pre-filtered by the caller. Any type with existing linked rows still
 // surfaces via fixtureTypesToShow's own orphan-safety union (grouped.keys()),
