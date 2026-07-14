@@ -255,6 +255,18 @@ interface AppliedTemplate {
 interface GeyserMeta {
   jobType: GeyserJobType; size: GeyserSize; brand: GeyserBrand; solar: boolean;
 }
+// Independent water-heater-category capture (Electric/Solar/Gas) — see brief
+// "New Geyser Type" section. Deliberately separate from GeyserMeta/GeyserJobType/
+// GeyserSize/GeyserBrand: this is a different, inputs-only flow with no pricing
+// yet, not a 4th option on the existing electric-only Job Type radio. Size's unit
+// depends on WaterHeaterType (litres stored for electric/solar, L/min flow for gas).
+type WaterHeaterType = 'electric' | 'solar' | 'gas';
+interface WaterHeaterSpec {
+  type: WaterHeaterType;
+  size: number;
+  brand: string;
+  quantity: number;
+}
 interface ActiveSections {
   waterSupply: boolean; drainage: boolean; geyser: boolean; fixtures: boolean;
 }
@@ -2566,6 +2578,7 @@ const TABS = [
 ];
 
 const GEYSER_DEFAULT: GeyserMeta = { jobType:"burst_replacement", size:150, brand:"Kwikot", solar:false };
+const WATER_HEATER_DEFAULT: WaterHeaterSpec = { type:"electric", size:150, brand:"", quantity:1 };
 
 // Document type (quote vs invoice) is chosen on the home page and arrives here
 // as the ?doc search param — this page does not re-ask it.
@@ -2636,6 +2649,9 @@ export default function EstimatePage() {
   }, []);
   const allPipeRows = useMemo<PipeRow[]>(() => [...PIPE_LOOKUP, ...drainagePipeCatalogue], [drainagePipeCatalogue]);
   const [geyser, setGeyser]   = useState<GeyserMeta>(GEYSER_DEFAULT);
+  // Independent of `geyser`/`GeyserMeta` above — see WaterHeaterSpec. Inputs-only,
+  // not read by buildScope/geyserToScope or any total.
+  const [waterHeater, setWaterHeaterState] = useState<WaterHeaterSpec>(WATER_HEATER_DEFAULT);
   // Geyser pricing (fetched once, like `catalogue` above) — feeds the
   // fixed-composition build functions, which stay synchronous/pure.
   const [geyserPricing, setGeyserPricing] = useState<GeyserPricingData | null>(null);
@@ -2816,6 +2832,7 @@ export default function EstimatePage() {
 
   const setInp = useCallback((k: keyof Inputs, v: unknown) => setInputs(p=>({...p,[k]:v})),[]);
   const setGey = useCallback((patch: Partial<GeyserMeta>) => setGeyser(p=>({...p,...patch})),[]);
+  const setWaterHeater = useCallback((patch: Partial<WaterHeaterSpec>) => setWaterHeaterState(p=>({...p,...patch})),[]);
 
   // Fixture-line builder management
   const addFixtureLine = useCallback((type: FixtureType) =>
@@ -3569,7 +3586,7 @@ export default function EstimatePage() {
         )}
 
         {activeSections.geyser&&(
-        <SectionGroup label="Geyser" subHeadings={["Geyser Job Specs", "3.3.2 General Repairs — itemized fitting templates"]}>
+        <SectionGroup label="Geyser" subHeadings={["Geyser Job Specs", "Water Heater Type", "3.3.2 General Repairs — itemized fitting templates"]}>
         <div style={cardStyle}>
           <SectionHeader>Geyser Job Specs</SectionHeader>
           <div style={{padding:S.xl}}>
@@ -3652,6 +3669,53 @@ export default function EstimatePage() {
               </div>
               <div style={{fontSize:10,color:C.slateL,marginTop:6}}>
                 {GRADES[finalGrade]?.rank>=GRADES["Derived"].rank?"Client-issuable through the normal gate (see Learn tab).":"Not client-issuable until grade lifts (see Learn tab)."}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style={cardStyle}>
+          <SectionHeader>Water Heater Type</SectionHeader>
+          <div style={{padding:S.xl}}>
+            <div style={{marginBottom:16}}>
+              <label style={{...T.fieldLabel,marginBottom:6}}>Geyser type</label>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+                {([{v:"electric" as const,l:"Electric"},{v:"solar" as const,l:"Solar"},{v:"gas" as const,l:"Gas"}]).map(t=>{
+                  const on = waterHeater.type===t.v;
+                  return (
+                  <button key={t.v} onClick={()=>setWaterHeater({type:t.v})} className="cos-toggle" aria-pressed={on} style={{
+                    display:"flex",alignItems:"center",justifyContent:"center",gap:7,
+                    padding:"11px 8px",borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:800,
+                    border:`2px solid ${on?C.gold:UI.borderStrong}`,
+                    background:on?C.gold:C.white,color:on?C.navy:C.slate,
+                    boxShadow:on?"0 2px 8px rgba(245,166,35,0.35)":"none"}}>
+                    <span aria-hidden style={{display:"inline-flex",alignItems:"center",justifyContent:"center",
+                      width:16,height:16,borderRadius:"50%",flexShrink:0,fontSize:10,fontWeight:900,
+                      background:on?C.navy:"transparent",color:on?C.gold:"transparent",
+                      border:on?"none":`2px solid ${UI.borderStrong}`}}>{on?"✓":""}</span>
+                    {t.l}
+                  </button>);
+                })}
+              </div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
+              <div>
+                <label style={T.fieldLabel}>{waterHeater.type==="gas" ? "Size (L/min)" : "Size (L)"}</label>
+                <input type="number" min={1} value={waterHeater.size}
+                  onChange={e=>setWaterHeater({size:Math.max(0,parseInt(e.target.value)||0)})}
+                  style={{...inputStyle,width:"100%"}}/>
+              </div>
+              <div>
+                <label style={T.fieldLabel}>Brand</label>
+                <input type="text" value={waterHeater.brand}
+                  onChange={e=>setWaterHeater({brand:e.target.value})}
+                  placeholder="e.g. Kwikot"
+                  style={{...inputStyle,width:"100%"}}/>
+              </div>
+              <div>
+                <label style={T.fieldLabel}>Quantity</label>
+                <input type="number" min={1} value={waterHeater.quantity}
+                  onChange={e=>setWaterHeater({quantity:Math.max(1,parseInt(e.target.value)||1)})}
+                  style={{...inputStyle,width:"100%"}}/>
               </div>
             </div>
           </div>
