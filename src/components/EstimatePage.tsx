@@ -192,6 +192,13 @@ const PROD = {
   showerDoorInstall:1.00,
   accessoryInstall: 0.25,
 };
+// Pipe Fixing Method rates — Sourced from Ruan (field experience), 2026-07.
+// Chased: cutting a cavity into a wall for the pipe to sit in, then
+// plastered. Surface: pipe clipped to the wall face, no chasing.
+const FIXING_RATE_M_PER_HR = {
+  chased: 2,
+  surface: 10,
+} as const;
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 interface Fixtures {
@@ -232,6 +239,12 @@ interface PipeLine {
   // fixture type for display grouping only; undefined = existing ungrouped
   // behaviour, unchanged. Zero effect on pricing/buildScope.
   linkedFixture?: { type: FixtureType; name: string };
+  // Pipe Fixing Method — how this line's run is physically installed.
+  // Drives a separate lumped labour line (see buildLabour). undefined =
+  // not yet set by the user; existing saved lines before this feature
+  // shipped will load as undefined and contribute 0 fixing hours until
+  // the user picks a method. Sourced from Ruan (field rates), 2026-07.
+  fixingMethod?: 'chased' | 'surface';
 }
 
 // Repeatable fitting lines (Compression Fittings, and future families): each line
@@ -661,7 +674,7 @@ function buildScope(inp: Inputs, opts: { invoiceStrict?: boolean } = {}): ScopeL
   return lines;
 }
 
-function buildLabour(inp: Inputs, crewRateHr: number = CREW_RATE_HR): LabourLine[] {
+function buildLabour(inp: Inputs, crewRateHr: number = CREW_RATE_HR, assistantRateHr: number = 32.5): LabourLine[] {
   const { points, trenching } = inp;
   const fixtureLines = inp.fixtureLines ?? [];
   const supplyMetres = sumMetres(inp.supplyLines);
@@ -685,6 +698,29 @@ function buildLabour(inp: Inputs, crewRateHr: number = CREW_RATE_HR): LabourLine
     }
     add(`LF${i}`, label, fl.quantity*hrs, "Assumption", `${fl.quantity} × ${hrs}hr (Spon's seed)`);
   });
+  // Pipe Fixing labour — lumped across every supply + drainage line
+  // regardless of method, additive to L02/L04 (which cost general
+  // pipework/drainage installation, a separate scope of work). Sourced
+  // from Ruan (field rates), 2026-07-14.
+  const allPipeLines = [...(inp.supplyLines ?? []), ...(inp.drainLines ?? [])];
+  const fixingHours = allPipeLines.reduce((sum, l) => {
+    if (!l.fixingMethod || l.metres <= 0) return sum;
+    return sum + (l.metres / FIXING_RATE_M_PER_HR[l.fixingMethod]);
+  }, 0);
+  if (fixingHours > 0) {
+    lines.push({
+      id: "L05",
+      description: "Pipe Fixing",
+      hours: fixingHours,
+      rate: assistantRateHr,
+      cost: fixingHours * assistantRateHr,
+      conf: "Sourced",
+      derivation: allPipeLines
+        .filter(l => l.fixingMethod && l.metres > 0)
+        .map(l => `${l.metres}m ${l.use} ${l.fixingMethod} @ ${FIXING_RATE_M_PER_HR[l.fixingMethod!]}m/hr`)
+        .join("; "),
+    });
+  }
   return lines;
 }
 
@@ -872,6 +908,12 @@ const ladderFrom = (s: OrgSettings): LadderRates =>
   ({ wastePct: s.wastePct, riskPct: s.riskPct, contingencyPct: s.contingencyPct, marginPct: s.marginPct });
 const crewRateFrom = (s: OrgSettings): number =>
   s.hoursPerDay > 0 ? (s.plumberDayRate + s.assistantDayRate) / s.hoursPerDay : CREW_RATE_HR;
+// Assistant (labourer) rate ALONE — distinct from crewRateFrom, which is
+// the composite plumber+assistant rate used elsewhere in buildLabour.
+// Pipe Fixing labour is costed at this rate per Luke's explicit
+// instruction (2026-07-14): "the labourer rate the user chooses."
+const assistantRateFrom = (s: OrgSettings): number =>
+  s.hoursPerDay > 0 ? s.assistantDayRate / s.hoursPerDay : 32.5;
 const businessFrom = (s: OrgSettings): string => s.businessName.trim() || "[Your Plumbing Business]";
 
 // ─── PDF GENERATORS ───────────────────────────────────────────────────────────
@@ -2802,9 +2844,10 @@ export default function EstimatePage() {
   // untouched — this only changes the rate fed into buildLabour/geyserToLabour.
   const afterHoursActive = documentType==="invoice" && !!inputs.afterHours;
   const crewRateHr = afterHoursActive ? crewRateFrom(settings) * settings.afterHoursMultiplier : crewRateFrom(settings);
+  const assistantRateHr = assistantRateFrom(settings);
 
   const scope  = useMemo(()=> [...buildScope(maskedInputs, { invoiceStrict: documentType==="invoice" }), ...(geyserAsm ? geyserToScope(geyserAsm) : [])],  [geyserAsm, maskedInputs, documentType]);
-  const labour = useMemo(()=> [...buildLabour(maskedInputs, crewRateHr), ...(geyserAsm ? geyserToLabour(geyserAsm, crewRateHr) : [])], [geyserAsm, maskedInputs, crewRateHr]);
+  const labour = useMemo(()=> [...buildLabour(maskedInputs, crewRateHr, assistantRateHr), ...(geyserAsm ? geyserToLabour(geyserAsm, crewRateHr) : [])], [geyserAsm, maskedInputs, crewRateHr, assistantRateHr]);
   // Flags: geyser flags concatenated with warnings for any user-entered (custom)
   // lines — concatenated, not either/or, now that sections can be concurrent.
   const flags = [
@@ -3235,7 +3278,7 @@ export default function EstimatePage() {
         <span style={{...T.colHead,textAlign:"center"}}>Run (m)</span>
         <span style={{...T.colHead,textAlign:"right"}}>Rate</span>
         <span style={{...T.colHead,textAlign:"right"}}>Line total</span>
-        {showProduct?<span/>:<><span/><span/></>}
+        {showProduct?<><span/><span/></>:<><span/><span/><span/></>}
       </div>);
     const renderLine = (l: PipeLine, i: number, arr: PipeLine[]) => {
       const dias = l.source==="custom" ? [] : pipeDiametersFor(allPipeRows, use,l.type);
@@ -3276,6 +3319,16 @@ export default function EstimatePage() {
           </div>
           <span style={{...T.rate,textAlign:"right"}}>R{l.perMetre.toFixed(2)}/m</span>
           <span style={{...T.total,textAlign:"right",height:34}}>{fmt(l.metres*l.perMetre)}</span>
+          <select
+            value={l.fixingMethod ?? ""}
+            onChange={e=>updatePipeLine(use,l.id,{
+              fixingMethod: e.target.value === "" ? undefined : e.target.value as 'chased'|'surface'
+            })}
+            style={{...rowSelect,minWidth:0}}>
+            <option value="">Fixing method…</option>
+            <option value="chased">Chased into wall</option>
+            <option value="surface">Surface mounted</option>
+          </select>
           <div style={{display:"flex",alignItems:"center",gap:4,justifySelf:"end"}}>
             <GradePill grade={l.grade}/>
             <button onClick={()=>removePipeLine(use,l.id)} title="Remove line" aria-label="Remove line" style={rowDeleteBtn}>✕</button>
