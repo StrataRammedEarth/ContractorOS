@@ -11,11 +11,26 @@ import {
   getStoredOwnerSecret,
   setStoredOwnerSecret,
   clearStoredOwnerSecret,
+  loadCallOutTemplates,
+  loadCallOuts,
+  loadCallOut,
+  saveCallOut,
+  removeCallOut,
+  loadTools,
+  loadCustomMaterials,
+  supabase,
   type AttendanceRecord,
   type AttendanceStatus,
   type DriverLog,
   type Employee,
   type Vehicle,
+  type Tool,
+  type CustomMaterial,
+  type CallOutTemplate,
+  type CallOutSummary,
+  type CallOutFull,
+  type CallOutLineClass,
+  type CallOutLineKind,
 } from "@/lib/supabase-client";
 import { useSettings } from "@/lib/settings-context";
 import { ClockIcon, ClipboardDollarIcon } from "@/components/nav-icons";
@@ -592,7 +607,10 @@ function DayDetail({
                       border: `1px solid ${draft.status !== "" ? STATUS_COLORS[draft.status as AttendanceStatus] : "#C8D0DB"}`,
                       fontSize: 12,
                       fontWeight: draft.status !== "" ? 700 : 400,
-                      color: draft.status !== "" ? STATUS_COLORS[draft.status as AttendanceStatus] : C.navy,
+                      color:
+                        draft.status !== ""
+                          ? STATUS_COLORS[draft.status as AttendanceStatus]
+                          : C.navy,
                     }}
                   >
                     <option value="">— Not marked —</option>
@@ -1198,8 +1216,1105 @@ const navBtn: CSSProperties = {
   cursor: "pointer",
 };
 
+// ─── CALL-OUT VIEW ──────────────────────────────────────────────────────────────
+// Draft shape mirrors the save-call-out body (Brief 4 §5a) so a save is just
+// spreading the draft plus owner_secret — no separate mapping step.
+
+interface CallOutDraftLine {
+  id?: string;
+  line_number: number;
+  line_class: CallOutLineClass;
+  line_kind: CallOutLineKind;
+  material_code: string | null;
+  custom_material_id: string | null;
+  label: string;
+  qty: number;
+  unit: string | null;
+  is_checked: boolean;
+  notes: string | null;
+}
+
+interface CallOutDraft {
+  id?: string;
+  template_id: string | null;
+  job_category: string;
+  issue_name: string;
+  call_out_date: string;
+  client_name: string;
+  client_address: string;
+  employee_ids: string[];
+  lines: CallOutDraftLine[];
+}
+
+function draftFromTemplate(template: CallOutTemplate): CallOutDraft {
+  return {
+    template_id: template.template_id,
+    job_category: template.job_category,
+    issue_name: template.issue_name,
+    call_out_date: "",
+    client_name: "",
+    client_address: "",
+    employee_ids: [],
+    lines: template.rows
+      .slice()
+      .sort((a, b) => a.line_number - b.line_number)
+      .map((row) => ({
+        line_number: row.line_number,
+        line_class: row.line_class,
+        line_kind: row.line_kind,
+        material_code: row.line_kind === "catalogue" ? row.material_code : null,
+        custom_material_id: null,
+        label: row.label,
+        qty: row.default_qty,
+        unit: row.unit,
+        is_checked: row.include_by_default,
+        notes: row.notes,
+      })),
+  };
+}
+
+function draftFromCallOut(full: CallOutFull): CallOutDraft {
+  return {
+    id: full.id,
+    template_id: full.template_id,
+    job_category: full.job_category,
+    issue_name: full.issue_name,
+    call_out_date: full.call_out_date ?? "",
+    client_name: full.client_name ?? "",
+    client_address: full.client_address ?? "",
+    employee_ids: full.employees.map((e) => e.id),
+    lines: full.lines.map((l) => ({
+      id: l.id,
+      line_number: l.line_number,
+      line_class: l.line_class,
+      line_kind: l.line_kind,
+      material_code: l.material_code,
+      custom_material_id: l.custom_material_id,
+      label: l.label,
+      qty: l.qty,
+      unit: l.unit,
+      is_checked: l.is_checked,
+      notes: l.notes,
+    })),
+  };
+}
+
+function nextLineNumber(lines: CallOutDraftLine[]): number {
+  if (lines.length === 0) return 10;
+  return Math.max(...lines.map((l) => l.line_number)) + 10;
+}
+
+const coCard: CSSProperties = {
+  background: "#fff",
+  border: "1px solid #DDE3EA",
+  borderRadius: 10,
+  overflow: "hidden",
+};
+const coCardHeader: CSSProperties = {
+  background: C.navyMid,
+  padding: "10px 16px",
+};
+const coBackBtn: CSSProperties = {
+  background: "none",
+  border: "none",
+  color: C.gold,
+  fontWeight: 700,
+  fontSize: 12,
+  cursor: "pointer",
+  padding: 0,
+};
+const coSectionLabel: CSSProperties = {
+  fontSize: 11,
+  fontWeight: 700,
+  color: C.slateL,
+  textTransform: "uppercase",
+  letterSpacing: 0.4,
+  marginBottom: 6,
+};
+const coInput: CSSProperties = {
+  width: "100%",
+  padding: "8px 10px",
+  borderRadius: 6,
+  border: "1px solid #C8D0DB",
+  fontSize: 13,
+  color: C.navy,
+  boxSizing: "border-box",
+};
+const coInputSmall: CSSProperties = {
+  padding: "6px 8px",
+  borderRadius: 6,
+  border: "1px solid #C8D0DB",
+  fontSize: 12,
+  color: C.navy,
+  width: "100%",
+  boxSizing: "border-box",
+};
+const coHint: CSSProperties = { fontSize: 12, color: C.slateL, padding: "6px 0" };
+const coAddBtn: CSSProperties = {
+  marginTop: 8,
+  padding: "6px 12px",
+  borderRadius: 6,
+  border: `1px dashed ${C.gold}`,
+  background: C.goldPale,
+  color: C.navy,
+  fontWeight: 700,
+  fontSize: 12,
+  cursor: "pointer",
+};
+const coAddPanel: CSSProperties = {
+  marginTop: 8,
+  padding: 10,
+  borderRadius: 6,
+  border: "1px solid #DDE3EA",
+  background: C.bg,
+};
+const coTabActive: CSSProperties = {
+  padding: "4px 10px",
+  borderRadius: 6,
+  border: `1px solid ${C.gold}`,
+  background: C.gold,
+  color: C.navy,
+  fontWeight: 700,
+  fontSize: 11,
+  cursor: "pointer",
+};
+const coTabInactive: CSSProperties = {
+  ...coTabActive,
+  border: "1px solid #C8D0DB",
+  background: "#fff",
+  color: C.slate,
+};
+const coResultRow: CSSProperties = {
+  padding: "6px 8px",
+  fontSize: 12,
+  color: C.navy,
+  cursor: "pointer",
+  borderBottom: "1px solid #EEF1F5",
+};
+const coSmallBtn: CSSProperties = {
+  padding: "6px 12px",
+  borderRadius: 6,
+  border: "1px solid #C8D0DB",
+  background: "#fff",
+  color: C.slate,
+  fontWeight: 600,
+  fontSize: 12,
+  cursor: "pointer",
+};
+const coPrimaryBtn: CSSProperties = {
+  padding: "8px 16px",
+  borderRadius: 6,
+  border: "none",
+  background: C.gold,
+  color: C.navy,
+  fontWeight: 700,
+  fontSize: 12,
+  cursor: "pointer",
+};
+const coRemoveBtn: CSSProperties = {
+  background: "none",
+  border: "none",
+  color: C.red,
+  fontWeight: 700,
+  fontSize: 13,
+  cursor: "pointer",
+};
+const coToggleLink: CSSProperties = {
+  background: "none",
+  border: "none",
+  color: C.gold,
+  fontWeight: 700,
+  fontSize: 12,
+  cursor: "pointer",
+  padding: 0,
+};
+const coBadge: CSSProperties = {
+  fontSize: 10,
+  fontWeight: 700,
+  color: C.navy,
+  background: C.goldPale,
+  border: `1px solid ${C.gold}`,
+  borderRadius: 4,
+  padding: "2px 6px",
+};
+const coCategoryBtn: CSSProperties = {
+  padding: "10px 16px",
+  borderRadius: 8,
+  border: `1px solid ${C.gold}`,
+  background: C.goldPale,
+  color: C.navy,
+  fontWeight: 700,
+  fontSize: 13,
+  cursor: "pointer",
+};
+const coTemplateBtn: CSSProperties = {
+  padding: "10px 14px",
+  borderRadius: 8,
+  border: "1px solid #C8D0DB",
+  background: "#fff",
+  color: C.navy,
+  fontWeight: 600,
+  fontSize: 13,
+  textAlign: "left",
+  cursor: "pointer",
+};
+
+// A simple text-filter search against plumblink_materials, read directly via the
+// anon-key `supabase` client (public-read RLS, same posture as fixture_templates).
+// EstimatePage.tsx's product_filter-driven lookup is built around fixture-template
+// rows and too entangled to lift for a free-form "search anything" picker here —
+// this is deliberately the simpler alternative the brief allows for.
+function useMaterialCatalogueSearch(query: string) {
+  const [results, setResults] = useState<
+    { material_code: string; label: string; unit: string | null }[]
+  >([]);
+  const [searching, setSearching] = useState(false);
+
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) {
+      setResults([]);
+      return;
+    }
+    let cancelled = false;
+    setSearching(true);
+    const handle = setTimeout(async () => {
+      const [byDescription, byDisplayName] = await Promise.all([
+        supabase
+          .from("plumblink_materials")
+          .select("material_code, display_name, description, unit")
+          .ilike("description", `%${q}%`)
+          .limit(15),
+        supabase
+          .from("plumblink_materials")
+          .select("material_code, display_name, description, unit")
+          .ilike("display_name", `%${q}%`)
+          .limit(15),
+      ]);
+      if (cancelled) return;
+      const byCode = new Map<
+        string,
+        { material_code: string; label: string; unit: string | null }
+      >();
+      for (const row of [...(byDescription.data ?? []), ...(byDisplayName.data ?? [])]) {
+        if (!byCode.has(row.material_code)) {
+          byCode.set(row.material_code, {
+            material_code: row.material_code,
+            label: row.display_name ?? row.description ?? row.material_code,
+            unit: row.unit,
+          });
+        }
+      }
+      setResults(Array.from(byCode.values()).slice(0, 15));
+      setSearching(false);
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
+  }, [query]);
+
+  return { results, searching };
+}
+
+function CallOutLineRow({
+  line,
+  showUnit,
+  onChange,
+  onRemove,
+}: {
+  line: CallOutDraftLine;
+  showUnit: boolean;
+  onChange: (patch: Partial<CallOutDraftLine>) => void;
+  onRemove: () => void;
+}) {
+  const editableLabel = line.line_kind === "free_text";
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: showUnit ? "24px 1fr 70px 70px 28px" : "24px 1fr 70px 28px",
+        gap: 8,
+        alignItems: "center",
+        padding: "6px 0",
+        borderBottom: "1px solid #EEF1F5",
+      }}
+    >
+      <input
+        type="checkbox"
+        checked={line.is_checked}
+        onChange={(e) => onChange({ is_checked: e.target.checked })}
+      />
+      {editableLabel ? (
+        <input
+          value={line.label}
+          onChange={(e) => onChange({ label: e.target.value })}
+          style={coInputSmall}
+        />
+      ) : (
+        <div style={{ fontSize: 12, color: C.navy }}>{line.label}</div>
+      )}
+      <input
+        type="number"
+        min={0}
+        step="any"
+        value={line.qty}
+        onChange={(e) => onChange({ qty: Number(e.target.value) || 0 })}
+        style={coInputSmall}
+      />
+      {showUnit && (
+        <input
+          value={line.unit ?? ""}
+          onChange={(e) => onChange({ unit: e.target.value || null })}
+          style={coInputSmall}
+        />
+      )}
+      <button onClick={onRemove} style={coRemoveBtn} title="Remove line">
+        ✕
+      </button>
+    </div>
+  );
+}
+
+function EmployeeMultiSelect({
+  employees,
+  selectedIds,
+  onChange,
+}: {
+  employees: Employee[];
+  selectedIds: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  const toggle = (id: string) => {
+    onChange(selectedIds.includes(id) ? selectedIds.filter((x) => x !== id) : [...selectedIds, id]);
+  };
+  if (employees.length === 0) {
+    return <div style={coHint}>No active employees.</div>;
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      {employees.map((emp) => (
+        <label
+          key={emp.id}
+          style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.navy }}
+        >
+          <input
+            type="checkbox"
+            checked={selectedIds.includes(emp.id)}
+            onChange={() => toggle(emp.id)}
+          />
+          {emp.name}
+        </label>
+      ))}
+    </div>
+  );
+}
+
+function AddMaterialRow({
+  customMaterials,
+  onAdd,
+}: {
+  customMaterials: CustomMaterial[];
+  onAdd: (line: Omit<CallOutDraftLine, "line_number">) => void;
+}) {
+  const [mode, setMode] = useState<"closed" | "catalogue" | "custom" | "free_text">("closed");
+  const [query, setQuery] = useState("");
+  const [freeText, setFreeText] = useState("");
+  const [customId, setCustomId] = useState("");
+  const { results, searching } = useMaterialCatalogueSearch(query);
+
+  if (mode === "closed") {
+    return (
+      <button style={coAddBtn} onClick={() => setMode("catalogue")}>
+        + Add material
+      </button>
+    );
+  }
+
+  return (
+    <div style={coAddPanel}>
+      <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+        {(["catalogue", "custom", "free_text"] as const).map((m) => (
+          <button
+            key={m}
+            onClick={() => setMode(m)}
+            style={mode === m ? coTabActive : coTabInactive}
+          >
+            {m === "catalogue" ? "Catalogue" : m === "custom" ? "Custom material" : "Free text"}
+          </button>
+        ))}
+      </div>
+
+      {mode === "catalogue" && (
+        <div>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search materials…"
+            style={coInput}
+          />
+          {searching && <div style={coHint}>Searching…</div>}
+          {results.map((r) => (
+            <div
+              key={r.material_code}
+              onClick={() => {
+                onAdd({
+                  line_class: "material",
+                  line_kind: "catalogue",
+                  material_code: r.material_code,
+                  custom_material_id: null,
+                  label: r.label,
+                  qty: 1,
+                  unit: r.unit,
+                  is_checked: true,
+                  notes: null,
+                });
+                setQuery("");
+                setMode("closed");
+              }}
+              style={coResultRow}
+            >
+              {r.label} <span style={{ color: C.slateL }}>({r.material_code})</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {mode === "custom" && (
+        <div style={{ display: "flex", gap: 6 }}>
+          <select value={customId} onChange={(e) => setCustomId(e.target.value)} style={coInput}>
+            <option value="">— Select custom material —</option>
+            {customMaterials.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+          </select>
+          <button
+            style={coSmallBtn}
+            disabled={!customId}
+            onClick={() => {
+              const material = customMaterials.find((m) => m.id === customId);
+              if (!material) return;
+              onAdd({
+                line_class: "material",
+                line_kind: "custom",
+                material_code: null,
+                custom_material_id: material.id,
+                label: material.name,
+                qty: 1,
+                unit: material.unit,
+                is_checked: true,
+                notes: null,
+              });
+              setCustomId("");
+              setMode("closed");
+            }}
+          >
+            Add
+          </button>
+        </div>
+      )}
+
+      {mode === "free_text" && (
+        <div style={{ display: "flex", gap: 6 }}>
+          <input
+            value={freeText}
+            onChange={(e) => setFreeText(e.target.value)}
+            placeholder="Material name"
+            style={coInput}
+          />
+          <button
+            style={coSmallBtn}
+            disabled={!freeText.trim()}
+            onClick={() => {
+              onAdd({
+                line_class: "material",
+                line_kind: "free_text",
+                material_code: null,
+                custom_material_id: null,
+                label: freeText.trim(),
+                qty: 1,
+                unit: null,
+                is_checked: true,
+                notes: null,
+              });
+              setFreeText("");
+              setMode("closed");
+            }}
+          >
+            Add
+          </button>
+        </div>
+      )}
+
+      <button style={{ ...coSmallBtn, marginTop: 8 }} onClick={() => setMode("closed")}>
+        Cancel
+      </button>
+    </div>
+  );
+}
+
+function AddToolRow({
+  tools,
+  onAdd,
+}: {
+  tools: Tool[];
+  onAdd: (line: Omit<CallOutDraftLine, "line_number">) => void;
+}) {
+  const [mode, setMode] = useState<"closed" | "tool" | "free_text">("closed");
+  const [toolId, setToolId] = useState("");
+  const [freeText, setFreeText] = useState("");
+
+  if (mode === "closed") {
+    return (
+      <button style={coAddBtn} onClick={() => setMode("tool")}>
+        + Add tool
+      </button>
+    );
+  }
+
+  return (
+    <div style={coAddPanel}>
+      <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+        {(["tool", "free_text"] as const).map((m) => (
+          <button
+            key={m}
+            onClick={() => setMode(m)}
+            style={mode === m ? coTabActive : coTabInactive}
+          >
+            {m === "tool" ? "From tools list" : "Free text"}
+          </button>
+        ))}
+      </div>
+
+      {mode === "tool" && (
+        <div style={{ display: "flex", gap: 6 }}>
+          <select value={toolId} onChange={(e) => setToolId(e.target.value)} style={coInput}>
+            <option value="">— Select tool —</option>
+            {tools.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+          <button
+            style={coSmallBtn}
+            disabled={!toolId}
+            onClick={() => {
+              const tool = tools.find((t) => t.id === toolId);
+              if (!tool) return;
+              // Tool lines are always free_text, even when picked from the tools
+              // list — call_out_lines_tools_are_free_text forbids a catalogue/
+              // custom FK on a tool row. The UI matches by name, not by id.
+              onAdd({
+                line_class: "tool",
+                line_kind: "free_text",
+                material_code: null,
+                custom_material_id: null,
+                label: tool.name,
+                qty: 1,
+                unit: null,
+                is_checked: true,
+                notes: null,
+              });
+              setToolId("");
+              setMode("closed");
+            }}
+          >
+            Add
+          </button>
+        </div>
+      )}
+
+      {mode === "free_text" && (
+        <div style={{ display: "flex", gap: 6 }}>
+          <input
+            value={freeText}
+            onChange={(e) => setFreeText(e.target.value)}
+            placeholder="Tool name"
+            style={coInput}
+          />
+          <button
+            style={coSmallBtn}
+            disabled={!freeText.trim()}
+            onClick={() => {
+              onAdd({
+                line_class: "tool",
+                line_kind: "free_text",
+                material_code: null,
+                custom_material_id: null,
+                label: freeText.trim(),
+                qty: 1,
+                unit: null,
+                is_checked: true,
+                notes: null,
+              });
+              setFreeText("");
+              setMode("closed");
+            }}
+          >
+            Add
+          </button>
+        </div>
+      )}
+
+      <button style={{ ...coSmallBtn, marginTop: 8 }} onClick={() => setMode("closed")}>
+        Cancel
+      </button>
+    </div>
+  );
+}
+
+function CallOutEditor({
+  draft,
+  tools,
+  customMaterials,
+  employees,
+  saving,
+  saveError,
+  onChange,
+  onSave,
+  onCancel,
+}: {
+  draft: CallOutDraft;
+  tools: Tool[];
+  customMaterials: CustomMaterial[];
+  employees: Employee[];
+  saving: boolean;
+  saveError: string | null;
+  onChange: (draft: CallOutDraft) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  const [detailsOpen, setDetailsOpen] = useState(
+    !!(
+      draft.call_out_date ||
+      draft.client_name ||
+      draft.client_address ||
+      draft.employee_ids.length
+    ),
+  );
+
+  const patch = (p: Partial<CallOutDraft>) => onChange({ ...draft, ...p });
+
+  const updateLine = (index: number, p: Partial<CallOutDraftLine>) => {
+    const lines = draft.lines.slice();
+    lines[index] = { ...lines[index], ...p };
+    onChange({ ...draft, lines });
+  };
+
+  const removeLine = (index: number) => {
+    onChange({ ...draft, lines: draft.lines.filter((_, i) => i !== index) });
+  };
+
+  const addLine = (line: Omit<CallOutDraftLine, "line_number">) => {
+    onChange({
+      ...draft,
+      lines: [...draft.lines, { ...line, line_number: nextLineNumber(draft.lines) }],
+    });
+  };
+
+  const materialIndices = draft.lines
+    .map((l, i) => [l, i] as const)
+    .filter(([l]) => l.line_class === "material");
+  const toolIndices = draft.lines
+    .map((l, i) => [l, i] as const)
+    .filter(([l]) => l.line_class === "tool");
+
+  return (
+    <div style={coCard}>
+      <div style={coCardHeader}>
+        <button style={coBackBtn} onClick={onCancel}>
+          ← Back to list
+        </button>
+      </div>
+      <div style={{ padding: 16 }}>
+        <div style={{ marginBottom: 14 }}>
+          <div style={coSectionLabel}>Issue</div>
+          <input
+            value={draft.issue_name}
+            onChange={(e) => patch({ issue_name: e.target.value })}
+            style={coInput}
+          />
+        </div>
+
+        <button style={coToggleLink} onClick={() => setDetailsOpen((v) => !v)}>
+          {detailsOpen ? "− Hide" : "+ Add"} date, client & crew details
+        </button>
+
+        {detailsOpen && (
+          <div
+            style={{
+              marginTop: 10,
+              marginBottom: 14,
+              display: "flex",
+              flexDirection: "column",
+              gap: 10,
+            }}
+          >
+            <div>
+              <div style={coSectionLabel}>Date</div>
+              <input
+                type="date"
+                value={draft.call_out_date}
+                onChange={(e) => patch({ call_out_date: e.target.value })}
+                style={coInput}
+              />
+            </div>
+            <div>
+              <div style={coSectionLabel}>Client name</div>
+              <input
+                value={draft.client_name}
+                onChange={(e) => patch({ client_name: e.target.value })}
+                style={coInput}
+              />
+            </div>
+            <div>
+              <div style={coSectionLabel}>Client address</div>
+              <input
+                value={draft.client_address}
+                onChange={(e) => patch({ client_address: e.target.value })}
+                style={coInput}
+              />
+            </div>
+            <div>
+              <div style={coSectionLabel}>Employees</div>
+              <EmployeeMultiSelect
+                employees={employees}
+                selectedIds={draft.employee_ids}
+                onChange={(ids) => patch({ employee_ids: ids })}
+              />
+            </div>
+          </div>
+        )}
+
+        <div style={{ marginTop: 14 }}>
+          <div style={coSectionLabel}>Materials</div>
+          {materialIndices.length === 0 && <div style={coHint}>No material lines yet.</div>}
+          {materialIndices.map(([line, index]) => (
+            <CallOutLineRow
+              key={index}
+              line={line}
+              showUnit
+              onChange={(p) => updateLine(index, p)}
+              onRemove={() => removeLine(index)}
+            />
+          ))}
+          <AddMaterialRow customMaterials={customMaterials} onAdd={addLine} />
+        </div>
+
+        <div style={{ marginTop: 20 }}>
+          <div style={coSectionLabel}>Tools</div>
+          {toolIndices.length === 0 && <div style={coHint}>No tool lines yet.</div>}
+          {toolIndices.map(([line, index]) => (
+            <CallOutLineRow
+              key={index}
+              line={line}
+              showUnit={false}
+              onChange={(p) => updateLine(index, p)}
+              onRemove={() => removeLine(index)}
+            />
+          ))}
+          <AddToolRow tools={tools} onAdd={addLine} />
+        </div>
+
+        {saveError && <div style={{ color: C.red, fontSize: 12, marginTop: 12 }}>{saveError}</div>}
+
+        <div style={{ display: "flex", gap: 8, marginTop: 20, justifyContent: "flex-end" }}>
+          <button
+            disabled
+            title="Coming soon (Brief 5)"
+            style={{ ...coSmallBtn, opacity: 0.5, cursor: "not-allowed" }}
+          >
+            Download PDF (coming soon)
+          </button>
+          <button
+            onClick={onSave}
+            disabled={saving || !draft.issue_name.trim() || draft.lines.length === 0}
+            style={{
+              ...coPrimaryBtn,
+              opacity: saving ? 0.6 : 1,
+              cursor: saving ? "not-allowed" : "pointer",
+            }}
+          >
+            {saving ? "Saving…" : "Save Call-Out"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CallOutTemplatePicker({
+  templates,
+  onPick,
+  onCancel,
+}: {
+  templates: CallOutTemplate[];
+  onPick: (template: CallOutTemplate) => void;
+  onCancel: () => void;
+}) {
+  // Derived, not hardcoded — Fixtures currently has two templates, the others one each.
+  const categories = Array.from(new Set(templates.map((t) => t.job_category)));
+  const [category, setCategory] = useState<string | null>(null);
+
+  return (
+    <div style={coCard}>
+      <div style={coCardHeader}>
+        <button style={coBackBtn} onClick={onCancel}>
+          ← Back to list
+        </button>
+      </div>
+      <div style={{ padding: 16 }}>
+        <div style={coSectionLabel}>{category ? "Choose an issue" : "What kind of job?"}</div>
+        {!category ? (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+            {categories.map((cat) => (
+              <button key={cat} onClick={() => setCategory(cat)} style={coCategoryBtn}>
+                {cat}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div style={{ marginTop: 8 }}>
+            <button style={{ ...coSmallBtn, marginBottom: 10 }} onClick={() => setCategory(null)}>
+              ← Change category
+            </button>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {templates
+                .filter((t) => t.job_category === category)
+                .map((t) => (
+                  <button key={t.template_id} onClick={() => onPick(t)} style={coTemplateBtn}>
+                    {t.issue_name}
+                  </button>
+                ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CallOutListView({
+  callOuts,
+  loading,
+  removingCallOutId,
+  saveError,
+  onOpen,
+  onNew,
+  onRemove,
+}: {
+  callOuts: CallOutSummary[];
+  loading: boolean;
+  removingCallOutId: string | null;
+  saveError: string | null;
+  onOpen: (id: string) => void;
+  onNew: () => void;
+  onRemove: (id: string) => void;
+}) {
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+        <button onClick={onNew} style={coPrimaryBtn}>
+          + New Call-Out
+        </button>
+      </div>
+      {saveError && <div style={{ color: C.red, fontSize: 12, marginBottom: 10 }}>{saveError}</div>}
+      {loading ? (
+        <div style={{ fontSize: 12, color: C.slateL, padding: 20, textAlign: "center" }}>
+          Loading call-outs…
+        </div>
+      ) : callOuts.length === 0 ? (
+        <div style={{ fontSize: 12, color: C.slateL, padding: 20, textAlign: "center" }}>
+          No call-outs yet. Start one when a client phones in.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {callOuts.map((co) => (
+            <div
+              key={co.id}
+              onClick={() => onOpen(co.id)}
+              style={{
+                ...coCard,
+                padding: 12,
+                cursor: "pointer",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 13, color: C.navy }}>{co.issue_name}</div>
+                <div style={{ display: "flex", gap: 8, marginTop: 4, alignItems: "center" }}>
+                  <span style={coBadge}>{co.job_category}</span>
+                  <span style={{ fontSize: 11, color: C.slateL }}>
+                    {co.call_out_date
+                      ? new Date(co.call_out_date).toLocaleDateString("en-ZA", {
+                          day: "numeric",
+                          month: "short",
+                          year: "numeric",
+                        })
+                      : "No date set"}
+                  </span>
+                  {co.client_name && (
+                    <span style={{ fontSize: 11, color: C.slateL }}>· {co.client_name}</span>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRemove(co.id);
+                }}
+                disabled={removingCallOutId === co.id}
+                style={coRemoveBtn}
+                title="Delete call-out"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface CallOutSectionProps {
+  employees: Employee[];
+  tools: Tool[];
+  customMaterials: CustomMaterial[];
+  callOuts: CallOutSummary[];
+  callOutsLoading: boolean;
+  callOutTemplates: CallOutTemplate[];
+  openCallOutId: string | null;
+  setOpenCallOutId: (id: string | null) => void;
+  showPicker: boolean;
+  setShowPicker: (v: boolean) => void;
+  newDraft: CallOutDraft | null;
+  setNewDraft: (d: CallOutDraft | null) => void;
+  savingCallOut: boolean;
+  callOutSaveError: string | null;
+  removingCallOutId: string | null;
+  onSave: (draft: CallOutDraft) => void;
+  onRemove: (id: string) => void;
+}
+
+function CallOutSection({
+  employees,
+  tools,
+  customMaterials,
+  callOuts,
+  callOutsLoading,
+  callOutTemplates,
+  openCallOutId,
+  setOpenCallOutId,
+  showPicker,
+  setShowPicker,
+  newDraft,
+  setNewDraft,
+  savingCallOut,
+  callOutSaveError,
+  removingCallOutId,
+  onSave,
+  onRemove,
+}: CallOutSectionProps) {
+  const [loadingCallOut, setLoadingCallOut] = useState(false);
+  const [editDraft, setEditDraft] = useState<CallOutDraft | null>(null);
+
+  useEffect(() => {
+    if (!openCallOutId) {
+      setEditDraft(null);
+      return;
+    }
+    let cancelled = false;
+    setLoadingCallOut(true);
+    (async () => {
+      const full = await loadCallOut(openCallOutId);
+      if (!cancelled) {
+        setEditDraft(full ? draftFromCallOut(full) : null);
+        setLoadingCallOut(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [openCallOutId]);
+
+  if (showPicker) {
+    return (
+      <CallOutTemplatePicker
+        templates={callOutTemplates}
+        onCancel={() => setShowPicker(false)}
+        onPick={(template) => {
+          setShowPicker(false);
+          setNewDraft(draftFromTemplate(template));
+        }}
+      />
+    );
+  }
+
+  if (newDraft) {
+    return (
+      <CallOutEditor
+        draft={newDraft}
+        tools={tools}
+        customMaterials={customMaterials}
+        employees={employees}
+        saving={savingCallOut}
+        saveError={callOutSaveError}
+        onChange={setNewDraft}
+        onSave={() => onSave(newDraft)}
+        onCancel={() => setNewDraft(null)}
+      />
+    );
+  }
+
+  if (openCallOutId) {
+    if (loadingCallOut || !editDraft) {
+      return (
+        <div style={{ fontSize: 12, color: C.slateL, padding: 20, textAlign: "center" }}>
+          Loading call-out…
+        </div>
+      );
+    }
+    return (
+      <CallOutEditor
+        draft={editDraft}
+        tools={tools}
+        customMaterials={customMaterials}
+        employees={employees}
+        saving={savingCallOut}
+        saveError={callOutSaveError}
+        onChange={setEditDraft}
+        onSave={() => onSave(editDraft)}
+        onCancel={() => setOpenCallOutId(null)}
+      />
+    );
+  }
+
+  return (
+    <CallOutListView
+      callOuts={callOuts}
+      loading={callOutsLoading}
+      removingCallOutId={removingCallOutId}
+      saveError={callOutSaveError}
+      onOpen={setOpenCallOutId}
+      onNew={() => setShowPicker(true)}
+      onRemove={onRemove}
+    />
+  );
+}
+
 type ViewMode = "day" | "week" | "month";
-type PageMode = "calendar" | "reports";
+type PageMode = "calendar" | "reports" | "callout";
+const PAGE_MODE_LABELS: Record<PageMode, string> = {
+  calendar: "calendar",
+  reports: "reports",
+  callout: "Call-Out",
+};
 
 function TeamPage() {
   const { settings } = useSettings();
@@ -1223,6 +2338,18 @@ function TeamPage() {
   const [addingDriverLog, setAddingDriverLog] = useState(false);
   const [removingDriverLogId, setRemovingDriverLogId] = useState<string | null>(null);
   const [driverLogError, setDriverLogError] = useState<string | null>(null);
+
+  const [callOuts, setCallOuts] = useState<CallOutSummary[]>([]);
+  const [callOutsLoading, setCallOutsLoading] = useState(true);
+  const [openCallOutId, setOpenCallOutId] = useState<string | null>(null);
+  const [callOutTemplates, setCallOutTemplates] = useState<CallOutTemplate[]>([]);
+  const [tools, setTools] = useState<Tool[]>([]);
+  const [customMaterials, setCustomMaterials] = useState<CustomMaterial[]>([]);
+  const [showCallOutPicker, setShowCallOutPicker] = useState(false);
+  const [newCallOutDraft, setNewCallOutDraft] = useState<CallOutDraft | null>(null);
+  const [savingCallOut, setSavingCallOut] = useState(false);
+  const [callOutSaveError, setCallOutSaveError] = useState<string | null>(null);
+  const [removingCallOutId, setRemovingCallOutId] = useState<string | null>(null);
 
   const weeks = useMemo(() => buildMonthGrid(anchorDate), [anchorDate]);
   const weekDates = useMemo(() => {
@@ -1287,6 +2414,30 @@ function TeamPage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (pageMode !== "callout") return;
+    let cancelled = false;
+    setCallOutsLoading(true);
+    (async () => {
+      const [callOutList, templateList, toolList, materialList] = await Promise.all([
+        loadCallOuts(),
+        loadCallOutTemplates(),
+        loadTools(),
+        loadCustomMaterials(),
+      ]);
+      if (!cancelled) {
+        setCallOuts(callOutList);
+        setCallOutTemplates(templateList);
+        setTools(toolList);
+        setCustomMaterials(materialList);
+        setCallOutsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pageMode]);
 
   // Reports view is always monthly, independent of the calendar's day/week/month
   // toggle — fetch the full calendar month (not just the visible grid, which
@@ -1480,6 +2631,74 @@ function TeamPage() {
     await refetchCalendarData();
   };
 
+  const refetchCallOuts = async () => {
+    setCallOuts(await loadCallOuts());
+  };
+
+  const handleSaveCallOut = async (draft: CallOutDraft) => {
+    const ownerSecret = getOrPromptOwnerSecret("Enter the owner passphrase to save this call-out:");
+    if (!ownerSecret) return;
+
+    setSavingCallOut(true);
+    setCallOutSaveError(null);
+    const result = await saveCallOut(
+      {
+        id: draft.id,
+        template_id: draft.template_id,
+        job_category: draft.job_category,
+        issue_name: draft.issue_name,
+        call_out_date: draft.call_out_date || null,
+        client_name: draft.client_name || null,
+        client_address: draft.client_address || null,
+        employee_ids: draft.employee_ids,
+        lines: draft.lines,
+      },
+      ownerSecret,
+    );
+    setSavingCallOut(false);
+
+    if (!result.success) {
+      if (result.unauthorized) {
+        clearStoredOwnerSecret();
+        setCallOutSaveError("Incorrect owner passphrase. Please try saving again.");
+      } else {
+        setCallOutSaveError(result.error ?? "Failed to save call-out.");
+      }
+      return;
+    }
+
+    setNewCallOutDraft(null);
+    if (result.callOut) setOpenCallOutId(result.callOut.id);
+    await refetchCallOuts();
+  };
+
+  const handleRemoveCallOut = async (id: string) => {
+    if (!window.confirm("Delete this call-out? It can be restored by an administrator later."))
+      return;
+    const ownerSecret = getOrPromptOwnerSecret(
+      "Enter the owner passphrase to delete this call-out:",
+    );
+    if (!ownerSecret) return;
+
+    setRemovingCallOutId(id);
+    setCallOutSaveError(null);
+    const result = await removeCallOut(id, ownerSecret);
+    setRemovingCallOutId(null);
+
+    if (!result.success) {
+      if (result.unauthorized) {
+        clearStoredOwnerSecret();
+        setCallOutSaveError("Incorrect owner passphrase. Please try again.");
+      } else {
+        setCallOutSaveError(result.error ?? "Failed to delete call-out.");
+      }
+      return;
+    }
+
+    if (openCallOutId === id) setOpenCallOutId(null);
+    await refetchCallOuts();
+  };
+
   return (
     <div
       style={{ fontFamily: "'Inter',system-ui,sans-serif", background: C.bg, minHeight: "100vh" }}
@@ -1549,13 +2768,13 @@ function TeamPage() {
               ← Prev
             </button>
             <div style={{ display: "flex", gap: 6 }}>
-              {(["calendar", "reports"] as PageMode[]).map((pm) => (
+              {(["calendar", "reports", "callout"] as PageMode[]).map((pm) => (
                 <button
                   key={pm}
                   onClick={() => setPageMode(pm)}
                   style={pageMode === pm ? toggleBtnActive : toggleBtnInactive}
                 >
-                  {pm}
+                  {PAGE_MODE_LABELS[pm]}
                 </button>
               ))}
             </div>
@@ -1565,7 +2784,27 @@ function TeamPage() {
           </div>
         </div>
 
-        {pageMode === "reports" ? (
+        {pageMode === "callout" ? (
+          <CallOutSection
+            employees={employees}
+            tools={tools}
+            customMaterials={customMaterials}
+            callOuts={callOuts}
+            callOutsLoading={callOutsLoading}
+            callOutTemplates={callOutTemplates}
+            openCallOutId={openCallOutId}
+            setOpenCallOutId={setOpenCallOutId}
+            showPicker={showCallOutPicker}
+            setShowPicker={setShowCallOutPicker}
+            newDraft={newCallOutDraft}
+            setNewDraft={setNewCallOutDraft}
+            savingCallOut={savingCallOut}
+            callOutSaveError={callOutSaveError}
+            removingCallOutId={removingCallOutId}
+            onSave={handleSaveCallOut}
+            onRemove={handleRemoveCallOut}
+          />
+        ) : pageMode === "reports" ? (
           <MonthlyReportView
             employees={employees}
             attendance={reportAttendance}
