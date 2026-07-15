@@ -219,26 +219,27 @@
   column-gap: 8px;
   align-items: center;
 }
-/* Fixing-method column (PR #89 hotfix) trimmed to 60px — narrower than its
-   original 140px — because the row is a fixed-width container: any px it
-   takes starves the flexible Material track. Rate/Line total are left at
-   their original, proven-safe widths (Line total in particular wraps to two
-   lines below ~105px for a "R 1,024.10"-style value — verified directly). */
+/* Fixing-method column at 100px (was 60px pre-badge-hide) — the trailing
+   track dropped from minmax(88px, auto) to a fixed 50px now that it only
+   needs to fit the delete button (grade badge no longer renders), and that
+   38px freed space plus a small rounding adjustment went to Fixing Method.
+   Rate/Line total are left at their original, proven-safe widths (Line
+   total in particular wraps to two lines below ~105px for a
+   "R 1,024.10"-style value — verified directly). */
 .cos-app .cos-line--pipe {
-  grid-template-columns: minmax(0, 1.3fr) 74px 66px 84px 118px 60px minmax(88px, auto);
+  grid-template-columns: minmax(0, 1.3fr) 74px 66px 84px 118px 100px 50px;
 }
 /* Drainage only: adds a Product column (SV/UG PVC diameters can have more than
    one real SKU, e.g. UG 110mm's two duty grades) — Supply keeps the plain
    .cos-line--pipe template above untouched.
-   Fixing trimmed much further here (25px vs Supply's 60px): two flexible
-   tracks (Material + Product) share the same fixed-width budget here, so
-   there's far less slack to go around than Supply's single flexible
-   Material track — the dropdown ends up icon-only (title attribute on the
-   select carries the label). Rate/Line total again left at their original
+   Fixing-method at 65px (was 25px icon-only pre-badge-hide) — same freed-space
+   rebalance as Supply, though two flexible tracks (Material + Product) share
+   the fixed-width budget here so there's less slack than Supply's single
+   flexible Material track. Rate/Line total again left at their original
    widths for the same reason as Supply — both are already at their
    proven-safe minimum. */
 .cos-app .cos-line--pipe.cos-line--pipe-drainage {
-  grid-template-columns: minmax(0, 1fr) 68px minmax(0, 1.3fr) 60px 80px 110px 25px minmax(88px, auto);
+  grid-template-columns: minmax(0, 1fr) 68px minmax(0, 1.3fr) 60px 80px 110px 65px 50px;
 }
 .cos-app .cos-line--fixture {
   grid-template-columns: 40px minmax(0, 0.9fr) minmax(0, 1.6fr) 70px 90px minmax(88px, auto);
