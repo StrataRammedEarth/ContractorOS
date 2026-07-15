@@ -786,7 +786,8 @@ const trapOptionLabel = (m: Pick<PlumblinkMaterial, 'brand' | 'description' | 'm
 };
 
 // ─── MICRO COMPONENTS ─────────────────────────────────────────────────────────
-function GradePill({ grade }: { grade: string }) {
+function GradePill({ grade, hidden }: { grade: string; hidden?: boolean }) {
+  if (hidden) return null;
   const g = GRADES[grade] ?? GRADES["Placeholder"];
   return <span style={{ display:"inline-block",padding:"1px 6px",borderRadius:99,fontSize:9,
     fontWeight:700,letterSpacing:0.3,background:g.bg,color:g.color,border:`1px solid ${g.color}30` }}>{grade}</span>;
@@ -1309,7 +1310,7 @@ function EstimateTab({ scope, labour, inputs, finalGrade, docRef, documentType, 
             </div>
           </div>
           <div style={{textAlign:"right"}}>
-            <GradePill grade={finalGrade}/>
+            <GradePill grade={finalGrade} hidden/>
             <div style={{color:C.muted,fontSize:10,marginTop:6}}>{issuable?"✓ Internal use OK":"⚠ Not client-issuable"}</div>
             {isEditing && (
               <button onClick={onSaveChanges} disabled={savingEdit} style={{...primaryBtn,marginTop:10,cursor:savingEdit?"wait":"pointer",opacity:savingEdit?0.6:1}}>
@@ -1362,7 +1363,7 @@ function EstimateTab({ scope, labour, inputs, finalGrade, docRef, documentType, 
               <td style={{padding:"6px 10px",color:C.slateL}}>{l.unit}</td>
               <td style={{padding:"6px 10px",textAlign:"right"}}>{fmt(l.unitPrice)}</td>
               <td style={{padding:"6px 10px",textAlign:"right",fontWeight:600}}>{fmt(l.total)}</td>
-              <td style={{padding:"6px 10px"}}><GradePill grade={l.conf}/></td>
+              <td style={{padding:"6px 10px"}}><GradePill grade={l.conf} hidden/></td>
             </tr>))}
           </tbody>
           <tfoot><tr style={{background:C.navyLt}}>
@@ -1797,7 +1798,7 @@ function CatalogFittingRow({ row, catalogue, catalogueLoading, showDivider, onUp
         style={{width:48,padding:"6px 6px",border:`1px solid ${UI.borderStrong}`,borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center",...cellDivider(showDivider)}}/>
       <PriceCell row={row} style={cellDivider(showDivider)}/>
       <div style={{display:"flex",alignItems:"center",gap:4,justifySelf:"end",...cellDivider(showDivider)}}>
-        {grade ? <GradePill grade={grade}/> : <span/>}
+        {grade ? <GradePill grade={grade} hidden/> : <span/>}
         <button onClick={onRemove} title="Remove"
           style={rowDeleteBtnCompact}>✕</button>
       </div>
@@ -1871,7 +1872,7 @@ function StandaloneCatalogRow({ row, catalogue, catalogueLoading, showDivider, o
         style={{width:48,padding:"6px 6px",border:`1px solid ${UI.borderStrong}`,borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center",...cellDivider(showDivider)}}/>
       <PriceCell row={row} style={cellDivider(showDivider)}/>
       <div style={{display:"flex",alignItems:"center",gap:4,justifySelf:"end",...cellDivider(showDivider)}}>
-        {grade ? <GradePill grade={grade}/> : <span/>}
+        {grade ? <GradePill grade={grade} hidden/> : <span/>}
         <button onClick={onRemove} title="Remove"
           style={rowDeleteBtnCompact}>✕</button>
       </div>
@@ -1930,7 +1931,7 @@ function TrapCatalogRow({ row, catalogue, catalogueLoading, showDivider, onUpdat
         style={{width:48,padding:"6px 6px",border:`1px solid ${UI.borderStrong}`,borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center",...cellDivider(showDivider)}}/>
       <PriceCell row={row} style={cellDivider(showDivider)}/>
       <div style={{display:"flex",alignItems:"center",gap:4,justifySelf:"end",...cellDivider(showDivider)}}>
-        {grade ? <GradePill grade={grade}/> : <span/>}
+        {grade ? <GradePill grade={grade} hidden/> : <span/>}
         <button onClick={onRemove} title="Remove"
           style={rowDeleteBtnCompact}>✕</button>
       </div>
@@ -1988,7 +1989,7 @@ function StandaloneFittingSection({ title, use, rows, fixtureLines, catalogue, c
           style={{width:48,padding:"6px 6px",border:`1px solid ${UI.borderStrong}`,borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center",...cellDivider(showDivider)}}/>
         <PriceCell row={r} style={cellDivider(showDivider)}/>
         <div style={{display:"flex",alignItems:"center",gap:4,justifySelf:"end",...cellDivider(showDivider)}}>
-          {grade ? <GradePill grade={grade}/> : <span/>}
+          {grade ? <GradePill grade={grade} hidden/> : <span/>}
           <button onClick={()=>onRemove(use,r.id)} title="Remove"
             style={rowDeleteBtnCompact}>✕</button>
         </div>
@@ -2103,7 +2104,7 @@ function WastesTrapsSection({ rows, fixtureLines, catalogue, catalogueLoading, o
           style={{width:48,padding:"6px 6px",border:`1px solid ${UI.borderStrong}`,borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center",...cellDivider(showDivider)}}/>
         <PriceCell row={r} style={cellDivider(showDivider)}/>
         <div style={{display:"flex",alignItems:"center",gap:4,justifySelf:"end",...cellDivider(showDivider)}}>
-          {grade ? <GradePill grade={grade}/> : <span/>}
+          {grade ? <GradePill grade={grade} hidden/> : <span/>}
           <button onClick={()=>onRemove(r.id)} title="Remove"
             style={rowDeleteBtnCompact}>✕</button>
         </div>
@@ -2356,7 +2357,7 @@ function AppliedTemplateBlock({ tpl, onRemoveTemplate, onSetBasis, onUpdateRow, 
           style={{width:48,padding:"6px 6px",border:`1px solid ${UI.borderStrong}`,borderRadius:6,fontSize:13,fontWeight:700,textAlign:"center",opacity:rowOpacity,...cellDivider(showDivider)}}/>
         <PriceCell row={r} style={{opacity:rowOpacity,...cellDivider(showDivider)}}/>
         <div style={{display:"flex",alignItems:"center",gap:4,justifySelf:"end",...cellDivider(showDivider)}}>
-          {grade ? <GradePill grade={grade}/> : <span/>}
+          {grade ? <GradePill grade={grade} hidden/> : <span/>}
           {r.origin==="custom"
             ? <button onClick={()=>onRemoveRow(tpl.instanceId,r.id)} title="Remove"
                 style={{...rowDeleteBtnCompact,opacity:rowOpacity}}>✕</button>
@@ -3331,7 +3332,7 @@ export default function EstimatePage() {
             <option value="surface">Surface mounted</option>
           </select>
           <div style={{display:"flex",alignItems:"center",gap:4,justifySelf:"end"}}>
-            <GradePill grade={l.grade}/>
+            <GradePill grade={l.grade} hidden/>
             <button onClick={()=>removePipeLine(use,l.id)} title="Remove line" aria-label="Remove line" style={rowDeleteBtn}>✕</button>
           </div>
         </div>
@@ -3593,7 +3594,7 @@ export default function EstimatePage() {
                     style={{...rowCtl,minWidth:0,fontWeight:700,textAlign:"center",padding:"0 6px"}}/>
                   <span style={{...T.total,textAlign:"right",height:34}}>{fmt(fl.quantity*fl.unitPrice)}</span>
                   <div style={{display:"flex",alignItems:"center",gap:4,justifySelf:"end"}}>
-                    <GradePill grade={fl.grade}/>
+                    <GradePill grade={fl.grade} hidden/>
                     <button onClick={()=>removeFixtureLine(fl)} title="Remove line" aria-label="Remove line" style={rowDeleteBtn}>✕</button>
                   </div>
                 </div>
