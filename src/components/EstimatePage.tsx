@@ -3279,7 +3279,8 @@ export default function EstimatePage() {
         <span style={{...T.colHead,textAlign:"center"}}>Run (m)</span>
         <span style={{...T.colHead,textAlign:"right"}}>Rate</span>
         <span style={{...T.colHead,textAlign:"right"}}>Line total</span>
-        <><span/><span/></>
+        <span style={T.colHead}>Fixing Method</span>
+        <span/>
       </div>);
     const renderLine = (l: PipeLine, i: number, arr: PipeLine[]) => {
       const dias = l.source==="custom" ? [] : pipeDiametersFor(allPipeRows, use,l.type);
