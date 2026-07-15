@@ -122,6 +122,22 @@ export interface Vehicle {
   created_at: string;
 }
 
+export interface Tool {
+  id: string;
+  name: string;
+  category: "hand" | "power";
+  notes: string | null;
+  created_at: string;
+}
+
+export interface CustomMaterial {
+  id: string;
+  name: string;
+  unit: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
 export type AttendanceStatus =
   | "present"
   | "absent"
@@ -417,6 +433,129 @@ export async function saveVehicle(vehicle: {
 export async function removeVehicle(id: string): Promise<{ success: boolean; error?: string }> {
   try {
     const res = await fetch(`${supabaseUrl}/functions/v1/remove-vehicle`, {
+      method: "POST",
+      headers: edgeHeaders(),
+      body: JSON.stringify({ id }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success)
+      return { success: false, error: data.error ?? `HTTP ${res.status}` };
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+// ─── TOOLS ────────────────────────────────────────────────────────────────────
+// Same reasoning as VEHICLES above: tools has RLS requiring auth.uid(), and this
+// app has no signed-in sessions yet, so reads/writes go through service-role edge
+// functions (get-tools / save-tool / remove-tool).
+
+export async function loadTools(): Promise<Tool[]> {
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/get-tools`, {
+      headers: edgeHeaders(),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    const data = await res.json();
+    if (!data.success) {
+      console.warn("⚠️ Failed to load tools:", data.error);
+      return [];
+    }
+    return data.tools ?? [];
+  } catch (err) {
+    console.error("❌ Error loading tools:", err);
+    return [];
+  }
+}
+
+export async function saveTool(tool: {
+  id?: string;
+  name: string;
+  category?: "hand" | "power";
+  notes?: string;
+}): Promise<{ success: boolean; tool?: Tool; error?: string }> {
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/save-tool`, {
+      method: "POST",
+      headers: edgeHeaders(),
+      body: JSON.stringify(tool),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success)
+      return { success: false, error: data.error ?? `HTTP ${res.status}` };
+    return { success: true, tool: data.tool };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+export async function removeTool(id: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/remove-tool`, {
+      method: "POST",
+      headers: edgeHeaders(),
+      body: JSON.stringify({ id }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success)
+      return { success: false, error: data.error ?? `HTTP ${res.status}` };
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+// ─── CUSTOM MATERIALS ─────────────────────────────────────────────────────────
+// User-added materials that do not exist in plumblink_materials (drain cleaner
+// acid, rags, tap cartridges, etc). Unpriced by design — these are pack-list
+// items for call-outs, not costed estimate lines. Same service-role edge function
+// pattern as TOOLS above.
+
+export async function loadCustomMaterials(): Promise<CustomMaterial[]> {
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/get-custom-materials`, {
+      headers: edgeHeaders(),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    const data = await res.json();
+    if (!data.success) {
+      console.warn("⚠️ Failed to load custom materials:", data.error);
+      return [];
+    }
+    return data.materials ?? [];
+  } catch (err) {
+    console.error("❌ Error loading custom materials:", err);
+    return [];
+  }
+}
+
+export async function saveCustomMaterial(material: {
+  id?: string;
+  name: string;
+  unit?: string;
+  notes?: string;
+}): Promise<{ success: boolean; material?: CustomMaterial; error?: string }> {
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/save-custom-material`, {
+      method: "POST",
+      headers: edgeHeaders(),
+      body: JSON.stringify(material),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success)
+      return { success: false, error: data.error ?? `HTTP ${res.status}` };
+    return { success: true, material: data.material };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+export async function removeCustomMaterial(
+  id: string,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/remove-custom-material`, {
       method: "POST",
       headers: edgeHeaders(),
       body: JSON.stringify({ id }),
