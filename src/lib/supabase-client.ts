@@ -256,7 +256,9 @@ export async function saveEstimate(
         unauthorized: res.status === 401,
       };
     }
-    console.log(`✅ ${documentType === "invoice" ? "Invoice" : "Quote"} saved as ${data.estimate.reference}`);
+    console.log(
+      `✅ ${documentType === "invoice" ? "Invoice" : "Quote"} saved as ${data.estimate.reference}`,
+    );
     return { success: true, estimate: data.estimate };
   } catch (err) {
     return { success: false, error: String(err) };
@@ -307,9 +309,12 @@ export async function loadEstimates(
 
 export async function loadEstimateById(id: string): Promise<EstimateVersionRow | null> {
   try {
-    const res = await fetch(`${supabaseUrl}/functions/v1/get-estimates?id=${encodeURIComponent(id)}`, {
-      headers: edgeHeaders(),
-    });
+    const res = await fetch(
+      `${supabaseUrl}/functions/v1/get-estimates?id=${encodeURIComponent(id)}`,
+      {
+        headers: edgeHeaders(),
+      },
+    );
     if (!res.ok) {
       if (res.status === 404) return null;
       throw new Error(`HTTP ${res.status}: ${res.statusText}`);
@@ -677,7 +682,12 @@ export async function updateEstimateStatus(
   status: string,
   dueDate: string | undefined,
   ownerSecret: string,
-): Promise<{ success: boolean; error?: string; unauthorized?: boolean; estimate?: EstimateVersionRow }> {
+): Promise<{
+  success: boolean;
+  error?: string;
+  unauthorized?: boolean;
+  estimate?: EstimateVersionRow;
+}> {
   try {
     const res = await fetch(`${supabaseUrl}/functions/v1/update-estimate-status`, {
       method: "POST",
@@ -744,6 +754,175 @@ export async function removeDriverLog(
         success: false,
         error: data.error ?? `HTTP ${res.status}`,
         unauthorized: res.status === 401,
+      };
+    }
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+// ─── CALL-OUTS ────────────────────────────────────────────────────────────────
+// Passphrase-gated writes, same as ATTENDANCE / DRIVER_LOGS above. Reads are open.
+
+export type CallOutLineClass = "material" | "tool";
+export type CallOutLineKind = "catalogue" | "custom" | "free_text";
+
+export interface CallOutTemplateRow {
+  id: string;
+  line_number: number;
+  line_class: CallOutLineClass;
+  line_kind: "catalogue" | "free_text";
+  material_code: string | null;
+  label: string;
+  default_qty: number;
+  unit: string | null;
+  include_by_default: boolean;
+  notes: string | null;
+}
+
+export interface CallOutTemplate {
+  template_id: string;
+  job_category: string;
+  issue_name: string;
+  rows: CallOutTemplateRow[];
+}
+
+export interface CallOutLine {
+  id: string;
+  line_number: number;
+  line_class: CallOutLineClass;
+  line_kind: CallOutLineKind;
+  material_code: string | null;
+  custom_material_id: string | null;
+  label: string;
+  qty: number;
+  unit: string | null;
+  is_checked: boolean;
+  notes: string | null;
+}
+
+export interface CallOutSummary {
+  id: string;
+  job_category: string;
+  issue_name: string;
+  call_out_date: string | null;
+  client_name: string | null;
+  created_at: string;
+}
+
+export interface CallOutFull extends CallOutSummary {
+  template_id: string | null;
+  client_address: string | null;
+  employees: { id: string; name: string }[];
+  lines: CallOutLine[];
+}
+
+export async function loadCallOutTemplates(): Promise<CallOutTemplate[]> {
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/get-call-out-templates`, {
+      headers: edgeHeaders(),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    const data = await res.json();
+    if (!data.success) {
+      console.warn("⚠️ Failed to load call-out templates:", data.error);
+      return [];
+    }
+    return data.templates ?? [];
+  } catch (err) {
+    console.error("❌ Error loading call-out templates:", err);
+    return [];
+  }
+}
+
+export async function loadCallOuts(): Promise<CallOutSummary[]> {
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/get-call-outs`, {
+      headers: edgeHeaders(),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    const data = await res.json();
+    if (!data.success) {
+      console.warn("⚠️ Failed to load call-outs:", data.error);
+      return [];
+    }
+    return data.callOuts ?? [];
+  } catch (err) {
+    console.error("❌ Error loading call-outs:", err);
+    return [];
+  }
+}
+
+export async function loadCallOut(id: string): Promise<CallOutFull | null> {
+  try {
+    const res = await fetch(
+      `${supabaseUrl}/functions/v1/get-call-out?id=${encodeURIComponent(id)}`,
+      { headers: edgeHeaders() },
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    const data = await res.json();
+    if (!data.success) {
+      console.warn("⚠️ Failed to load call-out:", data.error);
+      return null;
+    }
+    return data.callOut ?? null;
+  } catch (err) {
+    console.error("❌ Error loading call-out:", err);
+    return null;
+  }
+}
+
+export async function saveCallOut(
+  callOut: {
+    id?: string;
+    template_id?: string | null;
+    job_category: string;
+    issue_name: string;
+    call_out_date?: string | null;
+    client_name?: string | null;
+    client_address?: string | null;
+    employee_ids: string[];
+    lines: (Omit<CallOutLine, "id"> & { id?: string })[];
+  },
+  ownerSecret: string,
+): Promise<{ success: boolean; callOut?: CallOutFull; error?: string; unauthorized?: boolean }> {
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/save-call-out`, {
+      method: "POST",
+      headers: edgeHeaders(),
+      body: JSON.stringify({ ...callOut, owner_secret: ownerSecret }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      return {
+        success: false,
+        error: data.error ?? `HTTP ${res.status}`,
+        unauthorized: data.unauthorized,
+      };
+    }
+    return { success: true, callOut: data.callOut };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+export async function removeCallOut(
+  id: string,
+  ownerSecret: string,
+): Promise<{ success: boolean; error?: string; unauthorized?: boolean }> {
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/remove-call-out`, {
+      method: "POST",
+      headers: edgeHeaders(),
+      body: JSON.stringify({ id, owner_secret: ownerSecret }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      return {
+        success: false,
+        error: data.error ?? `HTTP ${res.status}`,
+        unauthorized: data.unauthorized,
       };
     }
     return { success: true };
