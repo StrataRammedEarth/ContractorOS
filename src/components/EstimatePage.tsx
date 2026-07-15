@@ -3278,7 +3278,7 @@ export default function EstimatePage() {
         <span style={{...T.colHead,textAlign:"center"}}>Run (m)</span>
         <span style={{...T.colHead,textAlign:"right"}}>Rate</span>
         <span style={{...T.colHead,textAlign:"right"}}>Line total</span>
-        {showProduct?<><span/><span/></>:<><span/><span/><span/></>}
+        <><span/><span/></>
       </div>);
     const renderLine = (l: PipeLine, i: number, arr: PipeLine[]) => {
       const dias = l.source==="custom" ? [] : pipeDiametersFor(allPipeRows, use,l.type);
@@ -3321,6 +3321,7 @@ export default function EstimatePage() {
           <span style={{...T.total,textAlign:"right",height:34}}>{fmt(l.metres*l.perMetre)}</span>
           <select
             value={l.fixingMethod ?? ""}
+            title={l.fixingMethod === "chased" ? "Chased into wall" : l.fixingMethod === "surface" ? "Surface mounted" : "Fixing method…"}
             onChange={e=>updatePipeLine(use,l.id,{
               fixingMethod: e.target.value === "" ? undefined : e.target.value as 'chased'|'surface'
             })}
