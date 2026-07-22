@@ -2179,6 +2179,7 @@ function CallOutTemplatePicker({
 function CallOutTemplateAuthorEditor({
   draft,
   tools,
+  customMaterials,
   saving,
   saveError,
   onChange,
@@ -2187,6 +2188,7 @@ function CallOutTemplateAuthorEditor({
 }: {
   draft: CallOutTemplateAuthorDraft;
   tools: Tool[];
+  customMaterials: CustomMaterial[];
   saving: boolean;
   saveError: string | null;
   onChange: (draft: CallOutTemplateAuthorDraft) => void;
@@ -2194,6 +2196,20 @@ function CallOutTemplateAuthorEditor({
   onCancel: () => void;
 }) {
   const patch = (p: Partial<CallOutTemplateAuthorDraft>) => onChange({ ...draft, ...p });
+
+  // A custom material picked here can't be stored as a `custom` line — templates
+  // are FK-able but the schema stays two-valued (catalogue/free_text) regardless
+  // of whether a given template is org-owned. Convert at the point lines enter
+  // the draft so a `custom` line never reaches saveCallOutTemplate().
+  const handleLinesChange = (lines: CallOutDraftLine[]) => {
+    patch({
+      lines: lines.map((l) =>
+        l.line_kind === "custom"
+          ? { ...l, line_kind: "free_text" as const, custom_material_id: null, material_code: null }
+          : l,
+      ),
+    });
+  };
 
   return (
     <div style={coCard}>
@@ -2221,9 +2237,9 @@ function CallOutTemplateAuthorEditor({
         <CallOutLineEditor
           lines={draft.lines}
           tools={tools}
-          customMaterials={[]}
-          allowCustomMaterialLines={false}
-          onChange={(lines) => patch({ lines })}
+          customMaterials={customMaterials}
+          allowCustomMaterialLines
+          onChange={handleLinesChange}
         />
 
         {saveError && <div style={{ color: C.red, fontSize: 12, marginTop: 12 }}>{saveError}</div>}
@@ -3162,6 +3178,7 @@ function CallOutSection({
       <CallOutTemplateAuthorEditor
         draft={templateAuthorDraft}
         tools={tools}
+        customMaterials={customMaterials}
         saving={savingCallOutTemplate}
         saveError={callOutTemplateSaveError}
         onChange={setTemplateAuthorDraft}
