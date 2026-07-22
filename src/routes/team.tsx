@@ -1257,6 +1257,8 @@ interface CallOutDraft {
   call_out_date: string;
   client_name: string;
   client_address: string;
+  clocked_in_at: string | null;
+  clocked_out_at: string | null;
   employee_ids: string[];
   lines: CallOutDraftLine[];
 }
@@ -1281,6 +1283,8 @@ function draftFromTemplate(template: CallOutTemplate): CallOutDraft {
     call_out_date: "",
     client_name: "",
     client_address: "",
+    clocked_in_at: null,
+    clocked_out_at: null,
     employee_ids: [],
     lines: template.rows
       .slice()
@@ -1309,6 +1313,8 @@ function draftFromCallOut(full: CallOutFull): CallOutDraft {
     call_out_date: full.call_out_date ?? "",
     client_name: full.client_name ?? "",
     client_address: full.client_address ?? "",
+    clocked_in_at: full.clocked_in_at,
+    clocked_out_at: full.clocked_out_at,
     employee_ids: full.employees.map((e) => e.id),
     lines: full.lines.map((l) => ({
       id: l.id,
@@ -1329,6 +1335,23 @@ function draftFromCallOut(full: CallOutFull): CallOutDraft {
 function nextLineNumber(lines: CallOutDraftLine[]): number {
   if (lines.length === 0) return 10;
   return Math.max(...lines.map((l) => l.line_number)) + 10;
+}
+
+// datetime-local inputs work in local wall-clock time with no timezone
+// suffix; clocked_in_at/clocked_out_at round-trip as ISO timestamptz strings.
+function isoToDatetimeLocal(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function datetimeLocalToIso(value: string): string | null {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString();
 }
 
 const coCard: CSSProperties = {
@@ -1946,8 +1969,16 @@ function CallOutEditor({
       draft.employee_ids.length
     ),
   );
+  const [employeesOpen, setEmployeesOpen] = useState(!!draft.employee_ids.length);
+  const [materialsOpen, setMaterialsOpen] = useState(true);
+  const [toolsOpen, setToolsOpen] = useState(true);
 
   const patch = (p: Partial<CallOutDraft>) => onChange({ ...draft, ...p });
+
+  const materialLines = draft.lines.filter((l) => l.line_class === "material");
+  const toolLines = draft.lines.filter((l) => l.line_class === "tool");
+  const materialCheckedCount = materialLines.filter((l) => l.is_checked).length;
+  const toolCheckedCount = toolLines.filter((l) => l.is_checked).length;
 
   return (
     <div style={coCard}>
@@ -1990,6 +2021,24 @@ function CallOutEditor({
               />
             </div>
             <div>
+              <div style={coSectionLabel}>Clocked in</div>
+              <input
+                type="datetime-local"
+                value={isoToDatetimeLocal(draft.clocked_in_at)}
+                onChange={(e) => patch({ clocked_in_at: datetimeLocalToIso(e.target.value) })}
+                style={coInput}
+              />
+            </div>
+            <div>
+              <div style={coSectionLabel}>Clocked out</div>
+              <input
+                type="datetime-local"
+                value={isoToDatetimeLocal(draft.clocked_out_at)}
+                onChange={(e) => patch({ clocked_out_at: datetimeLocalToIso(e.target.value) })}
+                style={coInput}
+              />
+            </div>
+            <div>
               <div style={coSectionLabel}>Client name</div>
               <input
                 value={draft.client_name}
@@ -2006,23 +2055,56 @@ function CallOutEditor({
               />
             </div>
             <div>
-              <div style={coSectionLabel}>Employees</div>
-              <EmployeeMultiSelect
-                employees={employees}
-                selectedIds={draft.employee_ids}
-                onChange={(ids) => patch({ employee_ids: ids })}
-              />
+              <button style={coToggleLink} onClick={() => setEmployeesOpen((v) => !v)}>
+                {employeesOpen ? "− Hide" : "+ Show"} employees ({draft.employee_ids.length}{" "}
+                selected)
+              </button>
+              {employeesOpen && (
+                <div style={{ marginTop: 8 }}>
+                  <EmployeeMultiSelect
+                    employees={employees}
+                    selectedIds={draft.employee_ids}
+                    onChange={(ids) => patch({ employee_ids: ids })}
+                  />
+                </div>
+              )}
             </div>
           </div>
         )}
 
-        <CallOutLineEditor
-          lines={draft.lines}
-          tools={tools}
-          customMaterials={customMaterials}
-          allowCustomMaterialLines
-          onChange={(lines) => patch({ lines })}
-        />
+        <div style={{ marginTop: 14 }}>
+          <button style={coToggleLink} onClick={() => setMaterialsOpen((v) => !v)}>
+            {materialsOpen ? "− Hide" : "+ Show"} materials ({materialLines.length} items,{" "}
+            {materialCheckedCount} checked)
+          </button>
+          {materialsOpen && (
+            <CallOutLineEditor
+              lines={draft.lines}
+              tools={tools}
+              customMaterials={customMaterials}
+              allowCustomMaterialLines
+              section="material"
+              onChange={(lines) => patch({ lines })}
+            />
+          )}
+        </div>
+
+        <div style={{ marginTop: 20 }}>
+          <button style={coToggleLink} onClick={() => setToolsOpen((v) => !v)}>
+            {toolsOpen ? "− Hide" : "+ Show"} tools ({toolLines.length} items, {toolCheckedCount}{" "}
+            checked)
+          </button>
+          {toolsOpen && (
+            <CallOutLineEditor
+              lines={draft.lines}
+              tools={tools}
+              customMaterials={customMaterials}
+              allowCustomMaterialLines
+              section="tool"
+              onChange={(lines) => patch({ lines })}
+            />
+          )}
+        </div>
 
         {saveError && <div style={{ color: C.red, fontSize: 12, marginTop: 12 }}>{saveError}</div>}
 
@@ -2054,17 +2136,22 @@ function CallOutEditor({
 
 // Extracted from CallOutEditor so the record editor and the (smaller) template
 // author editor can share material/tool line-editing without duplicating it.
+// `section` lets a caller render just the Materials or just the Tools half (so
+// CallOutEditor can wrap each in its own collapsible); omitted renders both,
+// as CallOutTemplateAuthorEditor still does.
 function CallOutLineEditor({
   lines,
   tools,
   customMaterials,
   allowCustomMaterialLines,
+  section,
   onChange,
 }: {
   lines: CallOutDraftLine[];
   tools: Tool[];
   customMaterials: CustomMaterial[];
   allowCustomMaterialLines: boolean;
+  section?: "material" | "tool";
   onChange: (lines: CallOutDraftLine[]) => void;
 }) {
   const updateLine = (index: number, p: Partial<CallOutDraftLine>) => {
@@ -2088,39 +2175,43 @@ function CallOutLineEditor({
 
   return (
     <>
-      <div style={{ marginTop: 14 }}>
-        <div style={coSectionLabel}>Materials</div>
-        {materialIndices.length === 0 && <div style={coHint}>No material lines yet.</div>}
-        {materialIndices.map(([line, index]) => (
-          <CallOutLineRow
-            key={index}
-            line={line}
-            showUnit
-            onChange={(p) => updateLine(index, p)}
-            onRemove={() => removeLine(index)}
+      {section !== "tool" && (
+        <div style={{ marginTop: 14 }}>
+          <div style={coSectionLabel}>Materials</div>
+          {materialIndices.length === 0 && <div style={coHint}>No material lines yet.</div>}
+          {materialIndices.map(([line, index]) => (
+            <CallOutLineRow
+              key={index}
+              line={line}
+              showUnit
+              onChange={(p) => updateLine(index, p)}
+              onRemove={() => removeLine(index)}
+            />
+          ))}
+          <AddMaterialRow
+            customMaterials={customMaterials}
+            allowCustomMaterialLines={allowCustomMaterialLines}
+            onAdd={addLine}
           />
-        ))}
-        <AddMaterialRow
-          customMaterials={customMaterials}
-          allowCustomMaterialLines={allowCustomMaterialLines}
-          onAdd={addLine}
-        />
-      </div>
+        </div>
+      )}
 
-      <div style={{ marginTop: 20 }}>
-        <div style={coSectionLabel}>Tools</div>
-        {toolIndices.length === 0 && <div style={coHint}>No tool lines yet.</div>}
-        {toolIndices.map(([line, index]) => (
-          <CallOutLineRow
-            key={index}
-            line={line}
-            showUnit={false}
-            onChange={(p) => updateLine(index, p)}
-            onRemove={() => removeLine(index)}
-          />
-        ))}
-        <AddToolRow tools={tools} onAdd={addLine} />
-      </div>
+      {section !== "material" && (
+        <div style={{ marginTop: 20 }}>
+          <div style={coSectionLabel}>Tools</div>
+          {toolIndices.length === 0 && <div style={coHint}>No tool lines yet.</div>}
+          {toolIndices.map(([line, index]) => (
+            <CallOutLineRow
+              key={index}
+              line={line}
+              showUnit={false}
+              onChange={(p) => updateLine(index, p)}
+              onRemove={() => removeLine(index)}
+            />
+          ))}
+          <AddToolRow tools={tools} onAdd={addLine} />
+        </div>
+      )}
     </>
   );
 }
@@ -3818,6 +3909,8 @@ function TeamPage() {
         call_out_date: draft.call_out_date || null,
         client_name: draft.client_name || null,
         client_address: draft.client_address || null,
+        clocked_in_at: draft.clocked_in_at,
+        clocked_out_at: draft.clocked_out_at,
         employee_ids: draft.employee_ids,
         lines: draft.lines,
       },

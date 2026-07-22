@@ -876,6 +876,8 @@ export interface CallOutSummary {
 export interface CallOutFull extends CallOutSummary {
   template_id: string | null;
   client_address: string | null;
+  clocked_in_at: string | null;
+  clocked_out_at: string | null;
   employees: { id: string; name: string }[];
   lines: CallOutLine[];
 }
@@ -976,6 +978,8 @@ export async function saveCallOut(
     call_out_date?: string | null;
     client_name?: string | null;
     client_address?: string | null;
+    clocked_in_at?: string | null;
+    clocked_out_at?: string | null;
     employee_ids: string[];
     lines: (Omit<CallOutLine, "id"> & { id?: string })[];
   },
