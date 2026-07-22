@@ -127,6 +127,7 @@ export interface Tool {
   name: string;
   category: "hand" | "power";
   notes: string | null;
+  checklist_section: string | null;
   created_at: string;
 }
 
@@ -135,6 +136,7 @@ export interface CustomMaterial {
   name: string;
   unit: string | null;
   notes: string | null;
+  checklist_section: string | null;
   created_at: string;
 }
 
@@ -479,6 +481,7 @@ export async function saveTool(tool: {
   name: string;
   category?: "hand" | "power";
   notes?: string;
+  checklist_section?: string;
 }): Promise<{ success: boolean; tool?: Tool; error?: string }> {
   try {
     const res = await fetch(`${supabaseUrl}/functions/v1/save-tool`, {
@@ -493,6 +496,36 @@ export async function saveTool(tool: {
   } catch (err) {
     return { success: false, error: String(err) };
   }
+}
+
+// One-time, client-triggered starter template load (see checklist-starter-template.ts).
+// Reuses saveTool()'s insert path per item and treats the existing "already exists"
+// error as an expected skip rather than a failure — this is additive only and never
+// resurrects soft-deleted rows (saveTool's insert path only ever creates fresh rows).
+export async function loadToolsStarterTemplate(): Promise<{
+  success: boolean;
+  added: number;
+  skipped: number;
+  error?: string;
+}> {
+  const { TOOLS_STARTER_TEMPLATE } = await import("./checklist-starter-template");
+  let added = 0;
+  let skipped = 0;
+  for (const item of TOOLS_STARTER_TEMPLATE) {
+    const res = await saveTool({
+      name: item.name,
+      category: item.category,
+      checklist_section: item.section,
+    });
+    if (res.success) {
+      added++;
+    } else if (res.error === "A tool with that name already exists.") {
+      skipped++;
+    } else {
+      return { success: false, added, skipped, error: res.error };
+    }
+  }
+  return { success: true, added, skipped };
 }
 
 export async function removeTool(id: string): Promise<{ success: boolean; error?: string }> {
@@ -540,6 +573,7 @@ export async function saveCustomMaterial(material: {
   name: string;
   unit?: string;
   notes?: string;
+  checklist_section?: string;
 }): Promise<{ success: boolean; material?: CustomMaterial; error?: string }> {
   try {
     const res = await fetch(`${supabaseUrl}/functions/v1/save-custom-material`, {
@@ -554,6 +588,34 @@ export async function saveCustomMaterial(material: {
   } catch (err) {
     return { success: false, error: String(err) };
   }
+}
+
+// One-time, client-triggered starter template load — see loadToolsStarterTemplate()
+// above for the shared reasoning (additive-only, skip-on-duplicate, no reactivation).
+export async function loadCustomMaterialsStarterTemplate(): Promise<{
+  success: boolean;
+  added: number;
+  skipped: number;
+  error?: string;
+}> {
+  const { MATERIALS_STARTER_TEMPLATE } = await import("./checklist-starter-template");
+  let added = 0;
+  let skipped = 0;
+  for (const item of MATERIALS_STARTER_TEMPLATE) {
+    const res = await saveCustomMaterial({
+      name: item.name,
+      unit: item.unit,
+      checklist_section: item.section,
+    });
+    if (res.success) {
+      added++;
+    } else if (res.error === "A material with that name already exists.") {
+      skipped++;
+    } else {
+      return { success: false, added, skipped, error: res.error };
+    }
+  }
+  return { success: true, added, skipped };
 }
 
 export async function removeCustomMaterial(
