@@ -1257,6 +1257,8 @@ interface CallOutDraft {
   call_out_date: string;
   client_name: string;
   client_address: string;
+  clocked_in_at: string | null;
+  clocked_out_at: string | null;
   employee_ids: string[];
   lines: CallOutDraftLine[];
 }
@@ -1281,6 +1283,8 @@ function draftFromTemplate(template: CallOutTemplate): CallOutDraft {
     call_out_date: "",
     client_name: "",
     client_address: "",
+    clocked_in_at: null,
+    clocked_out_at: null,
     employee_ids: [],
     lines: template.rows
       .slice()
@@ -1309,6 +1313,8 @@ function draftFromCallOut(full: CallOutFull): CallOutDraft {
     call_out_date: full.call_out_date ?? "",
     client_name: full.client_name ?? "",
     client_address: full.client_address ?? "",
+    clocked_in_at: full.clocked_in_at,
+    clocked_out_at: full.clocked_out_at,
     employee_ids: full.employees.map((e) => e.id),
     lines: full.lines.map((l) => ({
       id: l.id,
@@ -3818,6 +3824,8 @@ function TeamPage() {
         call_out_date: draft.call_out_date || null,
         client_name: draft.client_name || null,
         client_address: draft.client_address || null,
+        clocked_in_at: draft.clocked_in_at,
+        clocked_out_at: draft.clocked_out_at,
         employee_ids: draft.employee_ids,
         lines: draft.lines,
       },
