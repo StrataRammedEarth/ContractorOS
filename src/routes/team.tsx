@@ -1623,9 +1623,11 @@ function EmployeeMultiSelect({
 
 function AddMaterialRow({
   customMaterials,
+  allowCustomMaterialLines,
   onAdd,
 }: {
   customMaterials: CustomMaterial[];
+  allowCustomMaterialLines: boolean;
   onAdd: (line: Omit<CallOutDraftLine, "line_number">) => void;
 }) {
   const [mode, setMode] = useState<"closed" | "catalogue" | "custom" | "free_text">("closed");
@@ -1642,10 +1644,14 @@ function AddMaterialRow({
     );
   }
 
+  const modes = allowCustomMaterialLines
+    ? (["catalogue", "custom", "free_text"] as const)
+    : (["catalogue", "free_text"] as const);
+
   return (
     <div style={coAddPanel}>
       <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-        {(["catalogue", "custom", "free_text"] as const).map((m) => (
+        {modes.map((m) => (
           <button
             key={m}
             onClick={() => setMode(m)}
@@ -1909,30 +1915,6 @@ function CallOutEditor({
 
   const patch = (p: Partial<CallOutDraft>) => onChange({ ...draft, ...p });
 
-  const updateLine = (index: number, p: Partial<CallOutDraftLine>) => {
-    const lines = draft.lines.slice();
-    lines[index] = { ...lines[index], ...p };
-    onChange({ ...draft, lines });
-  };
-
-  const removeLine = (index: number) => {
-    onChange({ ...draft, lines: draft.lines.filter((_, i) => i !== index) });
-  };
-
-  const addLine = (line: Omit<CallOutDraftLine, "line_number">) => {
-    onChange({
-      ...draft,
-      lines: [...draft.lines, { ...line, line_number: nextLineNumber(draft.lines) }],
-    });
-  };
-
-  const materialIndices = draft.lines
-    .map((l, i) => [l, i] as const)
-    .filter(([l]) => l.line_class === "material");
-  const toolIndices = draft.lines
-    .map((l, i) => [l, i] as const)
-    .filter(([l]) => l.line_class === "tool");
-
   return (
     <div style={coCard}>
       <div style={coCardHeader}>
@@ -2000,35 +1982,13 @@ function CallOutEditor({
           </div>
         )}
 
-        <div style={{ marginTop: 14 }}>
-          <div style={coSectionLabel}>Materials</div>
-          {materialIndices.length === 0 && <div style={coHint}>No material lines yet.</div>}
-          {materialIndices.map(([line, index]) => (
-            <CallOutLineRow
-              key={index}
-              line={line}
-              showUnit
-              onChange={(p) => updateLine(index, p)}
-              onRemove={() => removeLine(index)}
-            />
-          ))}
-          <AddMaterialRow customMaterials={customMaterials} onAdd={addLine} />
-        </div>
-
-        <div style={{ marginTop: 20 }}>
-          <div style={coSectionLabel}>Tools</div>
-          {toolIndices.length === 0 && <div style={coHint}>No tool lines yet.</div>}
-          {toolIndices.map(([line, index]) => (
-            <CallOutLineRow
-              key={index}
-              line={line}
-              showUnit={false}
-              onChange={(p) => updateLine(index, p)}
-              onRemove={() => removeLine(index)}
-            />
-          ))}
-          <AddToolRow tools={tools} onAdd={addLine} />
-        </div>
+        <CallOutLineEditor
+          lines={draft.lines}
+          tools={tools}
+          customMaterials={customMaterials}
+          allowCustomMaterialLines
+          onChange={(lines) => patch({ lines })}
+        />
 
         {saveError && <div style={{ color: C.red, fontSize: 12, marginTop: 12 }}>{saveError}</div>}
 
@@ -2054,6 +2014,79 @@ function CallOutEditor({
         </div>
       </div>
     </div>
+  );
+}
+
+// Extracted from CallOutEditor so the record editor and the (smaller) template
+// author editor can share material/tool line-editing without duplicating it.
+function CallOutLineEditor({
+  lines,
+  tools,
+  customMaterials,
+  allowCustomMaterialLines,
+  onChange,
+}: {
+  lines: CallOutDraftLine[];
+  tools: Tool[];
+  customMaterials: CustomMaterial[];
+  allowCustomMaterialLines: boolean;
+  onChange: (lines: CallOutDraftLine[]) => void;
+}) {
+  const updateLine = (index: number, p: Partial<CallOutDraftLine>) => {
+    const next = lines.slice();
+    next[index] = { ...next[index], ...p };
+    onChange(next);
+  };
+
+  const removeLine = (index: number) => {
+    onChange(lines.filter((_, i) => i !== index));
+  };
+
+  const addLine = (line: Omit<CallOutDraftLine, "line_number">) => {
+    onChange([...lines, { ...line, line_number: nextLineNumber(lines) }]);
+  };
+
+  const materialIndices = lines
+    .map((l, i) => [l, i] as const)
+    .filter(([l]) => l.line_class === "material");
+  const toolIndices = lines.map((l, i) => [l, i] as const).filter(([l]) => l.line_class === "tool");
+
+  return (
+    <>
+      <div style={{ marginTop: 14 }}>
+        <div style={coSectionLabel}>Materials</div>
+        {materialIndices.length === 0 && <div style={coHint}>No material lines yet.</div>}
+        {materialIndices.map(([line, index]) => (
+          <CallOutLineRow
+            key={index}
+            line={line}
+            showUnit
+            onChange={(p) => updateLine(index, p)}
+            onRemove={() => removeLine(index)}
+          />
+        ))}
+        <AddMaterialRow
+          customMaterials={customMaterials}
+          allowCustomMaterialLines={allowCustomMaterialLines}
+          onAdd={addLine}
+        />
+      </div>
+
+      <div style={{ marginTop: 20 }}>
+        <div style={coSectionLabel}>Tools</div>
+        {toolIndices.length === 0 && <div style={coHint}>No tool lines yet.</div>}
+        {toolIndices.map(([line, index]) => (
+          <CallOutLineRow
+            key={index}
+            line={line}
+            showUnit={false}
+            onChange={(p) => updateLine(index, p)}
+            onRemove={() => removeLine(index)}
+          />
+        ))}
+        <AddToolRow tools={tools} onAdd={addLine} />
+      </div>
+    </>
   );
 }
 
