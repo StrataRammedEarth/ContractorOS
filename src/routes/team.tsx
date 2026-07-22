@@ -20,9 +20,11 @@ import {
   loadTools,
   saveTool,
   removeTool,
+  loadToolsStarterTemplate,
   loadCustomMaterials,
   saveCustomMaterial,
   removeCustomMaterial,
+  loadCustomMaterialsStarterTemplate,
   supabase,
   type AttendanceRecord,
   type AttendanceStatus,
@@ -2380,8 +2382,46 @@ function CallOutListView({
 // have RLS with no client-auth session in this app yet, so direct table
 // access from the browser is blocked).
 
-type ToolDraft = { name: string; category: "hand" | "power"; notes: string };
-const emptyToolDraft: ToolDraft = { name: "", category: "hand", notes: "" };
+// Groups by checklist_section for the Tools/Custom Materials cards, with an
+// "Other" bucket (ungrouped items) always sorted last regardless of alphabetical
+// position, since it's a fallback rather than a named category.
+function groupByChecklistSection<T extends { checklist_section: string | null }>(
+  items: T[],
+): { section: string; items: T[] }[] {
+  const map = new Map<string, T[]>();
+  for (const item of items) {
+    const key = item.checklist_section?.trim() || "Other";
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(item);
+  }
+  const sections = [...map.keys()].filter((s) => s !== "Other").sort();
+  if (map.has("Other")) sections.push("Other");
+  return sections.map((section) => ({ section, items: map.get(section)! }));
+}
+
+const sectionHeadingStyle = (first: boolean): CSSProperties => ({
+  fontSize: 11,
+  fontWeight: 700,
+  letterSpacing: 0.6,
+  textTransform: "uppercase",
+  color: C.slate,
+  margin: first ? "0 0 8px" : "16px 0 8px",
+  paddingBottom: 4,
+  borderBottom: `1px solid ${C.gold}55`,
+});
+
+type ToolDraft = {
+  name: string;
+  category: "hand" | "power";
+  notes: string;
+  checklist_section: string;
+};
+const emptyToolDraft: ToolDraft = {
+  name: "",
+  category: "hand",
+  notes: "",
+  checklist_section: "",
+};
 
 function ToolSummaryRow({
   tool,
@@ -2458,6 +2498,7 @@ function ToolEditRow({
   onSave,
   onCancel,
   isNew,
+  sectionSuggestions,
 }: {
   draft: ToolDraft;
   setDraft: React.Dispatch<React.SetStateAction<ToolDraft>>;
@@ -2466,6 +2507,7 @@ function ToolEditRow({
   onSave: () => void;
   onCancel: () => void;
   isNew?: boolean;
+  sectionSuggestions: string[];
 }) {
   const nameInvalid = !!error && draft.name.trim() === "";
   return (
@@ -2479,7 +2521,7 @@ function ToolEditRow({
       }}
     >
       <div
-        style={{ display: "grid", gridTemplateColumns: "2fr 1fr 3fr", gap: 10, marginBottom: 10 }}
+        style={{ display: "grid", gridTemplateColumns: "2fr 1fr 2fr 2fr", gap: 10, marginBottom: 10 }}
       >
         <div>
           <Label>Name *</Label>
@@ -2502,6 +2544,21 @@ function ToolEditRow({
             <option value="hand">Hand</option>
             <option value="power">Power</option>
           </select>
+        </div>
+        <div>
+          <Label hint="optional">Section</Label>
+          <input
+            style={inputStyle()}
+            value={draft.checklist_section}
+            onChange={(e) => setDraft((d) => ({ ...d, checklist_section: e.target.value }))}
+            placeholder="e.g. Plumbing & Pipework"
+            list="tool-section-suggestions"
+          />
+          <datalist id="tool-section-suggestions">
+            {sectionSuggestions.map((s) => (
+              <option key={s} value={s} />
+            ))}
+          </datalist>
         </div>
         <div>
           <Label hint="optional">Notes</Label>
@@ -2567,6 +2624,7 @@ function ToolsCard() {
 
   const [saving, setSaving] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [loadingTemplate, setLoadingTemplate] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -2581,6 +2639,12 @@ function ToolsCard() {
       cancelled = true;
     };
   }, []);
+
+  const sectionSuggestions = useMemo(
+    () =>
+      Array.from(new Set(tools.map((t) => t.checklist_section?.trim()).filter(Boolean))).sort() as string[],
+    [tools],
+  );
 
   const startAdd = () => {
     setAdding(true);
@@ -2603,6 +2667,7 @@ function ToolsCard() {
       name: addDraft.name,
       category: addDraft.category,
       notes: addDraft.notes || undefined,
+      checklist_section: addDraft.checklist_section || undefined,
     });
     setSaving(false);
     if (!res.success || !res.tool) {
@@ -2620,6 +2685,7 @@ function ToolsCard() {
       name: tool.name,
       category: tool.category,
       notes: tool.notes ?? "",
+      checklist_section: tool.checklist_section ?? "",
     });
     setEditError(null);
   };
@@ -2640,6 +2706,7 @@ function ToolsCard() {
       name: editDraft.name,
       category: editDraft.category,
       notes: editDraft.notes || undefined,
+      checklist_section: editDraft.checklist_section || undefined,
     });
     setSaving(false);
     if (!res.success || !res.tool) {
@@ -2664,6 +2731,30 @@ function ToolsCard() {
     if (editingId === tool.id) setEditingId(null);
   };
 
+  const handleLoadTemplate = async () => {
+    if (
+      !window.confirm(
+        "This will add any missing items from a starter plumbing template. Nothing you already have will be changed or duplicated.",
+      )
+    )
+      return;
+    setLoadingTemplate(true);
+    const res = await loadToolsStarterTemplate();
+    if (!res.success) {
+      setLoadingTemplate(false);
+      window.alert(res.error ?? "Failed to load starter template.");
+      return;
+    }
+    const list = await loadTools();
+    setTools(list);
+    setLoadingTemplate(false);
+    window.alert(
+      `Added ${res.added} tool${res.added === 1 ? "" : "s"}, skipped ${res.skipped} already in your list.`,
+    );
+  };
+
+  const grouped = groupByChecklistSection(tools);
+
   return (
     <Card title="Tools">
       {loading ? (
@@ -2676,27 +2767,33 @@ function ToolsCard() {
             </div>
           )}
 
-          {tools.map((tool) =>
-            editingId === tool.id ? (
-              <ToolEditRow
-                key={tool.id}
-                draft={editDraft}
-                setDraft={setEditDraft}
-                error={editError}
-                saving={saving}
-                onSave={submitEdit}
-                onCancel={cancelEdit}
-              />
-            ) : (
-              <ToolSummaryRow
-                key={tool.id}
-                tool={tool}
-                removing={removingId === tool.id}
-                onEdit={() => startEdit(tool)}
-                onRemove={() => handleRemove(tool)}
-              />
-            ),
-          )}
+          {grouped.map(({ section, items }, i) => (
+            <Fragment key={section}>
+              <div style={sectionHeadingStyle(i === 0)}>{section}</div>
+              {items.map((tool) =>
+                editingId === tool.id ? (
+                  <ToolEditRow
+                    key={tool.id}
+                    draft={editDraft}
+                    setDraft={setEditDraft}
+                    error={editError}
+                    saving={saving}
+                    onSave={submitEdit}
+                    onCancel={cancelEdit}
+                    sectionSuggestions={sectionSuggestions}
+                  />
+                ) : (
+                  <ToolSummaryRow
+                    key={tool.id}
+                    tool={tool}
+                    removing={removingId === tool.id}
+                    onEdit={() => startEdit(tool)}
+                    onRemove={() => handleRemove(tool)}
+                  />
+                ),
+              )}
+            </Fragment>
+          ))}
 
           {adding ? (
             <ToolEditRow
@@ -2707,11 +2804,25 @@ function ToolsCard() {
               onSave={submitAdd}
               onCancel={cancelAdd}
               isNew
+              sectionSuggestions={sectionSuggestions}
             />
           ) : (
-            <button onClick={startAdd} style={addLineBtnStyle}>
-              + Add Tool
-            </button>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
+              <button onClick={startAdd} style={addLineBtnStyle}>
+                + Add Tool
+              </button>
+              <button
+                onClick={handleLoadTemplate}
+                disabled={loadingTemplate}
+                style={{
+                  ...addLineBtnStyle,
+                  opacity: loadingTemplate ? 0.6 : 1,
+                  cursor: loadingTemplate ? "not-allowed" : "pointer",
+                }}
+              >
+                {loadingTemplate ? "Loading…" : "Load Starter Template"}
+              </button>
+            </div>
           )}
         </>
       )}
@@ -2719,8 +2830,18 @@ function ToolsCard() {
   );
 }
 
-type CustomMaterialDraft = { name: string; unit: string; notes: string };
-const emptyCustomMaterialDraft: CustomMaterialDraft = { name: "", unit: "", notes: "" };
+type CustomMaterialDraft = {
+  name: string;
+  unit: string;
+  notes: string;
+  checklist_section: string;
+};
+const emptyCustomMaterialDraft: CustomMaterialDraft = {
+  name: "",
+  unit: "",
+  notes: "",
+  checklist_section: "",
+};
 
 function CustomMaterialSummaryRow({
   material,
@@ -2798,6 +2919,7 @@ function CustomMaterialEditRow({
   onSave,
   onCancel,
   isNew,
+  sectionSuggestions,
 }: {
   draft: CustomMaterialDraft;
   setDraft: React.Dispatch<React.SetStateAction<CustomMaterialDraft>>;
@@ -2806,6 +2928,7 @@ function CustomMaterialEditRow({
   onSave: () => void;
   onCancel: () => void;
   isNew?: boolean;
+  sectionSuggestions: string[];
 }) {
   const nameInvalid = !!error && draft.name.trim() === "";
   return (
@@ -2819,7 +2942,7 @@ function CustomMaterialEditRow({
       }}
     >
       <div
-        style={{ display: "grid", gridTemplateColumns: "2fr 1fr 3fr", gap: 10, marginBottom: 10 }}
+        style={{ display: "grid", gridTemplateColumns: "2fr 1fr 2fr 2fr", gap: 10, marginBottom: 10 }}
       >
         <div>
           <Label>Name *</Label>
@@ -2838,6 +2961,21 @@ function CustomMaterialEditRow({
             onChange={(e) => setDraft((d) => ({ ...d, unit: e.target.value }))}
             placeholder="e.g. ea"
           />
+        </div>
+        <div>
+          <Label hint="optional">Section</Label>
+          <input
+            style={inputStyle()}
+            value={draft.checklist_section}
+            onChange={(e) => setDraft((d) => ({ ...d, checklist_section: e.target.value }))}
+            placeholder="e.g. Pipes, Fittings & Hardware"
+            list="material-section-suggestions"
+          />
+          <datalist id="material-section-suggestions">
+            {sectionSuggestions.map((s) => (
+              <option key={s} value={s} />
+            ))}
+          </datalist>
         </div>
         <div>
           <Label hint="optional">Notes</Label>
@@ -2903,6 +3041,7 @@ function CustomMaterialsCard() {
 
   const [saving, setSaving] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [loadingTemplate, setLoadingTemplate] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -2917,6 +3056,14 @@ function CustomMaterialsCard() {
       cancelled = true;
     };
   }, []);
+
+  const sectionSuggestions = useMemo(
+    () =>
+      Array.from(
+        new Set(materials.map((m) => m.checklist_section?.trim()).filter(Boolean)),
+      ).sort() as string[],
+    [materials],
+  );
 
   const startAdd = () => {
     setAdding(true);
@@ -2939,6 +3086,7 @@ function CustomMaterialsCard() {
       name: addDraft.name,
       unit: addDraft.unit || undefined,
       notes: addDraft.notes || undefined,
+      checklist_section: addDraft.checklist_section || undefined,
     });
     setSaving(false);
     if (!res.success || !res.material) {
@@ -2956,6 +3104,7 @@ function CustomMaterialsCard() {
       name: material.name,
       unit: material.unit ?? "",
       notes: material.notes ?? "",
+      checklist_section: material.checklist_section ?? "",
     });
     setEditError(null);
   };
@@ -2976,6 +3125,7 @@ function CustomMaterialsCard() {
       name: editDraft.name,
       unit: editDraft.unit || undefined,
       notes: editDraft.notes || undefined,
+      checklist_section: editDraft.checklist_section || undefined,
     });
     setSaving(false);
     if (!res.success || !res.material) {
@@ -3000,6 +3150,30 @@ function CustomMaterialsCard() {
     if (editingId === material.id) setEditingId(null);
   };
 
+  const handleLoadTemplate = async () => {
+    if (
+      !window.confirm(
+        "This will add any missing items from a starter plumbing template. Nothing you already have will be changed or duplicated.",
+      )
+    )
+      return;
+    setLoadingTemplate(true);
+    const res = await loadCustomMaterialsStarterTemplate();
+    if (!res.success) {
+      setLoadingTemplate(false);
+      window.alert(res.error ?? "Failed to load starter template.");
+      return;
+    }
+    const list = await loadCustomMaterials();
+    setMaterials(list);
+    setLoadingTemplate(false);
+    window.alert(
+      `Added ${res.added} material${res.added === 1 ? "" : "s"}, skipped ${res.skipped} already in your list.`,
+    );
+  };
+
+  const grouped = groupByChecklistSection(materials);
+
   return (
     <Card title="Custom Materials">
       <div style={{ fontSize: 12, color: C.slateL, marginBottom: 10 }}>
@@ -3015,27 +3189,33 @@ function CustomMaterialsCard() {
             </div>
           )}
 
-          {materials.map((material) =>
-            editingId === material.id ? (
-              <CustomMaterialEditRow
-                key={material.id}
-                draft={editDraft}
-                setDraft={setEditDraft}
-                error={editError}
-                saving={saving}
-                onSave={submitEdit}
-                onCancel={cancelEdit}
-              />
-            ) : (
-              <CustomMaterialSummaryRow
-                key={material.id}
-                material={material}
-                removing={removingId === material.id}
-                onEdit={() => startEdit(material)}
-                onRemove={() => handleRemove(material)}
-              />
-            ),
-          )}
+          {grouped.map(({ section, items }, i) => (
+            <Fragment key={section}>
+              <div style={sectionHeadingStyle(i === 0)}>{section}</div>
+              {items.map((material) =>
+                editingId === material.id ? (
+                  <CustomMaterialEditRow
+                    key={material.id}
+                    draft={editDraft}
+                    setDraft={setEditDraft}
+                    error={editError}
+                    saving={saving}
+                    onSave={submitEdit}
+                    onCancel={cancelEdit}
+                    sectionSuggestions={sectionSuggestions}
+                  />
+                ) : (
+                  <CustomMaterialSummaryRow
+                    key={material.id}
+                    material={material}
+                    removing={removingId === material.id}
+                    onEdit={() => startEdit(material)}
+                    onRemove={() => handleRemove(material)}
+                  />
+                ),
+              )}
+            </Fragment>
+          ))}
 
           {adding ? (
             <CustomMaterialEditRow
@@ -3046,11 +3226,25 @@ function CustomMaterialsCard() {
               onSave={submitAdd}
               onCancel={cancelAdd}
               isNew
+              sectionSuggestions={sectionSuggestions}
             />
           ) : (
-            <button onClick={startAdd} style={addLineBtnStyle}>
-              + Add Material
-            </button>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
+              <button onClick={startAdd} style={addLineBtnStyle}>
+                + Add Material
+              </button>
+              <button
+                onClick={handleLoadTemplate}
+                disabled={loadingTemplate}
+                style={{
+                  ...addLineBtnStyle,
+                  opacity: loadingTemplate ? 0.6 : 1,
+                  cursor: loadingTemplate ? "not-allowed" : "pointer",
+                }}
+              >
+                {loadingTemplate ? "Loading…" : "Load Starter Template"}
+              </button>
+            </div>
           )}
         </>
       )}
