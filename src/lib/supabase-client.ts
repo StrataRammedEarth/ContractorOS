@@ -836,6 +836,38 @@ export async function loadCallOutTemplates(): Promise<CallOutTemplate[]> {
   }
 }
 
+export async function saveCallOutTemplate(template: {
+  template_id?: string;
+  job_category: string;
+  issue_name: string;
+  lines: {
+    line_number: number;
+    line_class: CallOutLineClass;
+    line_kind: "catalogue" | "free_text";
+    material_code?: string | null;
+    label: string;
+    default_qty: number;
+    unit?: string | null;
+    include_by_default: boolean;
+    notes?: string | null;
+  }[];
+}): Promise<{ success: boolean; template?: CallOutTemplate; error?: string }> {
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/save-call-out-template`, {
+      method: "POST",
+      headers: edgeHeaders(),
+      body: JSON.stringify(template),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      return { success: false, error: data.error ?? `HTTP ${res.status}` };
+    }
+    return { success: true, template: data.template };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
 export async function loadCallOuts(): Promise<CallOutSummary[]> {
   try {
     const res = await fetch(`${supabaseUrl}/functions/v1/get-call-outs`, {

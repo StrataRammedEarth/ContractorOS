@@ -12,6 +12,7 @@ import {
   setStoredOwnerSecret,
   clearStoredOwnerSecret,
   loadCallOutTemplates,
+  saveCallOutTemplate,
   loadCallOuts,
   loadCallOut,
   saveCallOut,
@@ -1257,6 +1258,18 @@ interface CallOutDraft {
   lines: CallOutDraftLine[];
 }
 
+// Draft shape for authoring a custom issue (Brief 6) — a template, not a
+// call-out record, so no date/client/crew fields.
+interface CallOutTemplateAuthorDraft {
+  job_category: string;
+  issue_name: string;
+  lines: CallOutDraftLine[];
+}
+
+function emptyTemplateAuthorDraft(job_category: string): CallOutTemplateAuthorDraft {
+  return { job_category, issue_name: "", lines: [] };
+}
+
 function draftFromTemplate(template: CallOutTemplate): CallOutDraft {
   return {
     template_id: template.template_id,
@@ -1623,9 +1636,11 @@ function EmployeeMultiSelect({
 
 function AddMaterialRow({
   customMaterials,
+  allowCustomMaterialLines,
   onAdd,
 }: {
   customMaterials: CustomMaterial[];
+  allowCustomMaterialLines: boolean;
   onAdd: (line: Omit<CallOutDraftLine, "line_number">) => void;
 }) {
   const [mode, setMode] = useState<"closed" | "catalogue" | "custom" | "free_text">("closed");
@@ -1642,10 +1657,14 @@ function AddMaterialRow({
     );
   }
 
+  const modes = allowCustomMaterialLines
+    ? (["catalogue", "custom", "free_text"] as const)
+    : (["catalogue", "free_text"] as const);
+
   return (
     <div style={coAddPanel}>
       <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-        {(["catalogue", "custom", "free_text"] as const).map((m) => (
+        {modes.map((m) => (
           <button
             key={m}
             onClick={() => setMode(m)}
@@ -1909,30 +1928,6 @@ function CallOutEditor({
 
   const patch = (p: Partial<CallOutDraft>) => onChange({ ...draft, ...p });
 
-  const updateLine = (index: number, p: Partial<CallOutDraftLine>) => {
-    const lines = draft.lines.slice();
-    lines[index] = { ...lines[index], ...p };
-    onChange({ ...draft, lines });
-  };
-
-  const removeLine = (index: number) => {
-    onChange({ ...draft, lines: draft.lines.filter((_, i) => i !== index) });
-  };
-
-  const addLine = (line: Omit<CallOutDraftLine, "line_number">) => {
-    onChange({
-      ...draft,
-      lines: [...draft.lines, { ...line, line_number: nextLineNumber(draft.lines) }],
-    });
-  };
-
-  const materialIndices = draft.lines
-    .map((l, i) => [l, i] as const)
-    .filter(([l]) => l.line_class === "material");
-  const toolIndices = draft.lines
-    .map((l, i) => [l, i] as const)
-    .filter(([l]) => l.line_class === "tool");
-
   return (
     <div style={coCard}>
       <div style={coCardHeader}>
@@ -2000,35 +1995,13 @@ function CallOutEditor({
           </div>
         )}
 
-        <div style={{ marginTop: 14 }}>
-          <div style={coSectionLabel}>Materials</div>
-          {materialIndices.length === 0 && <div style={coHint}>No material lines yet.</div>}
-          {materialIndices.map(([line, index]) => (
-            <CallOutLineRow
-              key={index}
-              line={line}
-              showUnit
-              onChange={(p) => updateLine(index, p)}
-              onRemove={() => removeLine(index)}
-            />
-          ))}
-          <AddMaterialRow customMaterials={customMaterials} onAdd={addLine} />
-        </div>
-
-        <div style={{ marginTop: 20 }}>
-          <div style={coSectionLabel}>Tools</div>
-          {toolIndices.length === 0 && <div style={coHint}>No tool lines yet.</div>}
-          {toolIndices.map(([line, index]) => (
-            <CallOutLineRow
-              key={index}
-              line={line}
-              showUnit={false}
-              onChange={(p) => updateLine(index, p)}
-              onRemove={() => removeLine(index)}
-            />
-          ))}
-          <AddToolRow tools={tools} onAdd={addLine} />
-        </div>
+        <CallOutLineEditor
+          lines={draft.lines}
+          tools={tools}
+          customMaterials={customMaterials}
+          allowCustomMaterialLines
+          onChange={(lines) => patch({ lines })}
+        />
 
         {saveError && <div style={{ color: C.red, fontSize: 12, marginTop: 12 }}>{saveError}</div>}
 
@@ -2057,18 +2030,95 @@ function CallOutEditor({
   );
 }
 
+// Extracted from CallOutEditor so the record editor and the (smaller) template
+// author editor can share material/tool line-editing without duplicating it.
+function CallOutLineEditor({
+  lines,
+  tools,
+  customMaterials,
+  allowCustomMaterialLines,
+  onChange,
+}: {
+  lines: CallOutDraftLine[];
+  tools: Tool[];
+  customMaterials: CustomMaterial[];
+  allowCustomMaterialLines: boolean;
+  onChange: (lines: CallOutDraftLine[]) => void;
+}) {
+  const updateLine = (index: number, p: Partial<CallOutDraftLine>) => {
+    const next = lines.slice();
+    next[index] = { ...next[index], ...p };
+    onChange(next);
+  };
+
+  const removeLine = (index: number) => {
+    onChange(lines.filter((_, i) => i !== index));
+  };
+
+  const addLine = (line: Omit<CallOutDraftLine, "line_number">) => {
+    onChange([...lines, { ...line, line_number: nextLineNumber(lines) }]);
+  };
+
+  const materialIndices = lines
+    .map((l, i) => [l, i] as const)
+    .filter(([l]) => l.line_class === "material");
+  const toolIndices = lines.map((l, i) => [l, i] as const).filter(([l]) => l.line_class === "tool");
+
+  return (
+    <>
+      <div style={{ marginTop: 14 }}>
+        <div style={coSectionLabel}>Materials</div>
+        {materialIndices.length === 0 && <div style={coHint}>No material lines yet.</div>}
+        {materialIndices.map(([line, index]) => (
+          <CallOutLineRow
+            key={index}
+            line={line}
+            showUnit
+            onChange={(p) => updateLine(index, p)}
+            onRemove={() => removeLine(index)}
+          />
+        ))}
+        <AddMaterialRow
+          customMaterials={customMaterials}
+          allowCustomMaterialLines={allowCustomMaterialLines}
+          onAdd={addLine}
+        />
+      </div>
+
+      <div style={{ marginTop: 20 }}>
+        <div style={coSectionLabel}>Tools</div>
+        {toolIndices.length === 0 && <div style={coHint}>No tool lines yet.</div>}
+        {toolIndices.map(([line, index]) => (
+          <CallOutLineRow
+            key={index}
+            line={line}
+            showUnit={false}
+            onChange={(p) => updateLine(index, p)}
+            onRemove={() => removeLine(index)}
+          />
+        ))}
+        <AddToolRow tools={tools} onAdd={addLine} />
+      </div>
+    </>
+  );
+}
+
 function CallOutTemplatePicker({
   templates,
+  initialCategory,
   onPick,
+  onAddCustomIssue,
   onCancel,
 }: {
   templates: CallOutTemplate[];
+  initialCategory?: string | null;
   onPick: (template: CallOutTemplate) => void;
+  onAddCustomIssue: (category: string) => void;
   onCancel: () => void;
 }) {
   // Derived, not hardcoded — Fixtures currently has two templates, the others one each.
   const categories = Array.from(new Set(templates.map((t) => t.job_category)));
-  const [category, setCategory] = useState<string | null>(null);
+  const [category, setCategory] = useState<string | null>(initialCategory ?? null);
 
   return (
     <div style={coCard}>
@@ -2100,9 +2150,85 @@ function CallOutTemplatePicker({
                     {t.issue_name}
                   </button>
                 ))}
+              <button
+                onClick={() => onAddCustomIssue(category)}
+                style={{ ...addLineBtnStyle, textAlign: "left" }}
+              >
+                + Add custom issue
+              </button>
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function CallOutTemplateAuthorEditor({
+  draft,
+  tools,
+  saving,
+  saveError,
+  onChange,
+  onSave,
+  onCancel,
+}: {
+  draft: CallOutTemplateAuthorDraft;
+  tools: Tool[];
+  saving: boolean;
+  saveError: string | null;
+  onChange: (draft: CallOutTemplateAuthorDraft) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  const patch = (p: Partial<CallOutTemplateAuthorDraft>) => onChange({ ...draft, ...p });
+
+  return (
+    <div style={coCard}>
+      <div style={coCardHeader}>
+        <button style={coBackBtn} onClick={onCancel}>
+          ← Back to list
+        </button>
+      </div>
+      <div style={{ padding: 16 }}>
+        <div style={{ marginBottom: 14 }}>
+          <div style={coSectionLabel}>Category</div>
+          <div style={{ fontSize: 13, color: C.navy, fontWeight: 700 }}>{draft.job_category}</div>
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          <div style={coSectionLabel}>Issue name</div>
+          <input
+            value={draft.issue_name}
+            onChange={(e) => patch({ issue_name: e.target.value })}
+            style={coInput}
+            placeholder="e.g. Burst geyser element"
+          />
+        </div>
+
+        <CallOutLineEditor
+          lines={draft.lines}
+          tools={tools}
+          customMaterials={[]}
+          allowCustomMaterialLines={false}
+          onChange={(lines) => patch({ lines })}
+        />
+
+        {saveError && <div style={{ color: C.red, fontSize: 12, marginTop: 12 }}>{saveError}</div>}
+
+        <div style={{ display: "flex", gap: 8, marginTop: 20, justifyContent: "flex-end" }}>
+          <button
+            onClick={onSave}
+            disabled={saving || !draft.issue_name.trim() || draft.lines.length === 0}
+            style={{
+              ...coPrimaryBtn,
+              opacity: saving ? 0.6 : 1,
+              cursor: saving ? "not-allowed" : "pointer",
+            }}
+          >
+            {saving ? "Saving…" : "Save Issue"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -2926,6 +3052,13 @@ interface CallOutSectionProps {
   onRemove: (id: string) => void;
   showManage: boolean;
   setShowManage: (v: boolean) => void;
+  pickerInitialCategory: string | null;
+  setPickerInitialCategory: (c: string | null) => void;
+  templateAuthorDraft: CallOutTemplateAuthorDraft | null;
+  setTemplateAuthorDraft: (d: CallOutTemplateAuthorDraft | null) => void;
+  savingCallOutTemplate: boolean;
+  callOutTemplateSaveError: string | null;
+  onSaveTemplate: (draft: CallOutTemplateAuthorDraft) => void;
 }
 
 function CallOutSection({
@@ -2948,6 +3081,13 @@ function CallOutSection({
   onRemove,
   showManage,
   setShowManage,
+  pickerInitialCategory,
+  setPickerInitialCategory,
+  templateAuthorDraft,
+  setTemplateAuthorDraft,
+  savingCallOutTemplate,
+  callOutTemplateSaveError,
+  onSaveTemplate,
 }: CallOutSectionProps) {
   const [loadingCallOut, setLoadingCallOut] = useState(false);
   const [editDraft, setEditDraft] = useState<CallOutDraft | null>(null);
@@ -2975,10 +3115,33 @@ function CallOutSection({
     return (
       <CallOutTemplatePicker
         templates={callOutTemplates}
+        initialCategory={pickerInitialCategory}
         onCancel={() => setShowPicker(false)}
         onPick={(template) => {
           setShowPicker(false);
           setNewDraft(draftFromTemplate(template));
+        }}
+        onAddCustomIssue={(category) => {
+          setShowPicker(false);
+          setTemplateAuthorDraft(emptyTemplateAuthorDraft(category));
+        }}
+      />
+    );
+  }
+
+  if (templateAuthorDraft) {
+    return (
+      <CallOutTemplateAuthorEditor
+        draft={templateAuthorDraft}
+        tools={tools}
+        saving={savingCallOutTemplate}
+        saveError={callOutTemplateSaveError}
+        onChange={setTemplateAuthorDraft}
+        onSave={() => onSaveTemplate(templateAuthorDraft)}
+        onCancel={() => {
+          setPickerInitialCategory(templateAuthorDraft.job_category);
+          setTemplateAuthorDraft(null);
+          setShowPicker(true);
         }}
       />
     );
@@ -3034,7 +3197,10 @@ function CallOutSection({
       removingCallOutId={removingCallOutId}
       saveError={callOutSaveError}
       onOpen={setOpenCallOutId}
-      onNew={() => setShowPicker(true)}
+      onNew={() => {
+        setPickerInitialCategory(null);
+        setShowPicker(true);
+      }}
       onManage={() => setShowManage(true)}
       onRemove={onRemove}
     />
@@ -3084,6 +3250,12 @@ function TeamPage() {
   const [callOutSaveError, setCallOutSaveError] = useState<string | null>(null);
   const [removingCallOutId, setRemovingCallOutId] = useState<string | null>(null);
   const [showManageToolsMaterials, setShowManageToolsMaterials] = useState(false);
+  const [pickerInitialCategory, setPickerInitialCategory] = useState<string | null>(null);
+  const [templateAuthorDraft, setTemplateAuthorDraft] = useState<CallOutTemplateAuthorDraft | null>(
+    null,
+  );
+  const [savingCallOutTemplate, setSavingCallOutTemplate] = useState(false);
+  const [callOutTemplateSaveError, setCallOutTemplateSaveError] = useState<string | null>(null);
 
   const weeks = useMemo(() => buildMonthGrid(anchorDate), [anchorDate]);
   const weekDates = useMemo(() => {
@@ -3406,6 +3578,37 @@ function TeamPage() {
     await refetchCallOuts();
   };
 
+  const handleSaveCallOutTemplate = async (draft: CallOutTemplateAuthorDraft) => {
+    setSavingCallOutTemplate(true);
+    setCallOutTemplateSaveError(null);
+    const result = await saveCallOutTemplate({
+      job_category: draft.job_category,
+      issue_name: draft.issue_name,
+      lines: draft.lines.map((l) => ({
+        line_number: l.line_number,
+        line_class: l.line_class,
+        line_kind: l.line_kind as "catalogue" | "free_text",
+        material_code: l.material_code,
+        label: l.label,
+        default_qty: l.qty,
+        unit: l.unit,
+        include_by_default: l.is_checked,
+        notes: l.notes,
+      })),
+    });
+    setSavingCallOutTemplate(false);
+
+    if (!result.success) {
+      setCallOutTemplateSaveError(result.error ?? "Failed to save issue.");
+      return;
+    }
+
+    setTemplateAuthorDraft(null);
+    setPickerInitialCategory(draft.job_category);
+    setShowCallOutPicker(true);
+    setCallOutTemplates(await loadCallOutTemplates());
+  };
+
   const handleRemoveCallOut = async (id: string) => {
     if (!window.confirm("Delete this call-out? It can be restored by an administrator later."))
       return;
@@ -3539,6 +3742,13 @@ function TeamPage() {
             onRemove={handleRemoveCallOut}
             showManage={showManageToolsMaterials}
             setShowManage={setShowManageToolsMaterials}
+            pickerInitialCategory={pickerInitialCategory}
+            setPickerInitialCategory={setPickerInitialCategory}
+            templateAuthorDraft={templateAuthorDraft}
+            setTemplateAuthorDraft={setTemplateAuthorDraft}
+            savingCallOutTemplate={savingCallOutTemplate}
+            callOutTemplateSaveError={callOutTemplateSaveError}
+            onSaveTemplate={handleSaveCallOutTemplate}
           />
         ) : pageMode === "reports" ? (
           <MonthlyReportView
