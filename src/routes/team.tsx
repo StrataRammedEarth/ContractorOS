@@ -1725,10 +1725,14 @@ function AddMaterialRow({
         <div style={{ display: "flex", gap: 6 }}>
           <select value={customId} onChange={(e) => setCustomId(e.target.value)} style={coInput}>
             <option value="">— Select custom material —</option>
-            {customMaterials.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
-              </option>
+            {groupByChecklistSection(customMaterials).map(({ section, items }) => (
+              <optgroup key={section} label={section}>
+                {items.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </select>
           <button
@@ -1833,10 +1837,14 @@ function AddToolRow({
         <div style={{ display: "flex", gap: 6 }}>
           <select value={toolId} onChange={(e) => setToolId(e.target.value)} style={coInput}>
             <option value="">— Select tool —</option>
-            {tools.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
+            {groupByChecklistSection(tools).map(({ section, items }) => (
+              <optgroup key={section} label={section}>
+                {items.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </select>
           <button
@@ -2521,7 +2529,12 @@ function ToolEditRow({
       }}
     >
       <div
-        style={{ display: "grid", gridTemplateColumns: "2fr 1fr 2fr 2fr", gap: 10, marginBottom: 10 }}
+        style={{
+          display: "grid",
+          gridTemplateColumns: "2fr 1fr 2fr 2fr",
+          gap: 10,
+          marginBottom: 10,
+        }}
       >
         <div>
           <Label>Name *</Label>
@@ -2642,7 +2655,9 @@ function ToolsCard() {
 
   const sectionSuggestions = useMemo(
     () =>
-      Array.from(new Set(tools.map((t) => t.checklist_section?.trim()).filter(Boolean))).sort() as string[],
+      Array.from(
+        new Set(tools.map((t) => t.checklist_section?.trim()).filter(Boolean)),
+      ).sort() as string[],
     [tools],
   );
 
@@ -2942,7 +2957,12 @@ function CustomMaterialEditRow({
       }}
     >
       <div
-        style={{ display: "grid", gridTemplateColumns: "2fr 1fr 2fr 2fr", gap: 10, marginBottom: 10 }}
+        style={{
+          display: "grid",
+          gridTemplateColumns: "2fr 1fr 2fr 2fr",
+          gap: 10,
+          marginBottom: 10,
+        }}
       >
         <div>
           <Label>Name *</Label>
