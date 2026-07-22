@@ -39,6 +39,7 @@ import {
 } from "@/lib/supabase-client";
 import { useSettings } from "@/lib/settings-context";
 import { ClockIcon, ClipboardDollarIcon } from "@/components/nav-icons";
+import { generateCallOutPdf } from "@/lib/call-out-pdf";
 import {
   Label,
   inputStyle,
@@ -1443,6 +1444,14 @@ const coRemoveBtn: CSSProperties = {
   fontSize: 13,
   cursor: "pointer",
 };
+const coDownloadBtn: CSSProperties = {
+  background: "none",
+  border: "none",
+  color: C.slate,
+  fontWeight: 700,
+  fontSize: 13,
+  cursor: "pointer",
+};
 const coToggleLink: CSSProperties = {
   background: "none",
   border: "none",
@@ -1906,6 +1915,7 @@ function CallOutEditor({
   onChange,
   onSave,
   onCancel,
+  onDownloadPdf,
 }: {
   draft: CallOutDraft;
   tools: Tool[];
@@ -1916,6 +1926,7 @@ function CallOutEditor({
   onChange: (draft: CallOutDraft) => void;
   onSave: () => void;
   onCancel: () => void;
+  onDownloadPdf: (id: string) => void;
 }) {
   const [detailsOpen, setDetailsOpen] = useState(
     !!(
@@ -2007,11 +2018,12 @@ function CallOutEditor({
 
         <div style={{ display: "flex", gap: 8, marginTop: 20, justifyContent: "flex-end" }}>
           <button
-            disabled
-            title="Coming soon (Brief 5)"
-            style={{ ...coSmallBtn, opacity: 0.5, cursor: "not-allowed" }}
+            disabled={!draft.id}
+            title={draft.id ? undefined : "Save the call-out first to download a PDF."}
+            onClick={() => draft.id && onDownloadPdf(draft.id)}
+            style={draft.id ? coSmallBtn : { ...coSmallBtn, opacity: 0.5, cursor: "not-allowed" }}
           >
-            Download PDF (coming soon)
+            Download PDF
           </button>
           <button
             onClick={onSave}
@@ -2243,6 +2255,7 @@ function CallOutListView({
   onNew,
   onManage,
   onRemove,
+  onDownloadPdf,
 }: {
   callOuts: CallOutSummary[];
   loading: boolean;
@@ -2252,6 +2265,7 @@ function CallOutListView({
   onNew: () => void;
   onManage: () => void;
   onRemove: (id: string) => void;
+  onDownloadPdf: (id: string) => void;
 }) {
   return (
     <div>
@@ -2312,17 +2326,29 @@ function CallOutListView({
                   )}
                 </div>
               </div>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onRemove(co.id);
-                }}
-                disabled={removingCallOutId === co.id}
-                style={coRemoveBtn}
-                title="Delete call-out"
-              >
-                ✕
-              </button>
+              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDownloadPdf(co.id);
+                  }}
+                  style={coDownloadBtn}
+                  title="Download PDF"
+                >
+                  ⬇
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRemove(co.id);
+                  }}
+                  disabled={removingCallOutId === co.id}
+                  style={coRemoveBtn}
+                  title="Delete call-out"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -3050,6 +3076,7 @@ interface CallOutSectionProps {
   removingCallOutId: string | null;
   onSave: (draft: CallOutDraft) => void;
   onRemove: (id: string) => void;
+  onDownloadPdf: (id: string) => void;
   showManage: boolean;
   setShowManage: (v: boolean) => void;
   pickerInitialCategory: string | null;
@@ -3079,6 +3106,7 @@ function CallOutSection({
   removingCallOutId,
   onSave,
   onRemove,
+  onDownloadPdf,
   showManage,
   setShowManage,
   pickerInitialCategory,
@@ -3159,6 +3187,7 @@ function CallOutSection({
         onChange={setNewDraft}
         onSave={() => onSave(newDraft)}
         onCancel={() => setNewDraft(null)}
+        onDownloadPdf={onDownloadPdf}
       />
     );
   }
@@ -3182,6 +3211,7 @@ function CallOutSection({
         onChange={setEditDraft}
         onSave={() => onSave(editDraft)}
         onCancel={() => setOpenCallOutId(null)}
+        onDownloadPdf={onDownloadPdf}
       />
     );
   }
@@ -3203,6 +3233,7 @@ function CallOutSection({
       }}
       onManage={() => setShowManage(true)}
       onRemove={onRemove}
+      onDownloadPdf={onDownloadPdf}
     />
   );
 }
@@ -3636,6 +3667,11 @@ function TeamPage() {
     await refetchCallOuts();
   };
 
+  const handleDownloadCallOutPdf = async (id: string) => {
+    const full = await loadCallOut(id);
+    if (full) generateCallOutPdf(full);
+  };
+
   return (
     <div
       style={{ fontFamily: "'Inter',system-ui,sans-serif", background: C.bg, minHeight: "100vh" }}
@@ -3740,6 +3776,7 @@ function TeamPage() {
             removingCallOutId={removingCallOutId}
             onSave={handleSaveCallOut}
             onRemove={handleRemoveCallOut}
+            onDownloadPdf={handleDownloadCallOutPdf}
             showManage={showManageToolsMaterials}
             setShowManage={setShowManageToolsMaterials}
             pickerInitialCategory={pickerInitialCategory}
