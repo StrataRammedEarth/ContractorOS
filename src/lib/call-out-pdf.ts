@@ -1,5 +1,6 @@
 import jsPDF from "jspdf";
 import type { CallOutFull } from "./supabase-client";
+import { groupByChecklistSection } from "./checklist-section";
 
 const NAVY = "#0D1B2A";
 const GOLD = "#F5A623";
@@ -63,27 +64,41 @@ export function generateCallOutPdf(callOut: CallOutFull): void {
     doc.text(title.toUpperCase(), 40, y + 14);
     y += 30;
 
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    for (const line of lines) {
-      if (y > 780) {
+    for (const { section, items } of groupByChecklistSection(lines)) {
+      // Leave room for the sub-heading plus at least its first line before
+      // breaking, so a heading never prints alone at the bottom of a page.
+      if (y > 750) {
         doc.addPage();
         y = 40;
       }
-      doc.setTextColor(NAVY);
-      const box = line.is_checked ? "[x]" : "[ ]";
-      const qtyUnit = showUnit && line.unit ? `${line.qty} ${line.unit}` : `${line.qty}`;
-      doc.text(`${box}  ${line.label}`, 40, y);
-      doc.text(qtyUnit, pageWidth - 100, y, { align: "right" });
-      y += 14;
-      if (line.notes) {
-        doc.setTextColor(SLATE);
-        doc.setFontSize(8);
-        doc.text(line.notes, 56, y);
-        doc.setFontSize(10);
-        y += 12;
+      doc.setTextColor(SLATE);
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "bold");
+      doc.text(section.toUpperCase(), 40, y);
+      y += 16;
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      for (const line of items) {
+        if (y > 780) {
+          doc.addPage();
+          y = 40;
+        }
+        doc.setTextColor(NAVY);
+        const box = line.is_checked ? "[x]" : "[ ]";
+        const qtyUnit = showUnit && line.unit ? `${line.qty} ${line.unit}` : `${line.qty}`;
+        doc.text(`${box}  ${line.label}`, 40, y);
+        doc.text(qtyUnit, pageWidth - 100, y, { align: "right" });
+        y += 14;
+        if (line.notes) {
+          doc.setTextColor(SLATE);
+          doc.setFontSize(8);
+          doc.text(line.notes, 56, y);
+          doc.setFontSize(10);
+          y += 12;
+        }
+        y += 6;
       }
-      y += 6;
     }
     y += 10;
   };
