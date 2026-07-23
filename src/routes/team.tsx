@@ -314,6 +314,7 @@ function DriverLogSection({
   onRemove: (id: string) => void;
 }) {
   const [showForm, setShowForm] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const [draft, setDraft] = useState<DriverLogDraft>({
     employeeId: "",
     vehicleId: "",
@@ -341,151 +342,181 @@ function DriverLogSection({
     <div style={{ marginTop: 18, paddingTop: 14, borderTop: `2px solid ${C.navy}22` }}>
       <div
         style={{
-          fontSize: 12,
-          fontWeight: 800,
-          color: C.navy,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
           marginBottom: 8,
-          textTransform: "uppercase",
-          letterSpacing: 0.3,
         }}
       >
-        Driver Logs
+        <span
+          style={{
+            fontSize: 12,
+            fontWeight: 800,
+            color: C.navy,
+            textTransform: "uppercase",
+            letterSpacing: 0.3,
+          }}
+        >
+          Driver Logs
+        </span>
+        <button
+          onClick={() => setCollapsed((c) => !c)}
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? "Expand Driver Logs" : "Collapse Driver Logs"}
+          style={{
+            background: "transparent",
+            border: `1px solid ${C.slate}`,
+            borderRadius: 6,
+            color: C.slate,
+            fontSize: 11,
+            fontWeight: 700,
+            padding: "3px 9px",
+            cursor: "pointer",
+          }}
+        >
+          {collapsed ? "▸ Expand" : "▾ Collapse"}
+        </button>
       </div>
 
-      {logs.length === 0 && !showForm && (
-        <div style={{ fontSize: 12, color: C.slateL, marginBottom: 8 }}>
-          No driver log entries for this day.
-        </div>
-      )}
+      {!collapsed && (
+        <>
+          {logs.length === 0 && !showForm && (
+            <div style={{ fontSize: 12, color: C.slateL, marginBottom: 8 }}>
+              No driver log entries for this day.
+            </div>
+          )}
 
-      {logs.map((log) => (
-        <div
-          key={log.id}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 8,
-            fontSize: 12,
-            color: C.navy,
-            padding: "6px 0",
-            borderBottom: "1px solid #EEF1F5",
-          }}
-        >
-          <span>
-            🚚 {log.vehicle_registration ?? "Unknown vehicle"} · {log.employee_name ?? "Unknown"}
-            {(log.start_time || log.end_time) &&
-              ` · ${log.start_time ?? "?"}–${log.end_time ?? "?"}`}
-          </span>
-          <button
-            onClick={() => onRemove(log.id)}
-            disabled={removingId === log.id}
-            style={{
-              background: "none",
-              border: "none",
-              color: C.red,
-              cursor: removingId === log.id ? "not-allowed" : "pointer",
-              fontSize: 11,
-              fontWeight: 700,
-            }}
-          >
-            {removingId === log.id ? "Removing…" : "Remove"}
-          </button>
-        </div>
-      ))}
-
-      {showForm ? (
-        <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
-          <select
-            value={draft.employeeId}
-            onChange={(e) => setDraft((d) => ({ ...d, employeeId: e.target.value }))}
-            style={fieldStyle}
-          >
-            <option value="">Select employee…</option>
-            {employees.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.name}
-              </option>
-            ))}
-          </select>
-          <select
-            value={draft.vehicleId}
-            onChange={(e) => setDraft((d) => ({ ...d, vehicleId: e.target.value }))}
-            style={fieldStyle}
-          >
-            <option value="">Select vehicle…</option>
-            {vehicles.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.registration_number}
-              </option>
-            ))}
-          </select>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            <input
-              type="time"
-              value={draft.startTime}
-              onChange={(e) => setDraft((d) => ({ ...d, startTime: e.target.value }))}
-              style={fieldStyle}
-            />
-            <input
-              type="time"
-              value={draft.endTime}
-              onChange={(e) => setDraft((d) => ({ ...d, endTime: e.target.value }))}
-              style={fieldStyle}
-            />
-          </div>
-          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-            <button
-              onClick={resetForm}
-              disabled={adding}
+          {logs.map((log) => (
+            <div
+              key={log.id}
               style={{
-                padding: "6px 12px",
-                borderRadius: 6,
-                border: "1px solid #C8D0DB",
-                background: "#fff",
-                color: C.slate,
-                fontWeight: 600,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 8,
                 fontSize: 12,
-                cursor: "pointer",
+                color: C.navy,
+                padding: "6px 0",
+                borderBottom: "1px solid #EEF1F5",
               }}
             >
-              Cancel
-            </button>
+              <span>
+                🚚 {log.vehicle_registration ?? "Unknown vehicle"} ·{" "}
+                {log.employee_name ?? "Unknown"}
+                {(log.start_time || log.end_time) &&
+                  ` · ${log.start_time ?? "?"}–${log.end_time ?? "?"}`}
+              </span>
+              <button
+                onClick={() => onRemove(log.id)}
+                disabled={removingId === log.id}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: C.red,
+                  cursor: removingId === log.id ? "not-allowed" : "pointer",
+                  fontSize: 11,
+                  fontWeight: 700,
+                }}
+              >
+                {removingId === log.id ? "Removing…" : "Remove"}
+              </button>
+            </div>
+          ))}
+
+          {showForm ? (
+            <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+              <select
+                value={draft.employeeId}
+                onChange={(e) => setDraft((d) => ({ ...d, employeeId: e.target.value }))}
+                style={fieldStyle}
+              >
+                <option value="">Select employee…</option>
+                {employees.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={draft.vehicleId}
+                onChange={(e) => setDraft((d) => ({ ...d, vehicleId: e.target.value }))}
+                style={fieldStyle}
+              >
+                <option value="">Select vehicle…</option>
+                {vehicles.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.registration_number}
+                  </option>
+                ))}
+              </select>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                <input
+                  type="time"
+                  value={draft.startTime}
+                  onChange={(e) => setDraft((d) => ({ ...d, startTime: e.target.value }))}
+                  style={fieldStyle}
+                />
+                <input
+                  type="time"
+                  value={draft.endTime}
+                  onChange={(e) => setDraft((d) => ({ ...d, endTime: e.target.value }))}
+                  style={fieldStyle}
+                />
+              </div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button
+                  onClick={resetForm}
+                  disabled={adding}
+                  style={{
+                    padding: "6px 12px",
+                    borderRadius: 6,
+                    border: "1px solid #C8D0DB",
+                    background: "#fff",
+                    color: C.slate,
+                    fontWeight: 600,
+                    fontSize: 12,
+                    cursor: "pointer",
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleAdd}
+                  disabled={adding || !draft.employeeId || !draft.vehicleId}
+                  style={{
+                    padding: "6px 12px",
+                    borderRadius: 6,
+                    border: "none",
+                    background: C.gold,
+                    color: C.navy,
+                    fontWeight: 700,
+                    fontSize: 12,
+                    cursor: adding ? "not-allowed" : "pointer",
+                    opacity: adding || !draft.employeeId || !draft.vehicleId ? 0.6 : 1,
+                  }}
+                >
+                  {adding ? "Adding…" : "Add"}
+                </button>
+              </div>
+            </div>
+          ) : (
             <button
-              onClick={handleAdd}
-              disabled={adding || !draft.employeeId || !draft.vehicleId}
+              onClick={() => setShowForm(true)}
               style={{
-                padding: "6px 12px",
-                borderRadius: 6,
+                marginTop: 8,
+                background: "none",
                 border: "none",
-                background: C.gold,
-                color: C.navy,
+                color: C.gold,
                 fontWeight: 700,
                 fontSize: 12,
-                cursor: adding ? "not-allowed" : "pointer",
-                opacity: adding || !draft.employeeId || !draft.vehicleId ? 0.6 : 1,
+                cursor: "pointer",
+                padding: 0,
               }}
             >
-              {adding ? "Adding…" : "Add"}
+              + Add entry
             </button>
-          </div>
-        </div>
-      ) : (
-        <button
-          onClick={() => setShowForm(true)}
-          style={{
-            marginTop: 8,
-            background: "none",
-            border: "none",
-            color: C.gold,
-            fontWeight: 700,
-            fontSize: 12,
-            cursor: "pointer",
-            padding: 0,
-          }}
-        >
-          + Add entry
-        </button>
+          )}
+        </>
       )}
 
       {error && <div style={{ color: C.red, fontSize: 12, marginTop: 6 }}>{error}</div>}
@@ -566,6 +597,8 @@ function DayDetail({
     setNoteExpanded((prev) => ({ ...prev, [employeeId]: !prev[employeeId] }));
   };
 
+  const [employeesCollapsed, setEmployeesCollapsed] = useState(true);
+
   const handleSave = () => {
     const entries: {
       employee_id: string;
@@ -591,84 +624,138 @@ function DayDetail({
   return (
     <>
       <div style={{ padding: 16, overflowY: "auto", flex: 1 }}>
-        {employees.length === 0 ? (
-          <div style={{ fontSize: 12, color: C.slateL }}>No active employees.</div>
-        ) : (
-          employees.map((emp) => {
-            const draft = drafts[emp.id] ?? { status: "", note: "" };
-            const isNoteExpanded = noteExpanded[emp.id] ?? false;
-            return (
-              <div
-                key={emp.id}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: 8,
-                  alignItems: "center",
-                  marginBottom: 10,
-                  paddingBottom: 10,
-                  borderBottom: "1px solid #EEF1F5",
-                }}
-              >
-                <div style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>{emp.name}</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                  <select
-                    value={draft.status}
-                    onChange={(e) =>
-                      setDraft(emp.id, { status: e.target.value as AttendanceStatus | "" })
-                    }
-                    style={{
-                      padding: "6px 8px",
-                      borderRadius: 6,
-                      border: `1px solid ${draft.status !== "" ? STATUS_COLORS[draft.status as AttendanceStatus] : "#C8D0DB"}`,
-                      fontSize: 12,
-                      fontWeight: draft.status !== "" ? 700 : 400,
-                      color:
-                        draft.status !== ""
-                          ? STATUS_COLORS[draft.status as AttendanceStatus]
-                          : C.navy,
-                    }}
-                  >
-                    <option value="">— Not marked —</option>
-                    {STATUS_OPTIONS.map((s) => (
-                      <option key={s} value={s}>
-                        {STATUS_LABELS[s]}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    onClick={() => toggleNote(emp.id)}
-                    style={{
-                      padding: "6px 12px",
-                      borderRadius: 6,
-                      border: "1px solid #C8D0DB",
-                      background: "#fff",
-                      color: C.slate,
-                      fontWeight: 600,
-                      fontSize: 12,
-                      cursor: "pointer",
-                    }}
-                  >
-                    {isNoteExpanded ? "− Remove note" : "+ Add note"}
-                  </button>
-                </div>
-                {draft.status !== "" && STATUSES_WITH_ARRIVAL.includes(draft.status) && (
-                  <div
-                    style={{
-                      gridColumn: "1 / span 2",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                    }}
-                  >
-                    <label style={{ fontSize: 11, color: C.slateL, whiteSpace: "nowrap" }}>
-                      Arrival time
-                    </label>
-                    <input
-                      type="time"
-                      value={draft.arrivalTime}
-                      onChange={(e) => setDraft(emp.id, { arrivalTime: e.target.value })}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 8,
+          }}
+        >
+          <span
+            style={{
+              fontSize: 12,
+              fontWeight: 800,
+              color: C.navy,
+              textTransform: "uppercase",
+              letterSpacing: 0.3,
+            }}
+          >
+            Employees
+          </span>
+          <button
+            onClick={() => setEmployeesCollapsed((c) => !c)}
+            aria-expanded={!employeesCollapsed}
+            aria-label={employeesCollapsed ? "Expand Employees" : "Collapse Employees"}
+            style={{
+              background: "transparent",
+              border: `1px solid ${C.slate}`,
+              borderRadius: 6,
+              color: C.slate,
+              fontSize: 11,
+              fontWeight: 700,
+              padding: "3px 9px",
+              cursor: "pointer",
+            }}
+          >
+            {employeesCollapsed ? "▸ Expand" : "▾ Collapse"}
+          </button>
+        </div>
+        {!employeesCollapsed &&
+          (employees.length === 0 ? (
+            <div style={{ fontSize: 12, color: C.slateL }}>No active employees.</div>
+          ) : (
+            employees.map((emp) => {
+              const draft = drafts[emp.id] ?? { status: "", note: "" };
+              const isNoteExpanded = noteExpanded[emp.id] ?? false;
+              return (
+                <div
+                  key={emp.id}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: 8,
+                    alignItems: "center",
+                    marginBottom: 10,
+                    paddingBottom: 10,
+                    borderBottom: "1px solid #EEF1F5",
+                  }}
+                >
+                  <div style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>{emp.name}</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                    <select
+                      value={draft.status}
+                      onChange={(e) =>
+                        setDraft(emp.id, { status: e.target.value as AttendanceStatus | "" })
+                      }
                       style={{
+                        padding: "6px 8px",
+                        borderRadius: 6,
+                        border: `1px solid ${draft.status !== "" ? STATUS_COLORS[draft.status as AttendanceStatus] : "#C8D0DB"}`,
+                        fontSize: 12,
+                        fontWeight: draft.status !== "" ? 700 : 400,
+                        color:
+                          draft.status !== ""
+                            ? STATUS_COLORS[draft.status as AttendanceStatus]
+                            : C.navy,
+                      }}
+                    >
+                      <option value="">— Not marked —</option>
+                      {STATUS_OPTIONS.map((s) => (
+                        <option key={s} value={s}>
+                          {STATUS_LABELS[s]}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={() => toggleNote(emp.id)}
+                      style={{
+                        padding: "6px 12px",
+                        borderRadius: 6,
+                        border: "1px solid #C8D0DB",
+                        background: "#fff",
+                        color: C.slate,
+                        fontWeight: 600,
+                        fontSize: 12,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {isNoteExpanded ? "− Remove note" : "+ Add note"}
+                    </button>
+                  </div>
+                  {draft.status !== "" && STATUSES_WITH_ARRIVAL.includes(draft.status) && (
+                    <div
+                      style={{
+                        gridColumn: "1 / span 2",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                      }}
+                    >
+                      <label style={{ fontSize: 11, color: C.slateL, whiteSpace: "nowrap" }}>
+                        Arrival time
+                      </label>
+                      <input
+                        type="time"
+                        value={draft.arrivalTime}
+                        onChange={(e) => setDraft(emp.id, { arrivalTime: e.target.value })}
+                        style={{
+                          padding: "6px 8px",
+                          borderRadius: 6,
+                          border: "1px solid #C8D0DB",
+                          fontSize: 12,
+                          color: C.navy,
+                        }}
+                      />
+                    </div>
+                  )}
+                  {isNoteExpanded && (
+                    <input
+                      value={draft.note}
+                      onChange={(e) => setDraft(emp.id, { note: e.target.value })}
+                      placeholder="Note (optional)"
+                      style={{
+                        gridColumn: "1 / span 2",
                         padding: "6px 8px",
                         borderRadius: 6,
                         border: "1px solid #C8D0DB",
@@ -676,27 +763,11 @@ function DayDetail({
                         color: C.navy,
                       }}
                     />
-                  </div>
-                )}
-                {isNoteExpanded && (
-                  <input
-                    value={draft.note}
-                    onChange={(e) => setDraft(emp.id, { note: e.target.value })}
-                    placeholder="Note (optional)"
-                    style={{
-                      gridColumn: "1 / span 2",
-                      padding: "6px 8px",
-                      borderRadius: 6,
-                      border: "1px solid #C8D0DB",
-                      fontSize: 12,
-                      color: C.navy,
-                    }}
-                  />
-                )}
-              </div>
-            );
-          })
-        )}
+                  )}
+                </div>
+              );
+            })
+          ))}
         {error && <div style={{ color: C.red, fontSize: 12, marginTop: 6 }}>{error}</div>}
 
         <DriverLogSection
