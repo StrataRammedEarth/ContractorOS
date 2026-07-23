@@ -868,7 +868,7 @@ function DayDetail({
         )}
 
         <DriverLogSection
-          employees={employees}
+          employees={employees.filter((e) => e.is_driver)}
           vehicles={vehicles}
           logs={driverLogs}
           adding={addingDriverLog}
