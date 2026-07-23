@@ -109,7 +109,14 @@ export interface SaveResult {
 export interface Employee {
   id: string;
   name: string;
+  surname: string | null;
+  id_number: string | null;
+  sars_number: string | null;
+  address: string | null;
+  contact_number: string | null;
+  emergency_contact: string | null;
   position: string | null;
+  is_driver: boolean;
   hourly_rate: number | null;
   created_at: string;
 }
@@ -359,7 +366,14 @@ export async function loadEmployees(): Promise<Employee[]> {
 export async function saveEmployee(employee: {
   id?: string;
   name: string;
+  surname?: string;
+  id_number?: string;
+  sars_number?: string;
+  address?: string;
+  contact_number?: string;
+  emergency_contact?: string;
   position?: string;
+  is_driver?: boolean;
   hourly_rate?: number | null;
 }): Promise<{ success: boolean; employee?: Employee; error?: string }> {
   try {
