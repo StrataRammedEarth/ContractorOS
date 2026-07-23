@@ -862,6 +862,7 @@ export interface CallOutLine {
   unit: string | null;
   is_checked: boolean;
   notes: string | null;
+  checklist_section: string | null;
 }
 
 export interface CallOutSummary {
@@ -914,6 +915,7 @@ export async function saveCallOutTemplate(template: {
     unit?: string | null;
     include_by_default: boolean;
     notes?: string | null;
+    checklist_section?: string | null;
   }[];
 }): Promise<{ success: boolean; template?: CallOutTemplate; error?: string }> {
   try {
