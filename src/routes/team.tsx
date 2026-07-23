@@ -524,6 +524,95 @@ function DriverLogSection({
   );
 }
 
+function DayCallOutSection({
+  callOuts,
+  onViewCallOut,
+}: {
+  callOuts: CallOutSummary[];
+  onViewCallOut: (id: string) => void;
+}) {
+  const [collapsed, setCollapsed] = useState(true);
+
+  return (
+    <div style={{ marginTop: 18, paddingTop: 14, borderTop: `2px solid ${C.navy}22` }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 8,
+        }}
+      >
+        <span
+          style={{
+            fontSize: 12,
+            fontWeight: 800,
+            color: C.navy,
+            textTransform: "uppercase",
+            letterSpacing: 0.3,
+          }}
+        >
+          Call Out
+        </span>
+        <button
+          onClick={() => setCollapsed((c) => !c)}
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? "Expand Call Out" : "Collapse Call Out"}
+          style={{
+            background: "transparent",
+            border: `1px solid ${C.slate}`,
+            borderRadius: 6,
+            color: C.slate,
+            fontSize: 11,
+            fontWeight: 700,
+            padding: "3px 9px",
+            cursor: "pointer",
+          }}
+        >
+          {collapsed ? "▸ Expand" : "▾ Collapse"}
+        </button>
+      </div>
+
+      {!collapsed &&
+        callOuts.map((co) => (
+          <div
+            key={co.id}
+            style={{
+              fontSize: 12,
+              color: C.navy,
+              padding: "8px 0",
+              borderBottom: "1px solid #EEF1F5",
+            }}
+          >
+            <div style={{ marginBottom: 4 }}>
+              <strong>Issue:</strong> {co.issue_name}
+            </div>
+            <div style={{ marginBottom: 4 }}>
+              <strong>Client Name:</strong> {co.client_name || "—"}
+            </div>
+            <div style={{ marginBottom: 8 }}>
+              <strong>Address:</strong> {co.client_address || "—"}
+            </div>
+            <button
+              onClick={() => onViewCallOut(co.id)}
+              style={{
+                background: "none",
+                border: "none",
+                color: C.gold,
+                fontWeight: 700,
+                fontSize: 12,
+                cursor: "pointer",
+                padding: 0,
+              }}
+            >
+              View Call-Out
+            </button>
+          </div>
+        ))}
+    </div>
+  );
+}
+
 interface DayDetailProps {
   employees: Employee[];
   vehicles: Vehicle[];
@@ -534,6 +623,8 @@ interface DayDetailProps {
   addingDriverLog: boolean;
   removingDriverLogId: string | null;
   driverLogError: string | null;
+  callOuts: CallOutSummary[];
+  onViewCallOut: (id: string) => void;
   onSave: (
     entries: {
       employee_id: string;
@@ -562,6 +653,8 @@ function DayDetail({
   addingDriverLog,
   removingDriverLogId,
   driverLogError,
+  callOuts,
+  onViewCallOut,
   onSave,
   onAddDriverLog,
   onRemoveDriverLog,
@@ -769,6 +862,10 @@ function DayDetail({
             })
           ))}
         {error && <div style={{ color: C.red, fontSize: 12, marginTop: 6 }}>{error}</div>}
+
+        {callOuts.length > 0 && (
+          <DayCallOutSection callOuts={callOuts} onViewCallOut={onViewCallOut} />
+        )}
 
         <DriverLogSection
           employees={employees}
@@ -3750,11 +3847,18 @@ function TeamPage() {
 
   useEffect(() => {
     let cancelled = false;
+    setCallOutsLoading(true);
     (async () => {
-      const [employeeList, vehicleList] = await Promise.all([loadEmployees(), loadVehicles()]);
+      const [employeeList, vehicleList, callOutList] = await Promise.all([
+        loadEmployees(),
+        loadVehicles(),
+        loadCallOuts(),
+      ]);
       if (!cancelled) {
         setEmployees(employeeList);
         setVehicles(vehicleList);
+        setCallOuts(callOutList);
+        setCallOutsLoading(false);
       }
     })();
     return () => {
@@ -3765,20 +3869,16 @@ function TeamPage() {
   useEffect(() => {
     if (pageMode !== "callout") return;
     let cancelled = false;
-    setCallOutsLoading(true);
     (async () => {
-      const [callOutList, templateList, toolList, materialList] = await Promise.all([
-        loadCallOuts(),
+      const [templateList, toolList, materialList] = await Promise.all([
         loadCallOutTemplates(),
         loadTools(),
         loadCustomMaterials(),
       ]);
       if (!cancelled) {
-        setCallOuts(callOutList);
         setCallOutTemplates(templateList);
         setTools(toolList);
         setCustomMaterials(materialList);
-        setCallOutsLoading(false);
       }
     })();
     return () => {
@@ -3831,6 +3931,17 @@ function TeamPage() {
     }
     return map;
   }, [driverLogs]);
+
+  const callOutsByDate = useMemo(() => {
+    const map = new Map<string, CallOutSummary[]>();
+    for (const co of callOuts) {
+      if (!co.call_out_date) continue;
+      const list = map.get(co.call_out_date) ?? [];
+      list.push(co);
+      map.set(co.call_out_date, list);
+    }
+    return map;
+  }, [callOuts]);
 
   const goPrev = () => {
     if (pageMode === "reports" || viewMode === "month") {
@@ -4327,6 +4438,11 @@ function TeamPage() {
               addingDriverLog={addingDriverLog}
               removingDriverLogId={removingDriverLogId}
               driverLogError={driverLogError}
+              callOuts={callOutsByDate.get(dateKey(anchorDate)) ?? []}
+              onViewCallOut={(id) => {
+                setPageMode("callout");
+                setOpenCallOutId(id);
+              }}
               onSave={(entries) => handleSaveAttendance(anchorDate, entries, false)}
               onAddDriverLog={(entry) => handleAddDriverLog(anchorDate, entry)}
               onRemoveDriverLog={handleRemoveDriverLog}
@@ -4347,6 +4463,12 @@ function TeamPage() {
           addingDriverLog={addingDriverLog}
           removingDriverLogId={removingDriverLogId}
           driverLogError={driverLogError}
+          callOuts={callOutsByDate.get(dateKey(openDate)) ?? []}
+          onViewCallOut={(id) => {
+            setPageMode("callout");
+            setOpenCallOutId(id);
+            closeModal();
+          }}
           onSave={(entries) => handleSaveAttendance(openDate, entries, true)}
           onAddDriverLog={(entry) => handleAddDriverLog(openDate, entry)}
           onRemoveDriverLog={handleRemoveDriverLog}

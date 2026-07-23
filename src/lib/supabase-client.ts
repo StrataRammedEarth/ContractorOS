@@ -871,12 +871,12 @@ export interface CallOutSummary {
   issue_name: string;
   call_out_date: string | null;
   client_name: string | null;
+  client_address: string | null;
   created_at: string;
 }
 
 export interface CallOutFull extends CallOutSummary {
   template_id: string | null;
-  client_address: string | null;
   clocked_in_at: string | null;
   clocked_out_at: string | null;
   employees: { id: string; name: string }[];
