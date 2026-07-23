@@ -1247,6 +1247,7 @@ interface CallOutDraftLine {
   unit: string | null;
   is_checked: boolean;
   notes: string | null;
+  checklist_section: string | null;
 }
 
 interface CallOutDraft {
@@ -1300,6 +1301,7 @@ function draftFromTemplate(template: CallOutTemplate): CallOutDraft {
         unit: row.unit,
         is_checked: row.include_by_default,
         notes: row.notes,
+        checklist_section: null,
       })),
   };
 }
@@ -1328,6 +1330,7 @@ function draftFromCallOut(full: CallOutFull): CallOutDraft {
       unit: l.unit,
       is_checked: l.is_checked,
       notes: l.notes,
+      checklist_section: l.checklist_section,
     })),
   };
 }
@@ -1732,6 +1735,7 @@ function AddMaterialRow({
                   unit: r.unit,
                   is_checked: true,
                   notes: null,
+                  checklist_section: null,
                 });
                 setQuery("");
                 setMode("closed");
@@ -1774,6 +1778,7 @@ function AddMaterialRow({
                 unit: material.unit,
                 is_checked: true,
                 notes: null,
+                checklist_section: material.checklist_section,
               });
               setCustomId("");
               setMode("closed");
@@ -1806,6 +1811,7 @@ function AddMaterialRow({
                 unit: null,
                 is_checked: true,
                 notes: null,
+                checklist_section: null,
               });
               setFreeText("");
               setMode("closed");
@@ -1889,6 +1895,7 @@ function AddToolRow({
                 unit: null,
                 is_checked: true,
                 notes: null,
+                checklist_section: tool.checklist_section,
               });
               setToolId("");
               setMode("closed");
@@ -1921,6 +1928,7 @@ function AddToolRow({
                 unit: null,
                 is_checked: true,
                 notes: null,
+                checklist_section: null,
               });
               setFreeText("");
               setMode("closed");
@@ -2173,20 +2181,40 @@ function CallOutLineEditor({
     .filter(([l]) => l.line_class === "material");
   const toolIndices = lines.map((l, i) => [l, i] as const).filter(([l]) => l.line_class === "tool");
 
+  const groupedMaterials = groupByChecklistSection(
+    materialIndices.map(([line, index]) => ({
+      checklist_section: line.checklist_section,
+      line,
+      index,
+    })),
+  );
+  const groupedTools = groupByChecklistSection(
+    toolIndices.map(([line, index]) => ({
+      checklist_section: line.checklist_section,
+      line,
+      index,
+    })),
+  );
+
   return (
     <>
       {section !== "tool" && (
         <div style={{ marginTop: 14 }}>
           <div style={coSectionLabel}>Materials</div>
           {materialIndices.length === 0 && <div style={coHint}>No material lines yet.</div>}
-          {materialIndices.map(([line, index]) => (
-            <CallOutLineRow
-              key={index}
-              line={line}
-              showUnit
-              onChange={(p) => updateLine(index, p)}
-              onRemove={() => removeLine(index)}
-            />
+          {groupedMaterials.map(({ section: groupSection, items }, i) => (
+            <Fragment key={groupSection}>
+              <div style={sectionHeadingStyle(i === 0)}>{groupSection}</div>
+              {items.map(({ line, index }) => (
+                <CallOutLineRow
+                  key={index}
+                  line={line}
+                  showUnit
+                  onChange={(p) => updateLine(index, p)}
+                  onRemove={() => removeLine(index)}
+                />
+              ))}
+            </Fragment>
           ))}
           <AddMaterialRow
             customMaterials={customMaterials}
@@ -2200,14 +2228,19 @@ function CallOutLineEditor({
         <div style={{ marginTop: 20 }}>
           <div style={coSectionLabel}>Tools</div>
           {toolIndices.length === 0 && <div style={coHint}>No tool lines yet.</div>}
-          {toolIndices.map(([line, index]) => (
-            <CallOutLineRow
-              key={index}
-              line={line}
-              showUnit={false}
-              onChange={(p) => updateLine(index, p)}
-              onRemove={() => removeLine(index)}
-            />
+          {groupedTools.map(({ section: groupSection, items }, i) => (
+            <Fragment key={groupSection}>
+              <div style={sectionHeadingStyle(i === 0)}>{groupSection}</div>
+              {items.map(({ line, index }) => (
+                <CallOutLineRow
+                  key={index}
+                  line={line}
+                  showUnit={false}
+                  onChange={(p) => updateLine(index, p)}
+                  onRemove={() => removeLine(index)}
+                />
+              ))}
+            </Fragment>
           ))}
           <AddToolRow tools={tools} onAdd={addLine} />
         </div>
@@ -3949,6 +3982,7 @@ function TeamPage() {
         unit: l.unit,
         include_by_default: l.is_checked,
         notes: l.notes,
+        checklist_section: l.checklist_section,
       })),
     });
     setSavingCallOutTemplate(false);
