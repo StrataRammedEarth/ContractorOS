@@ -471,7 +471,7 @@ function EmployeeDetailsCard({ hoursPerDay }: { hoursPerDay: number }) {
   }, [employees, hoursPerDay]);
 
   return (
-    <Card title="E · Employee Details">
+    <Card title="E · Employee Details" defaultCollapsed>
       {loading ? (
         <div style={{ fontSize: 12, color: C.slateL }}>Loading employees…</div>
       ) : (
@@ -831,7 +831,7 @@ function VehicleDetailsCard() {
   };
 
   return (
-    <Card title="F · Vehicles">
+    <Card title="F · Vehicles" defaultCollapsed>
       {loading ? (
         <div style={{ fontSize: 12, color: C.slateL }}>Loading vehicles…</div>
       ) : (
@@ -971,7 +971,7 @@ function ProfilePage() {
 
       <div style={{ maxWidth: 820, margin: "0 auto", padding: 20 }}>
         {/* Section A — Business Identity */}
-        <Card title="A · Business Identity">
+        <Card title="A · Business Identity" defaultCollapsed>
           <div style={grid2}>
             <div>
               <Label>Business name *</Label>
@@ -1048,7 +1048,7 @@ function ProfilePage() {
         </Card>
 
         {/* Section B — Commercial Ladder */}
-        <Card title="B · Commercial Ladder">
+        <Card title="B · Commercial Ladder" defaultCollapsed>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
             {/* inputs */}
             <div>
@@ -1145,7 +1145,7 @@ function ProfilePage() {
         </Card>
 
         {/* Section C — Labour Rates */}
-        <Card title="C · Labour Rates">
+        <Card title="C · Labour Rates" defaultCollapsed>
           <div style={grid2}>
             <div>
               <Label>Plumber day rate (R)</Label>
@@ -1243,7 +1243,7 @@ function ProfilePage() {
         </Card>
 
         {/* Section D — Document Settings */}
-        <Card title="D · Document Settings">
+        <Card title="D · Document Settings" defaultCollapsed>
           <div style={grid2}>
             <div>
               <Label hint="references will be PREFIX-202606-001…">Quote prefix</Label>

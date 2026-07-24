@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 
 // Extracted from profile.tsx (Brief 1+2 original location) so both profile.tsx
 // and team.tsx can use identical Settings-card styling without duplication.
@@ -42,7 +42,16 @@ export const inputStyle = (invalid?: boolean): CSSProperties => ({
   boxSizing: "border-box",
 });
 
-export function Card({ title, children }: { title: string; children: ReactNode }) {
+export function Card({
+  title,
+  children,
+  defaultCollapsed = false,
+}: {
+  title: string;
+  children: ReactNode;
+  defaultCollapsed?: boolean;
+}) {
+  const [collapsed, setCollapsed] = useState(defaultCollapsed);
   return (
     <div
       style={{
@@ -62,11 +71,35 @@ export function Card({ title, children }: { title: string; children: ReactNode }
           letterSpacing: 1.2,
           textTransform: "uppercase",
           padding: "9px 16px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
         }}
       >
-        {title}
+        <span>{title}</span>
+        {defaultCollapsed && (
+          <button
+            onClick={() => setCollapsed((c) => !c)}
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? `Expand ${title}` : `Collapse ${title}`}
+            style={{
+              background: "transparent",
+              border: "1px solid rgba(255,255,255,0.35)",
+              borderRadius: 6,
+              color: C.gold,
+              fontSize: 11,
+              fontWeight: 700,
+              textTransform: "none",
+              letterSpacing: "normal",
+              padding: "3px 9px",
+              cursor: "pointer",
+            }}
+          >
+            {collapsed ? "▸ Expand" : "▾ Collapse"}
+          </button>
+        )}
       </div>
-      <div style={{ padding: 16 }}>{children}</div>
+      {(!defaultCollapsed || !collapsed) && <div style={{ padding: 16 }}>{children}</div>}
     </div>
   );
 }
