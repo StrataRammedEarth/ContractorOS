@@ -40,6 +40,7 @@ import {
 import { fetchDrainagePipeCatalogue, type DrainagePipeRow } from "@/lib/pipe-catalogue";
 import { aggregateBuyList, groupByCategory } from "@/lib/buy-list";
 import { GRADES, lowestGrade } from "@/lib/grades";
+import { CollapsibleSection } from "@/components/collapsible-section";
 
 // ─── SUPABASE (for the scan-drawing edge function) ────────────────────────────
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? "";
@@ -808,61 +809,9 @@ function SectionHeader({ children }: { children: React.ReactNode }) {
     letterSpacing:1,textTransform:"uppercase",padding:"10px 20px",
     borderBottom:`2px solid ${C.gold}40` }}>{children}</div>;
 }
-// Section-level heading + bounding border wrapping all cards belonging to one
-// active Job Section (Water Supply/Drainage/Geyser/Fixtures) — Brief C-4. Purely
-// visual grouping around existing, unchanged cards; the label sits over a break
-// in the border like a fieldset legend, using the page background so it reads
-// as a cutout rather than an overlay. Individual cards keep their own dark
-// SectionHeader banners and marginBottom unchanged — this just adds one more
-// layer around the group so a user scanning a multi-section page can see at a
-// glance where one section's cards end and the next begins.
-function SectionGroup({ label, subHeadings, children }: {
-  label: string;
-  subHeadings: string[];
-  children: React.ReactNode;
-}) {
-  const [collapsed, setCollapsed] = useState(false);
-  // The group's own floating tag and its first child card's SectionHeader
-  // (navy bar) render the identical string when label === subHeadings[0] —
-  // they'd sit stacked directly on top of each other with nothing between
-  // them. Keep the navy bar (the app-wide card-heading treatment) and drop
-  // the now-redundant floating tag in that case; subHeadings still carries
-  // the group's name for the collapsed summary and aria-label regardless.
-  const labelDuplicatesFirstChild = label === subHeadings[0];
-  return (
-    <div style={{ position:"relative", border:`2px solid ${C.gold}`, borderRadius:12,
-      padding:`${S.lg}px ${S.md}px ${collapsed ? S.lg : 2}px`, marginTop:30, marginBottom:S.xl }}>
-      {!labelDuplicatesFirstChild && (
-        <div style={{ position:"absolute", top:-13, left:16, background:UI.pageBg,
-          padding:"0 10px", fontSize:12.5, fontWeight:800, color:C.goldDim,
-          textTransform:"uppercase", letterSpacing:0.8 }}>
-          {label}
-        </div>
-      )}
-      <button
-        onClick={() => setCollapsed(c => !c)}
-        aria-expanded={!collapsed}
-        aria-label={collapsed ? `Expand ${label}` : `Collapse ${label}`}
-        style={{ position:"absolute", top:-15, right:16, background:UI.pageBg,
-          border:`1px solid ${C.gold}`, borderRadius:6, color:C.goldDim,
-          fontSize:11, fontWeight:700, padding:"3px 9px", cursor:"pointer",
-          display:"flex", alignItems:"center", gap:5 }}>
-        {collapsed ? "▸ Expand" : "▾ Collapse"}
-      </button>
-      {collapsed ? (
-        <div style={{ display:"flex", flexDirection:"column", gap:6, marginTop:6 }}>
-          {subHeadings.map((h) => <SectionHeader key={h}>{h}</SectionHeader>)}
-        </div>
-      ) : (
-        children
-      )}
-    </div>
-  );
-}
-
 // Collapsible per-fixture grouping sub-heading inside Water Supply/Supply
 // Fittings/Drainage/Drainage Fittings (Fixture Grouping brief, decision #5).
-// Mirrors SectionGroup's ▾/▸ collapse interaction at a smaller, in-card scale.
+// Mirrors CollapsibleSection's ▾/▸ collapse interaction at a smaller, in-card scale.
 // Default collapsed: the scoped "+ Add under {typeLabel}" controls only ever
 // show while expanded, so a freshly-added fixture doesn't clutter every
 // section with an open add-row until the user opts in.
@@ -3413,7 +3362,7 @@ export default function EstimatePage() {
           </div>
         </div>)}
 
-        <SectionGroup label="Project Details" subHeadings={["Project Details"]}>
+        <CollapsibleSection label="Project Details" subHeadings={["Project Details"]}>
         <div style={cardStyle}>
           <SectionHeader>Project Details</SectionHeader>
           <div style={{padding:S.xl,display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
@@ -3464,7 +3413,7 @@ export default function EstimatePage() {
             </div>)}
           </div>
         </div>
-        </SectionGroup>
+        </CollapsibleSection>
 
         {/* Job sections — independent toggles replacing the old exclusive
             dropdown. A job can hold any combination of Water Supply, Drainage,
@@ -3508,17 +3457,17 @@ export default function EstimatePage() {
         </div>
 
         {activeSections.waterSupply&&(
-        <SectionGroup label="Water Supply" subHeadings={["Water Supply", "Supply Fittings"]}>
+        <CollapsibleSection label="Water Supply" subHeadings={["Water Supply", "Supply Fittings"]}>
         {pipeSection("supply","Water Supply", null)}
         <StandaloneFittingSection title="Supply Fittings" use="supply"
           rows={inputs.supplyFittings ?? []} fixtureLines={inputs.fixtureLines ?? []} catalogue={catalogue} catalogueLoading={catalogueLoading}
           onAdd={addStandaloneFitting} onAddCustom={addStandaloneCustomFitting}
           onUpdate={updateStandaloneFitting} onRemove={removeStandaloneFitting}/>
-        </SectionGroup>
+        </CollapsibleSection>
         )}
 
         {activeSections.drainage&&(
-        <SectionGroup label="Drainage" subHeadings={["Drainage", "Drainage Fittings", "Wastes & Traps", "Drainage Templates"]}>
+        <CollapsibleSection label="Drainage" subHeadings={["Drainage", "Drainage Fittings", "Wastes & Traps", "Drainage Templates"]}>
         {pipeSection("drainage","Drainage",
           <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",marginTop:10,paddingTop:10,borderTop:`1px solid ${UI.borderRow}`}}>
             <input type="checkbox" checked={inputs.trenching} onChange={e=>setInp("trenching",e.target.checked)} style={{width:16,height:16}}/>
@@ -3546,11 +3495,11 @@ export default function EstimatePage() {
           onAddCatalogRow={addCatalogTemplateRow}
           onRemoveRow={removeTemplateRow}
         />
-        </SectionGroup>
+        </CollapsibleSection>
         )}
 
         {activeSections.fixtures&&(
-        <SectionGroup label="Fixtures" subHeadings={["Fixtures", "Fixtures and Fittings Replacement Templates"]}>
+        <CollapsibleSection label="Fixtures" subHeadings={["Fixtures", "Fixtures and Fittings Replacement Templates"]}>
         <div style={cardStyle}>
           <SectionHeader>Fixtures</SectionHeader>
           <div style={{padding:S.xl}}>
@@ -3638,11 +3587,11 @@ export default function EstimatePage() {
           onAddCatalogRow={addCatalogTemplateRow}
           onRemoveRow={removeTemplateRow}
         />
-        </SectionGroup>
+        </CollapsibleSection>
         )}
 
         {activeSections.geyser&&(
-        <SectionGroup label="Geyser" subHeadings={["Geyser Job Specs", "Water Heater Type", "3.3.2 General Repairs — itemized fitting templates"]}>
+        <CollapsibleSection label="Geyser" subHeadings={["Geyser Job Specs", "Water Heater Type", "3.3.2 General Repairs — itemized fitting templates"]}>
         <div style={cardStyle}>
           <SectionHeader>Geyser Job Specs</SectionHeader>
           <div style={{padding:S.xl}}>
@@ -3795,7 +3744,7 @@ export default function EstimatePage() {
           onAddCatalogRow={addCatalogTemplateRow}
           onRemoveRow={removeTemplateRow}
         />
-        </SectionGroup>
+        </CollapsibleSection>
         )}
 
         <div style={{background:"#fff",border:`1px solid ${C.gold}40`,borderRadius:8,padding:"14px 20px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>

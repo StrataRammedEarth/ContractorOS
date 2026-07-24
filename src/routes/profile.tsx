@@ -10,6 +10,7 @@ import {
   addLineBtnStyle,
   rowDeleteBtnStyle,
 } from "@/components/settings-ui";
+import { CollapsibleSection } from "@/components/collapsible-section";
 
 export const Route = createFileRoute("/profile")({
   head: () => ({ meta: [{ title: "Profile & Settings — ContractorOS" }] }),
@@ -471,7 +472,7 @@ function EmployeeDetailsCard({ hoursPerDay }: { hoursPerDay: number }) {
   }, [employees, hoursPerDay]);
 
   return (
-    <Card title="E · Employee Details" defaultCollapsed>
+    <Card title="E · Employee Details">
       {loading ? (
         <div style={{ fontSize: 12, color: C.slateL }}>Loading employees…</div>
       ) : (
@@ -831,7 +832,7 @@ function VehicleDetailsCard() {
   };
 
   return (
-    <Card title="F · Vehicles" defaultCollapsed>
+    <Card title="F · Vehicles">
       {loading ? (
         <div style={{ fontSize: 12, color: C.slateL }}>Loading vehicles…</div>
       ) : (
@@ -971,7 +972,8 @@ function ProfilePage() {
 
       <div style={{ maxWidth: 820, margin: "0 auto", padding: 20 }}>
         {/* Section A — Business Identity */}
-        <Card title="A · Business Identity" defaultCollapsed>
+        <CollapsibleSection label="A · Business Identity" subHeadings={["A · Business Identity"]}>
+        <Card title="A · Business Identity">
           <div style={grid2}>
             <div>
               <Label>Business name *</Label>
@@ -1046,9 +1048,11 @@ function ProfilePage() {
             />
           </div>
         </Card>
+        </CollapsibleSection>
 
         {/* Section B — Commercial Ladder */}
-        <Card title="B · Commercial Ladder" defaultCollapsed>
+        <CollapsibleSection label="B · Commercial Ladder" subHeadings={["B · Commercial Ladder"]}>
+        <Card title="B · Commercial Ladder">
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
             {/* inputs */}
             <div>
@@ -1143,9 +1147,11 @@ function ProfilePage() {
             total, in the order shown.
           </div>
         </Card>
+        </CollapsibleSection>
 
         {/* Section C — Labour Rates */}
-        <Card title="C · Labour Rates" defaultCollapsed>
+        <CollapsibleSection label="C · Labour Rates" subHeadings={["C · Labour Rates"]}>
+        <Card title="C · Labour Rates">
           <div style={grid2}>
             <div>
               <Label>Plumber day rate (R)</Label>
@@ -1241,9 +1247,11 @@ function ProfilePage() {
             </div>
           </div>
         </Card>
+        </CollapsibleSection>
 
         {/* Section D — Document Settings */}
-        <Card title="D · Document Settings" defaultCollapsed>
+        <CollapsibleSection label="D · Document Settings" subHeadings={["D · Document Settings"]}>
+        <Card title="D · Document Settings">
           <div style={grid2}>
             <div>
               <Label hint="references will be PREFIX-202606-001…">Quote prefix</Label>
@@ -1296,12 +1304,17 @@ function ProfilePage() {
             />
           </div>
         </Card>
+        </CollapsibleSection>
 
         {/* Section E — Employee Details */}
-        <EmployeeDetailsCard hoursPerDay={form.hoursPerDay} />
+        <CollapsibleSection label="E · Employee Details" subHeadings={["E · Employee Details"]}>
+          <EmployeeDetailsCard hoursPerDay={form.hoursPerDay} />
+        </CollapsibleSection>
 
         {/* Section F — Vehicles */}
-        <VehicleDetailsCard />
+        <CollapsibleSection label="F · Vehicles" subHeadings={["F · Vehicles"]}>
+          <VehicleDetailsCard />
+        </CollapsibleSection>
 
         {/* Save bar */}
         <div style={{ display: "flex", alignItems: "center", gap: 14, paddingBottom: 40 }}>

@@ -50,6 +50,7 @@ import {
   addLineBtnStyle,
   rowDeleteBtnStyle,
 } from "@/components/settings-ui";
+import { CollapsibleSection } from "@/components/collapsible-section";
 
 export const Route = createFileRoute("/team")({
   head: () => ({ meta: [{ title: "Planner — ContractorOS" }] }),
@@ -2138,24 +2139,7 @@ function CallOutEditor({
   onCancel: () => void;
   onDownloadPdf: (id: string) => void;
 }) {
-  const [detailsOpen, setDetailsOpen] = useState(
-    !!(
-      draft.call_out_date ||
-      draft.client_name ||
-      draft.client_address ||
-      draft.employee_ids.length
-    ),
-  );
-  const [employeesOpen, setEmployeesOpen] = useState(!!draft.employee_ids.length);
-  const [materialsOpen, setMaterialsOpen] = useState(true);
-  const [toolsOpen, setToolsOpen] = useState(true);
-
   const patch = (p: Partial<CallOutDraft>) => onChange({ ...draft, ...p });
-
-  const materialLines = draft.lines.filter((l) => l.line_class === "material");
-  const toolLines = draft.lines.filter((l) => l.line_class === "tool");
-  const materialCheckedCount = materialLines.filter((l) => l.is_checked).length;
-  const toolCheckedCount = toolLines.filter((l) => l.is_checked).length;
 
   return (
     <div style={coCard}>
@@ -2174,20 +2158,12 @@ function CallOutEditor({
           />
         </div>
 
-        <button style={coToggleLink} onClick={() => setDetailsOpen((v) => !v)}>
-          {detailsOpen ? "− Hide" : "+ Add"} date, client & crew details
-        </button>
-
-        {detailsOpen && (
-          <div
-            style={{
-              marginTop: 10,
-              marginBottom: 14,
-              display: "flex",
-              flexDirection: "column",
-              gap: 10,
-            }}
-          >
+        <CollapsibleSection
+          label="Date, Client & Crew Details"
+          subHeadings={["Date, Client & Crew Details"]}
+          background="#fff"
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <div>
               <div style={coSectionLabel}>Date</div>
               <input
@@ -2231,57 +2207,37 @@ function CallOutEditor({
                 style={coInput}
               />
             </div>
-            <div>
-              <button style={coToggleLink} onClick={() => setEmployeesOpen((v) => !v)}>
-                {employeesOpen ? "− Hide" : "+ Show"} employees ({draft.employee_ids.length}{" "}
-                selected)
-              </button>
-              {employeesOpen && (
-                <div style={{ marginTop: 8 }}>
-                  <EmployeeMultiSelect
-                    employees={employees}
-                    selectedIds={draft.employee_ids}
-                    onChange={(ids) => patch({ employee_ids: ids })}
-                  />
-                </div>
-              )}
-            </div>
+            <CollapsibleSection label="Employees" subHeadings={["Employees"]} background="#fff">
+              <EmployeeMultiSelect
+                employees={employees}
+                selectedIds={draft.employee_ids}
+                onChange={(ids) => patch({ employee_ids: ids })}
+              />
+            </CollapsibleSection>
           </div>
-        )}
+        </CollapsibleSection>
 
-        <div style={{ marginTop: 14 }}>
-          <button style={coToggleLink} onClick={() => setMaterialsOpen((v) => !v)}>
-            {materialsOpen ? "− Hide" : "+ Show"} materials ({materialLines.length} items,{" "}
-            {materialCheckedCount} checked)
-          </button>
-          {materialsOpen && (
-            <CallOutLineEditor
-              lines={draft.lines}
-              tools={tools}
-              customMaterials={customMaterials}
-              allowCustomMaterialLines
-              section="material"
-              onChange={(lines) => patch({ lines })}
-            />
-          )}
-        </div>
+        <CollapsibleSection label="Materials" subHeadings={["Materials"]} background="#fff">
+          <CallOutLineEditor
+            lines={draft.lines}
+            tools={tools}
+            customMaterials={customMaterials}
+            allowCustomMaterialLines
+            section="material"
+            onChange={(lines) => patch({ lines })}
+          />
+        </CollapsibleSection>
 
-        <div style={{ marginTop: 20 }}>
-          <button style={coToggleLink} onClick={() => setToolsOpen((v) => !v)}>
-            {toolsOpen ? "− Hide" : "+ Show"} tools ({toolLines.length} items, {toolCheckedCount}{" "}
-            checked)
-          </button>
-          {toolsOpen && (
-            <CallOutLineEditor
-              lines={draft.lines}
-              tools={tools}
-              customMaterials={customMaterials}
-              allowCustomMaterialLines
-              section="tool"
-              onChange={(lines) => patch({ lines })}
-            />
-          )}
-        </div>
+        <CollapsibleSection label="Tools" subHeadings={["Tools"]} background="#fff">
+          <CallOutLineEditor
+            lines={draft.lines}
+            tools={tools}
+            customMaterials={customMaterials}
+            allowCustomMaterialLines
+            section="tool"
+            onChange={(lines) => patch({ lines })}
+          />
+        </CollapsibleSection>
 
         {saveError && <div style={{ color: C.red, fontSize: 12, marginTop: 12 }}>{saveError}</div>}
 
