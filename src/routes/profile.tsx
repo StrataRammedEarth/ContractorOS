@@ -46,8 +46,36 @@ const grid2: React.CSSProperties = {
 // in this app yet, so direct table access from the browser is blocked — same
 // reason estimate saves route through save-estimate rather than a direct insert).
 
-type EmployeeDraft = { name: string; position: string; hourly_rate: string };
-const emptyEmployeeDraft: EmployeeDraft = { name: "", position: "", hourly_rate: "" };
+type EmployeeDraft = {
+  name: string;
+  surname: string;
+  id_number: string;
+  sars_number: string;
+  address: string;
+  contact_number: string;
+  emergency_contact: string;
+  position: string;
+  is_driver: boolean;
+  hourly_rate: string;
+};
+const emptyEmployeeDraft: EmployeeDraft = {
+  name: "",
+  surname: "",
+  id_number: "",
+  sars_number: "",
+  address: "",
+  contact_number: "",
+  emergency_contact: "",
+  position: "",
+  is_driver: false,
+  hourly_rate: "",
+};
+
+// Every field cell in EmployeeEditRow's grid uses this: a flex column with the
+// input pinned to the bottom via marginTop: auto on the input itself, so rows
+// with mismatched Label heights (e.g. a hint on one field but not its row-mates)
+// still keep every input on the same horizontal baseline.
+const fieldCellStyle: React.CSSProperties = { display: "flex", flexDirection: "column" };
 
 function EmployeeSummaryRow({
   employee,
@@ -148,32 +176,115 @@ function EmployeeEditRow({
         background: "#fff",
       }}
     >
-      <div
-        style={{ display: "grid", gridTemplateColumns: "2fr 2fr 1fr", gap: 10, marginBottom: 10 }}
-      >
-        <div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+        <div style={fieldCellStyle}>
           <Label>Name *</Label>
           <input
-            style={inputStyle(nameInvalid)}
+            style={{ ...inputStyle(nameInvalid), marginTop: "auto" }}
             value={draft.name}
             onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
             placeholder="Employee name"
           />
         </div>
-        <div>
+        <div style={fieldCellStyle}>
+          <Label>Surname</Label>
+          <input
+            style={{ ...inputStyle(), marginTop: "auto" }}
+            value={draft.surname}
+            onChange={(e) => setDraft((d) => ({ ...d, surname: e.target.value }))}
+          />
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+        <div style={fieldCellStyle}>
+          <Label>ID number</Label>
+          <input
+            style={{ ...inputStyle(), marginTop: "auto" }}
+            value={draft.id_number}
+            onChange={(e) => setDraft((d) => ({ ...d, id_number: e.target.value }))}
+          />
+        </div>
+        <div style={fieldCellStyle}>
+          <Label>SARS Number</Label>
+          <input
+            style={{ ...inputStyle(), marginTop: "auto" }}
+            value={draft.sars_number}
+            onChange={(e) => setDraft((d) => ({ ...d, sars_number: e.target.value }))}
+          />
+        </div>
+      </div>
+      <div style={{ marginBottom: 10 }}>
+        <div style={fieldCellStyle}>
+          <Label>Address</Label>
+          <input
+            style={{ ...inputStyle(), marginTop: "auto" }}
+            value={draft.address}
+            onChange={(e) => setDraft((d) => ({ ...d, address: e.target.value }))}
+          />
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+        <div style={fieldCellStyle}>
+          <Label>Contact Number</Label>
+          <input
+            style={{ ...inputStyle(), marginTop: "auto" }}
+            value={draft.contact_number}
+            onChange={(e) => setDraft((d) => ({ ...d, contact_number: e.target.value }))}
+          />
+        </div>
+        <div style={fieldCellStyle}>
+          <Label>Emergency Contact</Label>
+          <input
+            style={{ ...inputStyle(), marginTop: "auto" }}
+            value={draft.emergency_contact}
+            onChange={(e) => setDraft((d) => ({ ...d, emergency_contact: e.target.value }))}
+            placeholder="e.g. Jane Doe - 082 123 4567"
+          />
+        </div>
+      </div>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "2fr 1.4fr 1fr",
+          gap: 10,
+          marginBottom: 10,
+        }}
+      >
+        <div style={fieldCellStyle}>
           <Label>Position</Label>
           <input
-            style={inputStyle()}
+            style={{ ...inputStyle(), marginTop: "auto" }}
             value={draft.position}
             onChange={(e) => setDraft((d) => ({ ...d, position: e.target.value }))}
             placeholder="e.g. Plumber"
           />
         </div>
-        <div>
+        <div style={fieldCellStyle}>
+          <Label>Driver for company</Label>
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              marginTop: "auto",
+              height: 36,
+              cursor: "pointer",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={draft.is_driver}
+              onChange={(e) => setDraft((d) => ({ ...d, is_driver: e.target.checked }))}
+              style={{ width: 16, height: 16, cursor: "pointer" }}
+            />
+            <span style={{ fontSize: 12, color: C.navy, fontWeight: 600 }}>Yes</span>
+          </label>
+        </div>
+        <div style={fieldCellStyle}>
           <Label hint="optional">Rate (R/hr)</Label>
           <input
             type="number"
-            style={inputStyle()}
+            style={{ ...inputStyle(), marginTop: "auto" }}
             value={draft.hourly_rate}
             onChange={(e) => setDraft((d) => ({ ...d, hourly_rate: e.target.value }))}
           />
@@ -267,7 +378,14 @@ function EmployeeDetailsCard({ hoursPerDay }: { hoursPerDay: number }) {
     setAddError(null);
     const res = await saveEmployee({
       name: addDraft.name,
+      surname: addDraft.surname || undefined,
+      id_number: addDraft.id_number || undefined,
+      sars_number: addDraft.sars_number || undefined,
+      address: addDraft.address || undefined,
+      contact_number: addDraft.contact_number || undefined,
+      emergency_contact: addDraft.emergency_contact || undefined,
       position: addDraft.position || undefined,
+      is_driver: addDraft.is_driver,
       hourly_rate: addDraft.hourly_rate.trim() === "" ? null : Number(addDraft.hourly_rate),
     });
     setSaving(false);
@@ -284,7 +402,14 @@ function EmployeeDetailsCard({ hoursPerDay }: { hoursPerDay: number }) {
     setEditingId(emp.id);
     setEditDraft({
       name: emp.name,
+      surname: emp.surname ?? "",
+      id_number: emp.id_number ?? "",
+      sars_number: emp.sars_number ?? "",
+      address: emp.address ?? "",
+      contact_number: emp.contact_number ?? "",
+      emergency_contact: emp.emergency_contact ?? "",
       position: emp.position ?? "",
+      is_driver: emp.is_driver,
       hourly_rate: emp.hourly_rate != null ? String(emp.hourly_rate) : "",
     });
     setEditError(null);
@@ -304,7 +429,14 @@ function EmployeeDetailsCard({ hoursPerDay }: { hoursPerDay: number }) {
     const res = await saveEmployee({
       id: editingId,
       name: editDraft.name,
+      surname: editDraft.surname || undefined,
+      id_number: editDraft.id_number || undefined,
+      sars_number: editDraft.sars_number || undefined,
+      address: editDraft.address || undefined,
+      contact_number: editDraft.contact_number || undefined,
+      emergency_contact: editDraft.emergency_contact || undefined,
       position: editDraft.position || undefined,
+      is_driver: editDraft.is_driver,
       hourly_rate: editDraft.hourly_rate.trim() === "" ? null : Number(editDraft.hourly_rate),
     });
     setSaving(false);
