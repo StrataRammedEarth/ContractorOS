@@ -41,6 +41,7 @@ import { fetchDrainagePipeCatalogue, type DrainagePipeRow } from "@/lib/pipe-cat
 import { aggregateBuyList, groupByCategory } from "@/lib/buy-list";
 import { GRADES, lowestGrade } from "@/lib/grades";
 import { CollapsibleSection } from "@/components/collapsible-section";
+import { FixtureGroupHeader } from "@/components/fixture-group-header";
 
 // ─── SUPABASE (for the scan-drawing edge function) ────────────────────────────
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? "";
@@ -402,10 +403,6 @@ const trapTagFor = (t: FixtureType | undefined): string | null =>
 // Additive, presentation-only layer (see brief_fixture_grouping) above the four
 // existing flat lists. A row/line opts in via the optional `linkedFixture` tag;
 // untagged rows keep rendering in the pre-existing ungrouped area, unchanged.
-// Label is always re-derived from live fixtureLines (never read off a row's own
-// linkedFixture.name, which is a point-in-time snapshot only — see decision #4).
-const fixtureGroupLabel = (fixtureLines: FixtureLine[] | undefined, t: FixtureType): string =>
-  `${fixtureTypeLabel(t)} ×${fxCount(fixtureLines, t)}`;
 function partitionByFixture<T extends { linkedFixture?: { type: FixtureType; name: string } }>(rows: T[]):
   { grouped: Map<FixtureType, T[]>; ungrouped: T[] } {
   const grouped = new Map<FixtureType, T[]>();
@@ -809,50 +806,6 @@ function SectionHeader({ children }: { children: React.ReactNode }) {
     letterSpacing:1,textTransform:"uppercase",padding:"10px 20px",
     borderBottom:`2px solid ${C.gold}40` }}>{children}</div>;
 }
-// Collapsible per-fixture grouping sub-heading inside Water Supply/Supply
-// Fittings/Drainage/Drainage Fittings (Fixture Grouping brief, decision #5).
-// Mirrors CollapsibleSection's ▾/▸ collapse interaction at a smaller, in-card scale.
-// Default collapsed: the scoped "+ Add under {typeLabel}" controls only ever
-// show while expanded, so a freshly-added fixture doesn't clutter every
-// section with an open add-row until the user opts in.
-function FixtureSubheading({ heading, typeLabel, onAdd, onAddCustom, children }: {
-  heading: string;
-  typeLabel: string;
-  onAdd?: () => void;
-  onAddCustom?: () => void;
-  children: React.ReactNode;
-}) {
-  const [collapsed, setCollapsed] = useState(true);
-  return (
-    <div style={{ border:`1px solid ${UI.borderStrong}`, borderRadius:8, margin:"0 0 10px", padding:"8px 10px" }}>
-      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-        <span style={{ fontSize:12, fontWeight:800, color:C.navy, textTransform:"uppercase", letterSpacing:0.5 }}>
-          {heading}
-        </span>
-        <button
-          onClick={() => setCollapsed(c => !c)}
-          aria-expanded={!collapsed}
-          aria-label={collapsed ? `Expand ${heading}` : `Collapse ${heading}`}
-          style={{ background:"transparent", border:`1px solid ${UI.borderStrong}`, borderRadius:6,
-            color:C.slate, fontSize:11, fontWeight:700, padding:"3px 9px", cursor:"pointer" }}>
-          {collapsed ? "▸ Expand" : "▾ Collapse"}
-        </button>
-      </div>
-      {!collapsed && (
-        <div style={{ marginTop:8 }}>
-          {children}
-          {(onAdd || onAddCustom) && (
-            <div style={{ display:"flex", gap:8, marginTop:8, flexWrap:"wrap" }}>
-              {onAdd && <button onClick={onAdd} style={addLineBtn}>+ Add under {typeLabel}</button>}
-              {onAddCustom && <button onClick={onAddCustom} style={addLineBtn}>+ Add custom under {typeLabel}</button>}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ─── SETTINGS → ENGINE DERIVATIONS ────────────────────────────────────────────
 const ladderFrom = (s: OrgSettings): LadderRates =>
   ({ wastePct: s.wastePct, riskPct: s.riskPct, contingencyPct: s.contingencyPct, marginPct: s.marginPct });
@@ -1977,13 +1930,16 @@ function StandaloneFittingSection({ title, use, rows, fixtureLines, catalogue, c
         {fixtureTypesToShow(fixtureLines, grouped).map(type=>{
           const typeLabel = fixtureTypeLabel(type);
           const groupRows = grouped.get(type) ?? [];
+          const groupTotal = groupRows.reduce((s,r)=>s+(isPriced(r)?resolvedTotal(r):0),0);
           return (
-            <FixtureSubheading key={type} heading={fixtureGroupLabel(fixtureLines, type)} typeLabel={typeLabel}
-              onAdd={()=>onAdd(use,{type,name:typeLabel})} onAddCustom={()=>onAddCustom(use,{type,name:typeLabel})}>
-              {groupRows.length>0
-                ? rowGrid(groupRows)
-                : <div style={{fontSize:12,color:C.slateL,padding:"2px 2px 4px"}}>No {use} fittings linked to {typeLabel} yet.</div>}
-            </FixtureSubheading>
+            <FixtureGroupHeader key={type} iconSrc={fixtureIcon(type)} iconAlt={typeLabel} name={typeLabel}
+              quantity={fxCount(fixtureLines, type)} lineCount={groupRows.length} total={groupTotal}
+              actions={<>
+                <button onClick={()=>onAdd(use,{type,name:typeLabel})} style={addLineBtn}>+ Add under {typeLabel}</button>
+                <button onClick={()=>onAddCustom(use,{type,name:typeLabel})} style={addLineBtn}>+ Add custom under {typeLabel}</button>
+              </>}>
+              {groupRows.length>0 && rowGrid(groupRows)}
+            </FixtureGroupHeader>
           );
         })}
         {ungrouped.length===0&&grouped.size===0
@@ -2002,7 +1958,7 @@ function StandaloneFittingSection({ title, use, rows, fixtureLines, catalogue, c
 }
 
 // Wastes & Traps — a third card under Drainage, mirroring StandaloneFittingSection's
-// grouping structure (partitionByFixture + fixtureTypesToShow + FixtureSubheading)
+// grouping structure (partitionByFixture + fixtureTypesToShow + FixtureGroupHeader)
 // but with the 2-column TrapCatalogRow grid instead of the Material/Size/FittingType
 // grid (that grid is hard-coupled to the 3/4-step drainage/supply cascade — see
 // Wastes & Traps brief 2, Step 0-F). No `use` coupling: application is always
@@ -2090,13 +2046,16 @@ function WastesTrapsSection({ rows, fixtureLines, catalogue, catalogueLoading, o
         {fixtureTypesToShow(trapEligibleFixtureLines, grouped).map(type=>{
           const typeLabel = fixtureTypeLabel(type);
           const groupRows = grouped.get(type) ?? [];
+          const groupTotal = groupRows.reduce((s,r)=>s+(isPriced(r)?resolvedTotal(r):0),0);
           return (
-            <FixtureSubheading key={type} heading={fixtureGroupLabel(fixtureLines, type)} typeLabel={typeLabel}
-              onAdd={()=>onAdd({type,name:typeLabel})} onAddCustom={()=>onAddCustom({type,name:typeLabel})}>
-              {groupRows.length>0
-                ? rowGrid(groupRows)
-                : <div style={{fontSize:12,color:C.slateL,padding:"2px 2px 4px"}}>No wastes/traps linked to {typeLabel} yet.</div>}
-            </FixtureSubheading>
+            <FixtureGroupHeader key={type} iconSrc={fixtureIcon(type)} iconAlt={typeLabel} name={typeLabel}
+              quantity={fxCount(fixtureLines, type)} lineCount={groupRows.length} total={groupTotal}
+              actions={<>
+                <button onClick={()=>onAdd({type,name:typeLabel})} style={addLineBtn}>+ Add under {typeLabel}</button>
+                <button onClick={()=>onAddCustom({type,name:typeLabel})} style={addLineBtn}>+ Add custom under {typeLabel}</button>
+              </>}>
+              {groupRows.length>0 && rowGrid(groupRows)}
+            </FixtureGroupHeader>
           );
         })}
         {ungrouped.length===0&&grouped.size===0
@@ -3308,13 +3267,13 @@ export default function EstimatePage() {
           {fixtureTypesToShow(inputs.fixtureLines, grouped).map(type=>{
             const typeLabel = fixtureTypeLabel(type);
             const groupLines = grouped.get(type) ?? [];
+            const groupTotal = groupLines.reduce((s,l)=>s+l.metres*l.perMetre,0);
             return (
-              <FixtureSubheading key={type} heading={fixtureGroupLabel(inputs.fixtureLines, type)} typeLabel={typeLabel}
-                onAdd={()=>addPipeLine(use,{type,name:typeLabel})}>
-                {groupLines.length>0
-                  ? <>{headRow}{groupLines.map((l,i,arr)=>renderLine(l,i,arr))}</>
-                  : <div style={{fontSize:12,color:C.slateL,padding:"2px 2px 4px"}}>No {use} lines linked to {typeLabel} yet.</div>}
-              </FixtureSubheading>
+              <FixtureGroupHeader key={type} iconSrc={fixtureIcon(type)} iconAlt={typeLabel} name={typeLabel}
+                quantity={fxCount(inputs.fixtureLines, type)} lineCount={groupLines.length} total={groupTotal}
+                actions={<button onClick={()=>addPipeLine(use,{type,name:typeLabel})} style={addLineBtn}>+ Add under {typeLabel}</button>}>
+                {groupLines.length>0 && <>{headRow}{groupLines.map((l,i,arr)=>renderLine(l,i,arr))}</>}
+              </FixtureGroupHeader>
             );
           })}
           {ungrouped.length===0&&grouped.size===0&&<div style={{fontSize:12,color:C.slateL,padding:"6px 2px 10px"}}>No {use} lines — add one below.</div>}
